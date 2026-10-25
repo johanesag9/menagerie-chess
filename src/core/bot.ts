@@ -83,9 +83,7 @@ export class StockfishEngine implements BotEngine {
   newGame(): void {
     this.queue = this.queue.then(async () => {
       if (!(await this.ready) || this.failed) return;
-      this.t.send('ucinewgame');
-      this.t.send('isready');
-      await this.waitFor((l) => l === 'readyok');
+      await this.ask('ucinewgame\nisready', 'readyok');
     });
   }
 
@@ -109,10 +107,8 @@ export class StockfishEngine implements BotEngine {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<boolean>((r) => (timer = setTimeout(() => r(false), READY_TIMEOUT_MS)));
     const ok = (async () => {
-      this.t.send('uci');
-      await this.waitFor((l) => l === 'uciok');
-      this.t.send('isready');
-      await this.waitFor((l) => l === 'readyok');
+      await this.ask('uci', 'uciok');
+      await this.ask('isready', 'readyok');
       return !this.failed;
     })();
     const result = await Promise.race([ok, timeout]);
@@ -121,8 +117,11 @@ export class StockfishEngine implements BotEngine {
     return result;
   }
 
-  private waitFor(match: (l: string) => boolean): Promise<void> {
-    return new Promise((resolve) => this.waiters.push({ match, resolve }));
+  /** Send commands and wait for a reply line. The waiter goes in first: some engines answer synchronously. */
+  private ask(cmds: string, reply: string): Promise<void> {
+    const p = new Promise<void>((resolve) => this.waiters.push({ match: (l) => l === reply, resolve }));
+    for (const c of cmds.split('\n')) this.t.send(c);
+    return p;
   }
 
   private handle(raw: unknown): void {
