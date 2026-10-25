@@ -15,6 +15,7 @@
     "chess.js": "^1.4.0",
     "gsap": "^3.15.0",
     "howler": "^2.2.4",
+    "stockfish": "^19.0.1",
     "three": "^0.186.1"
   },
   "devDependencies": {
