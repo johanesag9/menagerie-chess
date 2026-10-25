@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "world-directions",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["/Users/johanesantonius/.claude/skills/local-preview/serve.mjs", "prototypes/dist", "4401", "index.html"],
+      "port": 4401
+    },
+    { "name": "app", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "4410", "--strictPort", "--host"], "port": 4410 },
+    { "name": "core-demo", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "4411", "--strictPort", "--host"], "port": 4411 },
+    { "name": "world-demo", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "4412", "--strictPort", "--host"], "port": 4412 },
+    { "name": "cast-demo", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "4413", "--strictPort", "--host"], "port": 4413 },
+    { "name": "ui-demo", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "4414", "--strictPort", "--host"], "port": 4414 }
+  ]
+}

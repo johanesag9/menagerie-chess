@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>World directions</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root { --ink: #241a2e; --bg: #fbf4ea; --muted: #6d5f72; --line: rgba(36, 26, 46, 0.12); }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Fredoka', system-ui, sans-serif; }
+      main { max-width: 1120px; margin: 0 auto; padding: 40px 16px 56px; }
+      .kicker { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+      h1 { font-size: clamp(30px, 5vw, 46px); margin: 6px 0 8px; line-height: 1.05; }
+      .lead { font-size: 17px; color: var(--muted); max-width: 640px; margin: 0 0 28px; line-height: 1.45; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+      a.card { display: flex; flex-direction: column; text-decoration: none; color: inherit; border-radius: 22px; overflow: hidden; background: #fff; border: 1px solid var(--line); transition: transform 0.25s cubic-bezier(.2,.8,.2,1), box-shadow 0.25s; }
+      a.card:hover { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(36, 26, 46, 0.14); }
+      .art { aspect-ratio: 16 / 10; position: relative; display: grid; place-items: end start; padding: 14px; }
+      .art .letter { font-size: 64px; font-weight: 700; line-height: 0.8; color: rgba(255, 255, 255, 0.92); text-shadow: 0 4px 18px rgba(0, 0, 0, 0.18); }
+      .a .art { background: linear-gradient(180deg, #7fb2ec 0%, #ffdcb6 46%, #93c56f 47%, #93c56f 62%, #f1d9a6 63%, #4fb7c2 100%); }
+      .b .art { background: radial-gradient(circle at 20% 18%, #fff1d6 0 5%, transparent 6%), linear-gradient(180deg, #1b1a47 0%, #c2668f 55%, #ffb27a 70%, #fbe3ea 71%, #34508f 100%); }
+      .c .art { background: radial-gradient(circle at 78% 30%, #ffad55 0 4%, rgba(255, 173, 85, 0.25) 12%, transparent 30%), linear-gradient(180deg, #24160f 0%, #3b2619 50%, #6b3e26 51%, #efe0c4 75%, #6b3e26 76%, #6e3f22 100%); }
+      .body { padding: 16px 18px 20px; }
+      .body h2 { margin: 0 0 6px; font-size: 22px; }
+      .body p { margin: 0 0 10px; color: var(--muted); line-height: 1.45; font-size: 15px; }
+      .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+      .tags span { font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); }
+      .note { margin-top: 26px; font-size: 14px; color: var(--muted); line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="kicker">Menagerie Chess · Phase 0</div>
+      <h1>Pick a world</h1>
+      <p class="lead">Each world is a live 3D prototype. A short scripted game plays on loop: the opening, a few slapstick captures, castling. Open each one, drag to look around, and pick the one to build.</p>
+      <div class="grid">
+        <a class="card a" href="./a-shoreline/"><div class="art"><span class="letter">A</span></div><div class="body"><h2>Shoreline diorama</h2><p>A toy set at golden hour. The board sits on the shoreline: Land squares are meadow, Sea squares are sand and water.</p><div class="tags"><span>Warm</span><span>Miniature, tilt-shift</span><span>Most readable</span></div></div></a>
+        <a class="card b" href="./b-whale/"><div class="art"><span class="letter">B</span></div><div class="body"><h2>Whale's back</h2><p>The board rides on a giant whale swimming through a sea of clouds at dusk, with lanterns, a spout, and a gentle sway.</p><div class="tags"><span>Dreamy</span><span>Surreal</span><span>Most "weird"</span></div></div></a>
+        <a class="card c" href="./c-giant-table/"><div class="art"><span class="letter">C</span></div><div class="body"><h2>Giant's dinner table</h2><p>Tiny animals and a chocolate-bar board on a giant's table, with a steaming teacup, cake and cutlery. Lit by candlelight.</p><div class="tags"><span>Cozy, moody</span><span>Funny scale</span><span>Most cinematic</span></div></div></a>
+      </div>
+      <p class="note">The animals are rough Phase 0 stand-ins, built quickly in code. The cast session makes the real ones, with proper animations. Judge the world, light and mood, not the pieces.</p>
+    </main>
+  </body>
+</html>

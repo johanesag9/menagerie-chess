@@ -1,0 +1,6 @@
+node_modules/
+dist/
+steam-scrape/
+.DS_Store
+*.log
+prototypes/dist/
