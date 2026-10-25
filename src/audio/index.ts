@@ -1,9 +1,10 @@
 import type { AudioCue, AudioEngine } from '../contracts/types';
 import type { CreateAudio } from '../contracts/factories';
-import { cueFn } from './cues';
+import { cueFn, cueTrim } from './cues';
 import { MusicPlayer, type Track } from './music';
 
 export { ALL_CUES } from './cues';
+export { measureCue, type CueLevel } from './levels';
 
 /** Music sits under the effects; these are the gains at volume 1. */
 const MUSIC_BASE = 0.55;
@@ -64,13 +65,23 @@ class WebAudioEngine implements AudioEngine {
     this.lastPlayed.set(cue, now);
 
     let dest: AudioNode = this.sfxGain;
+    const temp: AudioNode[] = [];
     if (opts?.pan) {
       const p = ctx.createStereoPanner();
       p.pan.value = Math.max(-1, Math.min(1, opts.pan));
-      p.connect(this.sfxGain);
+      p.connect(dest);
       dest = p;
-      window.setTimeout(() => p.disconnect(), 3000);
+      temp.push(p);
     }
+    const trim = cueTrim(cue);
+    if (trim !== 1) {
+      const g = ctx.createGain();
+      g.gain.value = trim;
+      g.connect(dest);
+      dest = g;
+      temp.push(g);
+    }
+    if (temp.length) window.setTimeout(() => temp.forEach((n) => n.disconnect()), 3000);
     fn({ ctx, dest, rate: opts?.rate ?? 1 }, now + 0.005);
   }
 

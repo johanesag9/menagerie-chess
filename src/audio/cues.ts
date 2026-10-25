@@ -210,5 +210,13 @@ export function cueFn(cue: AudioCue): CueFn | undefined {
   return table[cue];
 }
 
+/**
+ * Per-cue gain trims (linear), from the level check in the ui demo (`src/ui/demo.html`, "Check levels").
+ * They even out loudness between cues; anything not listed plays at 1.
+ */
+export const TRIM: Partial<Record<AudioCue, number>> = {};
+
+export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;
+
 /** Every cue the engine knows, in a stable order (the demo's sound board uses this). */
 export const ALL_CUES = Object.keys(table) as AudioCue[];

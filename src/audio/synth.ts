@@ -5,7 +5,8 @@
  */
 
 export interface Out {
-  ctx: AudioContext;
+  /** A live AudioContext, or an OfflineAudioContext when measuring levels. */
+  ctx: BaseAudioContext;
   /** Where this sound goes (already panned / volume-controlled). */
   dest: AudioNode;
   /** Pitch multiplier from play({ rate }). */
@@ -29,7 +30,7 @@ export interface ToneOpts {
 }
 
 /** Envelope: 0 -> peak over `attack`, hold, then exponential fall to silence at t + dur. */
-function envelope(ctx: AudioContext, g: GainNode, t: number, dur: number, peak: number, attack: number, hold = 0) {
+function envelope(ctx: BaseAudioContext, g: GainNode, t: number, dur: number, peak: number, attack: number, hold = 0) {
   const p = Math.max(peak, 0.0002);
   g.gain.setValueAtTime(0.0001, t);
   g.gain.linearRampToValueAtTime(p, t + attack);
