@@ -51,7 +51,7 @@ export const WEIRD_TEXT: Record<WeirdEventKind, { title: string; body: string; i
   gravityHop: { title: 'Boing!', body: 'Everyone bounces.', icon: '🦘' },
   pigeonPeek: { title: 'A pigeon drops by', body: 'Just visiting.', icon: '🐦' },
   tideSwap: { title: 'Tide swap', body: 'Meadow and beach trade colours.', icon: '🌊' },
-  disco: { title: 'Disco time!', body: 'Party lights for a turn.', icon: '🪩' },
+  disco: { title: 'Disco time!', body: 'Party lights on.', icon: '🪩' },
 };
 
 export const REASON_TEXT: Record<GameOverReason, string> = {

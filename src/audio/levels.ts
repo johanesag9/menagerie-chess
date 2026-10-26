@@ -35,7 +35,7 @@ export async function measureCue(cue: AudioCue, withTrim = true): Promise<CueLev
   }
   const win = Math.round(rate * 0.05);
   let loud = 0;
-  for (let i = 0; i + win <= d.length; i += win / 2) {
+  for (let i = 0; i + win <= d.length; i += Math.floor(win / 2)) {
     let sum = 0;
     for (let j = i; j < i + win; j++) sum += d[j] * d[j];
     loud = Math.max(loud, Math.sqrt(sum / win));

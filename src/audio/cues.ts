@@ -214,7 +214,35 @@ export function cueFn(cue: AudioCue): CueFn | undefined {
  * Per-cue gain trims (linear), from the level check in the ui demo (`src/ui/demo.html`, "Check levels").
  * They even out loudness between cues; anything not listed plays at 1.
  */
-export const TRIM: Partial<Record<AudioCue, number>> = {};
+export const TRIM: Partial<Record<AudioCue, number>> = {
+  // Targets (loudest 50ms, dBFS): hover -36, clicks -26, board -20, capture -15, fanfares -13..-18,
+  // tick -28, voices and emotes -16. No peak above -3 dBFS. Measured 2026-10-26.
+  uiHover: 1.38,
+  illegal: 1.64,
+  moveSea: 1.62,
+  capture: 0.79,
+  castle: 1.6,
+  promote: 1.36,
+  checkmate: 0.72,
+  draw: 1.45,
+  gameStart: 1.7,
+  clockLow: 1.46,
+  weird: 1.6,
+  'voice:land:p': 0.69,
+  'voice:land:n': 0.53,
+  'voice:land:r': 0.62,
+  'voice:sea:p': 1.6, // crab clicks are random noise: peaks vary, so less boost; reads a bit quieter
+  'voice:sea:n': 1.8,
+  'voice:sea:b': 1.22,
+  'voice:sea:r': 0.78,
+  'voice:sea:q': 1.48,
+  'voice:sea:k': 1.24,
+  'emote:laugh': 1.19,
+  'emote:angry': 2.11,
+  'emote:love': 0.78,
+  'emote:shock': 0.6,
+  'emote:sleepy': 0.87,
+};
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;
 
