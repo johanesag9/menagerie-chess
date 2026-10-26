@@ -63,12 +63,13 @@ export function radioGroup<T extends string | number>(
   cls = 'mc-seg',
 ): { el: HTMLElement; set(v: T): void; get(): T } {
   let current = value;
+  const base = cls.split(' ')[0]; // 'mc-seg mc-seg--wrap' -> options are 'mc-seg__opt'
   const el = h('div', { class: cls, role: 'radiogroup', 'aria-label': name });
   const btns = choices.map((c) => {
-    const b = h('button', { type: 'button', role: 'radio', class: `${cls}__opt`, 'data-sfx': 'click', 'data-value': String(c.value) });
-    if (c.html) b.append(h('span', { class: `${cls}__art`, 'aria-hidden': 'true', html: c.html }));
-    b.append(h('span', { class: `${cls}__label`, text: c.label }));
-    if (c.sub) b.append(h('span', { class: `${cls}__sub`, text: c.sub }));
+    const b = h('button', { type: 'button', role: 'radio', class: `${base}__opt`, 'data-sfx': 'click', 'data-value': String(c.value) });
+    if (c.html) b.append(h('span', { class: `${base}__art`, 'aria-hidden': 'true', html: c.html }));
+    b.append(h('span', { class: `${base}__label`, text: c.label }));
+    if (c.sub) b.append(h('span', { class: `${base}__sub`, text: c.sub }));
     b.addEventListener('click', () => {
       if (current === c.value) return;
       set(c.value);

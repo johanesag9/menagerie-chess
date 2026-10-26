@@ -255,6 +255,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   private enter(v: View, under = false): void {
     v.el.hidden = false;
     v.el.classList.remove('is-leaving');
+    v.el.getAnimations().forEach((a) => a.cancel());
     if (under) return; // the HUD just stays put under an overlay
     const card = v.el.querySelector<HTMLElement>('.mc-panel, .mc-title__inner') ?? v.el;
     if (this.motion === 'reduced') {
@@ -276,13 +277,15 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
 
   private leave(v: View): void {
     v.el.classList.add('is-leaving');
-    const a = v.el.animate([{ opacity: 1 }, { opacity: 0, transform: this.motion === 'reduced' ? 'none' : 'translateY(8px)' }], { duration: this.motion === 'reduced' ? 100 : 160, easing: 'ease-in' });
-    a.onfinish = () => {
-      if (v.el.classList.contains('is-leaving')) {
-        v.el.hidden = true;
-        v.el.classList.remove('is-leaving');
-      }
-    };
+    const ms = this.motion === 'reduced' ? 100 : 160;
+    v.el.animate([{ opacity: 1 }, { opacity: 0, transform: this.motion === 'reduced' ? 'none' : 'translateY(8px)' }], { duration: ms, easing: 'ease-in', fill: 'forwards' });
+    // A timer, not onfinish: background tabs can stall animations, and a stuck screen would block clicks.
+    window.setTimeout(() => {
+      if (!v.el.classList.contains('is-leaving')) return;
+      v.el.hidden = true;
+      v.el.classList.remove('is-leaving');
+      v.el.getAnimations().forEach((a) => a.cancel());
+    }, ms + 20);
   }
 
   private listen(): void {
