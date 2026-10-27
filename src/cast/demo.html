@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Cast demo</title>
+<link rel="stylesheet" href="./demo.css" />
+</head>
+<body>
+<div id="app"></div>
+<div id="fps">-- fps</div>
+<aside id="panel">
+  <button id="toggle" class="toggle" aria-expanded="true">Controls</button>
+  <div class="body">
+    <section>
+      <h2>Piece</h2>
+      <select id="piece"></select>
+      <p class="hint">Tap a piece to pick it. Hover to see it perk up.</p>
+      <div class="grid" id="actions">
+        <button data-a="select">Select</button>
+        <button data-a="move1">Move 1</button>
+        <button data-a="move2">Move 2</button>
+        <button data-a="moveL">L jump</button>
+        <button data-a="diag">Diagonal</button>
+        <button data-a="home">Back home</button>
+        <button data-a="look">Look at me</button>
+        <button data-a="celebrate">Celebrate</button>
+      </div>
+      <div class="grid" id="emotes">
+        <button data-e="laugh">Laugh</button>
+        <button data-e="angry">Angry</button>
+        <button data-e="love">Love</button>
+        <button data-e="shock">Shock</button>
+        <button data-e="sleepy">Sleepy</button>
+        <button data-e="taunt">Taunt</button>
+      </div>
+    </section>
+    <section>
+      <h2>Fight</h2>
+      <div class="row"><label>Attacker <select id="attacker"></select></label></div>
+      <div class="row"><label>Victim <select id="victim"></select></label></div>
+      <div class="grid two"><button id="fight" class="primary">Fight!</button><button id="fightAll">Every victim</button></div>
+    </section>
+    <section>
+      <h2>Skins</h2>
+      <div class="row"><label>Land <select id="landPal"></select></label><select id="landAcc"></select></div>
+      <div class="row"><label>Sea <select id="seaPal"></select></label><select id="seaAcc"></select></div>
+    </section>
+    <section>
+      <h2>Demo</h2>
+      <div class="grid two">
+        <button id="skip">Skip</button>
+        <button id="spin" aria-pressed="true">Turntable</button>
+        <button id="rm" aria-pressed="false">Reduced motion</button>
+        <button id="reset">Reset</button>
+      </div>
+      <p class="hint" id="log"></p>
+    </section>
+  </div>
+</aside>
+<script type="module" src="./demo.ts"></script>
+</body>
+</html>
