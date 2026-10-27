@@ -70,6 +70,7 @@ scene.add(floor);
 
 // The turntable: a wooden disc with a checker inlay. Pieces live on it.
 const table = new THREE.Group();
+table.position.y = 0.2;
 scene.add(table);
 const disc = new THREE.Mesh(new THREE.CylinderGeometry(5.3, 5.45, 0.2, 64), new THREE.MeshStandardMaterial({ color: '#c08a55', roughness: 0.7 }));
 disc.position.y = -0.1;
@@ -299,25 +300,54 @@ async function start() {
   pick('land-n');
   renderer.setAnimationLoop((now) => {
     timer.update(now);
-    const dt = Math.min(timer.getDelta(), 1 / 20);
-    const t = timer.getElapsed();
-    if (spinning && busy === 0 && ![...cast.actors].some((a) => a.isBusy)) table.rotation.y += dt * 0.18;
-    for (const a of cast.actors) a.update(dt, t);
-    camera.position.sub(shakeOff);
-    controls.update();
-    shake *= Math.pow(0.01, dt);
-    shakeOff.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
-    camera.position.add(shakeOff);
-    if (renderer.domElement.width > 0 && renderer.domElement.height > 0) renderer.render(scene, camera);
-    frames++;
-    fpsT += dt;
-    if (fpsT >= 0.5) {
-      fpsEl.textContent = `${Math.round(frames / fpsT)} fps · ${renderer.info.render.calls} calls`;
-      frames = 0;
-      fpsT = 0;
-    }
+    frame(Math.min(timer.getDelta(), 1 / 20), timer.getElapsed());
   });
 }
+
+let simT = 0;
+function frame(dt: number, t: number, draw = true) {
+  simT = t;
+  if (spinning && busy === 0 && ![...cast.actors].some((a) => a.isBusy)) table.rotation.y += dt * 0.18;
+  for (const a of cast.actors) a.update(dt, t);
+  camera.position.sub(shakeOff);
+  controls.update();
+  shake *= Math.pow(0.01, dt);
+  shakeOff.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  camera.position.add(shakeOff);
+  if (draw && renderer.domElement.width > 0 && renderer.domElement.height > 0) renderer.render(scene, camera);
+  frames++;
+  fpsT += dt;
+  if (fpsT >= 0.5) {
+    fpsEl.textContent = `${Math.round(frames / fpsT)} fps · ${renderer.info.render.calls} calls`;
+    frames = 0;
+    fpsT = 0;
+  }
+}
+
+/**
+ * Test hook: drive time by hand (for headless checks where requestAnimationFrame does not run).
+ * `__manual()` stops the real loop; `__advance(seconds)` steps GSAP and the frame loop at 60fps
+ * (drawing only the last frame unless `drawAll`) and returns the average CPU ms per frame.
+ */
+let gsapT = 0;
+Object.assign(window as object, {
+  __manual() {
+    renderer.setAnimationLoop(null);
+    gsap.ticker.remove(gsap.updateRoot);
+    gsapT = gsap.ticker.time;
+  },
+  __advance(sec: number, fps = 60, drawAll = false) {
+    const dt = 1 / fps;
+    const t0 = performance.now();
+    const n = Math.max(1, Math.round(sec * fps));
+    for (let i = 0; i < n; i++) {
+      gsapT += dt;
+      gsap.updateRoot(gsapT);
+      frame(dt, simT + dt, drawAll || i === n - 1);
+    }
+    return (performance.now() - t0) / n;
+  },
+});
 start();
 
 // Handy for poking at things from the console.

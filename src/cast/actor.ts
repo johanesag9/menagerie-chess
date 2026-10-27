@@ -113,6 +113,7 @@ export class Actor implements PieceActor {
   private hovT = 0;
   private flashV = { v: 0 };
   private clock = 0;
+  private struck = false;
 
   constructor(state: PieceState, skin: SkinChoice | undefined, private emitFn: Emit, squareSize: number) {
     this.id = state.id;
@@ -236,7 +237,7 @@ export class Actor implements PieceActor {
    * Travel along the ground to `to` (parent space) in the given gait. Adds to `tl` from `at`.
    * Returns the arrival time. `faceAfter`: turn back to the home yaw afterwards.
    */
-  travel(tl: TL, at: number, to: THREE.Vector3, g: Gait, o: { faceAfter?: boolean; durScale?: number; keepFacing?: boolean } = {}): number {
+  travel(tl: TL, at: number, to: THREE.Vector3, g: Gait, o: { faceAfter?: boolean; durScale?: number; keepFacing?: boolean; cap?: number; heightScale?: number; noAntic?: boolean } = {}): number {
     const from = this.object.position.clone();
     const d = to.clone().sub(from).setY(0);
     const n = d.length() / this.sq;
@@ -248,16 +249,16 @@ export class Actor implements PieceActor {
     let t = at + (o.keepFacing ? 0 : turn * 0.7);
     const body = this.b('body');
     const base = this.b('base');
-    if (!rm && g.antic !== 0) {
+    if (!rm && g.antic !== 0 && !o.noAntic) {
       const amt = g.antic ?? 0.12;
       tl.to(body, { sy: 1 - amt, sx: 1 + amt * 0.5, sz: 1 + amt * 0.5, duration: 0.08, ease: 'power2.out' }, t);
       t += 0.08;
       tl.to(body, { sy: 1 + amt * 0.4, sx: 1 - amt * 0.2, sz: 1 - amt * 0.2, duration: 0.1, ease: 'power2.out' }, t);
     }
-    const budget = 1.15 - (t - at);
+    const budget = (o.cap ?? 1.15) - (t - at);
     const D = Math.min(budget, g.dur(n) * (rm ? 0.6 : 1) * (o.durScale ?? 1));
     const hops = rm ? Math.max(1, Math.round(n)) : Math.max(1, Math.round(g.hops(n)));
-    const H = rm ? Math.min(g.height, 0.08) : g.height;
+    const H = (rm ? Math.min(g.height, 0.08) : g.height) * (o.heightScale ?? 1);
     const p = { t: 0 };
     let last = 0;
     tl.to(p, {
@@ -441,7 +442,12 @@ export class Actor implements PieceActor {
       const n = to.clone().sub(this.object.position).setY(0).length() / this.sq;
       scale = opts.duration / Math.max(0.1, g.dur(n));
     }
-    const arrive = this.travel(tl, 0, to, g, { faceAfter: true, durScale: scale });
+    // Right after a strike, finish onto the victim's square with a quick hop (keeps captures near 2s).
+    const struck = this.struck;
+    this.struck = false;
+    const arrive = struck
+      ? this.travel(tl, 0, to, g, { faceAfter: true, keepFacing: true, noAntic: true, cap: 0.4, heightScale: 0.45 })
+      : this.travel(tl, 0, to, g, { faceAfter: true, durScale: scale });
     this.relaxFaceAndPose(tl, arrive + 0.1);
     return this.promiseAt(tl, arrive);
   }
@@ -465,7 +471,7 @@ export class Actor implements PieceActor {
     if (dist > stop + 0.05 * this.sq) {
       const target = vp.clone().sub(dir.clone().multiplyScalar(stop));
       target.y = from.y;
-      at = this.travel(tl, 0, target, this.style.gait, { durScale: 0.85 });
+      at = this.travel(tl, 0, target, this.style.gait, { durScale: 0.8, cap: 0.8 });
     }
     // Face the victim squarely (the crab scuttles sideways, so it needs this).
     const yaw = Math.atan2(dir.x, dir.z);
@@ -473,6 +479,7 @@ export class Actor implements PieceActor {
     at += 0.08;
     const impact = this.style.attack(this, tl, at, v);
     tl.call(() => {
+      this.struck = true;
       const hit = v.object.parent ? v.bonePoint('head') : this.above(this.height * 0.6);
       fx.stars(this.fxParent, hit, this.sq, this.rm ? 5 : 9);
       v.flash();

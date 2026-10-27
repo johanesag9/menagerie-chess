@@ -247,22 +247,22 @@ const elephant: Style = {
   attack(a, tl, at, v) {
     const head = a.b('head');
     const tr = [a.b('trunk1'), a.b('trunk2'), a.b('trunk3')];
-    tl.to(tr[0], { rx: -1.1, duration: 0.25 }, at);
-    tl.to(tr[1], { rx: -0.7, duration: 0.25 }, at);
-    tl.to(tr[2], { rx: -0.5, duration: 0.25 }, at);
-    tl.to(head, { rx: -0.25, duration: 0.25 }, at);
+    tl.to(tr[0], { rx: -1.1, duration: 0.2 }, at);
+    tl.to(tr[1], { rx: -0.7, duration: 0.2 }, at);
+    tl.to(tr[2], { rx: -0.5, duration: 0.2 }, at);
+    tl.to(head, { rx: -0.25, duration: 0.2 }, at);
     tl.to(a.b('earL'), { ry: -0.5, duration: 0.2 }, at);
     tl.to(a.b('earR'), { ry: 0.5, duration: 0.2 }, at);
     a.mouth('open', tl, at);
-    yo(tl, a.b('base'), { rz: 0.04 }, 0.05, at + 0.1, 5);
-    const t1 = at + 0.45;
+    yo(tl, a.b('base'), { rz: 0.04 }, 0.05, at + 0.08, 3);
+    const t1 = at + 0.3;
     tl.to(tr[0], { rx: -0.45, duration: 0.1 }, t1);
     tl.to(tr[1], { rx: -0.3, duration: 0.1 }, t1);
     tl.to(tr[2], { rx: -0.2, duration: 0.1 }, t1);
     tl.to(head, { rx: 0, duration: 0.1 }, t1);
-    const fly = 0.3;
-    tl.call(() => fx.squirt(a.fxParent, a.bonePoint('trunk3'), v.object.parent ? v.bonePoint('head') : a.above(0.5), a.sq, fly), [], t1 + 0.1);
-    return t1 + 0.1 + fly;
+    const fly = 0.22;
+    tl.call(() => fx.squirt(a.fxParent, a.bonePoint('trunk3'), v.object.parent ? v.bonePoint('head') : a.above(0.5), a.sq, fly), [], t1 + 0.08);
+    return t1 + 0.08 + fly;
   },
   celebrate(a, tl, at) {
     const tr = [a.b('trunk1'), a.b('trunk2'), a.b('trunk3')];
@@ -498,8 +498,8 @@ const puffer: Style = {
     tl.to(head, { sx: 1.45, sy: 1.45, sz: 1.45, duration: 0.3, ease: 'back.out(2)' }, at);
     tl.to(a.face, { eyeScale: 1.2, brows: 1, duration: 0.15 }, at);
     a.mouth('o', tl, at);
-    yo(tl, a.b('base'), { rz: 0.05 }, 0.04, at + 0.3, 5);
-    const t1 = at + 0.5;
+    yo(tl, a.b('base'), { rz: 0.05 }, 0.04, at + 0.28, 3);
+    const t1 = at + 0.42;
     tl.to(a.b('base'), { pz: 0.42, duration: 0.12, ease: 'power3.in' }, t1);
     tl.call(() => fx.bubbles(a.fxParent, v.object.parent ? v.above(v.height * 0.5) : a.above(0.5), a.sq, 6), [], t1 + 0.12);
     return t1 + 0.12;
