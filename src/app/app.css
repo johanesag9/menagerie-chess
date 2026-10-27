@@ -1,0 +1,25 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* Close to the diorama's sky, so the page doesn't flash white before the world fades in. */
+  background: linear-gradient(#a9cbe6, #f6d7b4);
+  overscroll-behavior: none;
+}
+
+#app { position: fixed; inset: 0; }
+
+.mc-stage { position: fixed; inset: 0; }
+
+.mc-stats {
+  position: fixed;
+  left: 8px;
+  bottom: 8px;
+  z-index: 50;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 12px/1.3 ui-monospace, monospace;
+  pointer-events: none;
+}

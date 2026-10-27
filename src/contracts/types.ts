@@ -162,8 +162,12 @@ export interface GameController extends EventSource<GameEventMap> {
 export type QualityTier = 'high' | 'low';
 
 export interface WorldEventMap {
-  squareClicked: { square: Square };
-  squareHovered: { square: Square | null };
+  /**
+   * `square`: the piece hit (pieces win over the board), else the board square.
+   * `boardSquare`: the board square under the pointer, ignoring pieces (a tall animal may stand in front of it).
+   */
+  squareClicked: { square: Square; boardSquare?: Square | null };
+  squareHovered: { square: Square | null; boardSquare?: Square | null };
 }
 
 export interface HighlightSet {

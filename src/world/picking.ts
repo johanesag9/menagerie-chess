@@ -2,6 +2,7 @@
  * Mouse and touch picking. A tap or click on a piece or a square emits `squareClicked`;
  * orbit drags and pinches never do. Mouse hover emits `squareHovered` (checked once per frame).
  * Pieces win over the board, so tapping an animal's head picks the square it stands on.
+ * Both events also carry `boardSquare`: the board square under the pointer, ignoring pieces.
  * Objects with `userData.noPick = true` (or under such a parent) are ignored.
  */
 import * as THREE from 'three';
@@ -19,6 +20,7 @@ export class Picker {
   private hoverPoint: { x: number; y: number } | null = null;
   private hoverDirty = false;
   private hovered: Square | null = null;
+  private hoveredBoard: Square | null = null;
   private listeners: [string, EventListener][] = [];
 
   constructor(
@@ -48,8 +50,8 @@ export class Picker {
     });
     on('pointerup', (e) => {
       if (!this.tap.up(tp(e), e.timeStamp) || !this.hooks.canPick()) return;
-      const sq = this.pick(e.clientX, e.clientY);
-      if (sq) this.events.emit('squareClicked', { square: sq });
+      const { square, boardSquare } = this.pickBoth(e.clientX, e.clientY);
+      if (square) this.events.emit('squareClicked', { square, boardSquare });
     });
     on('pointercancel', (e) => this.tap.cancel(tp(e)));
     on('pointerleave', (e) => {
@@ -61,28 +63,34 @@ export class Picker {
 
   /** The square under a screen point, or null. */
   pick(clientX: number, clientY: number): Square | null {
+    return this.pickBoth(clientX, clientY).square;
+  }
+
+  /** The picked square (pieces first) and the board square under the point (pieces ignored). */
+  pickBoth(clientX: number, clientY: number): { square: Square | null; boardSquare: Square | null } {
     const rect = this.canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
+    if (rect.width === 0 || rect.height === 0) return { square: null, boardSquare: null };
     this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.camera);
 
-    // 1) Pieces: the square of the piece that was hit.
+    // The board's top plane, in board-local space so it works while the board tilts.
+    this.boardGroup.updateMatrixWorld();
+    this.inv.copy(this.boardGroup.matrixWorld).invert();
+    this.ray.copy(this.raycaster.ray).applyMatrix4(this.inv);
+    const p = rayToBoardXZ(this.ray.origin.x, this.ray.origin.y, this.ray.origin.z, this.ray.direction.x, this.ray.direction.y, this.ray.direction.z);
+    const boardSquare = p ? xzToSquare(p.x, p.z) : null;
+
+    // Pieces win: the square of the piece that was hit.
     if (this.pieceLayer.children.length) {
       const hits = this.raycaster.intersectObjects(this.pieceLayer.children, true);
       for (const hit of hits) {
         const top = this.pieceRoot(hit.object);
         if (!top) continue;
         const sq = xzToSquare(top.position.x, top.position.z);
-        if (sq) return sq;
+        if (sq) return { square: sq, boardSquare };
       }
     }
-
-    // 2) The board's top plane, in board-local space so it works while the board tilts.
-    this.boardGroup.updateMatrixWorld();
-    this.inv.copy(this.boardGroup.matrixWorld).invert();
-    this.ray.copy(this.raycaster.ray).applyMatrix4(this.inv);
-    const p = rayToBoardXZ(this.ray.origin.x, this.ray.origin.y, this.ray.origin.z, this.ray.direction.x, this.ray.direction.y, this.ray.direction.z);
-    return p ? xzToSquare(p.x, p.z) : null;
+    return { square: boardSquare, boardSquare };
   }
 
   /** Walks up to the direct child of pieceLayer; null if anything on the way is noPick. */
@@ -100,10 +108,13 @@ export class Picker {
   update(): void {
     if (!this.hoverDirty) return;
     this.hoverDirty = false;
-    const sq = this.hoverPoint && this.hooks.canPick() ? this.pick(this.hoverPoint.x, this.hoverPoint.y) : null;
-    if (sq !== this.hovered) {
-      this.hovered = sq;
-      this.events.emit('squareHovered', { square: sq });
+    const { square, boardSquare } = this.hoverPoint && this.hooks.canPick()
+      ? this.pickBoth(this.hoverPoint.x, this.hoverPoint.y)
+      : { square: null, boardSquare: null };
+    if (square !== this.hovered || boardSquare !== this.hoveredBoard) {
+      this.hovered = square;
+      this.hoveredBoard = boardSquare;
+      this.events.emit('squareHovered', { square, boardSquare });
     }
   }
 
