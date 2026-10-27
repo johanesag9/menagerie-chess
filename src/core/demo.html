@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Core demo · Menagerie Chess</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Core demo</h1>
+      <p class="note">Dev tool. Flat 2D board with emoji stand-ins, not the real game look.</p>
+    </header>
+
+    <main class="layout">
+      <section class="play" aria-label="Board">
+        <div class="clock" id="clock-top"></div>
+        <div class="board-wrap">
+          <div class="board" id="board" role="grid" aria-label="Chess board"></div>
+          <div class="promo" id="promo" hidden>
+            <p>Promote to</p>
+            <div class="promo-row" id="promo-row"></div>
+            <button type="button" class="ghost" id="promo-cancel">Cancel</button>
+          </div>
+          <div class="toast" id="toast" hidden></div>
+        </div>
+        <div class="clock" id="clock-bottom"></div>
+        <p class="status" id="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel" aria-label="Controls">
+        <form id="setup" class="setup">
+          <label>Opponent
+            <select id="opponent">
+              <option value="local">Local 2-player</option>
+              <option value="bot" selected>Bot</option>
+            </select>
+          </label>
+          <label>Bot level
+            <select id="level"></select>
+          </label>
+          <label>Bot plays
+            <select id="botSide">
+              <option value="sea" selected>Sea</option>
+              <option value="land">Land</option>
+            </select>
+          </label>
+          <label>Time
+            <select id="time">
+              <option value="none">Untimed</option>
+              <option value="180000+2000">3+2</option>
+              <option value="300000+0">5+0</option>
+              <option value="600000+0">10+0</option>
+              <option value="900000+10000">15+10</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="weird" /> Weird Mode</label>
+          <label class="wide">Start from FEN (optional)
+            <input id="fen" type="text" spellcheck="false" autocomplete="off" placeholder="Leave empty for the normal start" />
+          </label>
+          <p class="error" id="fen-error" role="alert"></p>
+          <button type="submit" class="primary wide">New game</button>
+        </form>
+
+        <div class="actions">
+          <button type="button" id="undo">Undo</button>
+          <button type="button" id="resign">Resign</button>
+          <button type="button" id="pause">Pause</button>
+          <button type="button" id="flip">Flip board</button>
+          <button type="button" id="copy-fen">Copy FEN</button>
+          <label class="check"><input type="checkbox" id="show-ids" /> Show piece ids</label>
+          <label class="check"><input type="checkbox" id="sim-anim" /> Fake 0.6s move animation (pause/resume)</label>
+        </div>
+
+        <div class="emotes" id="emotes" aria-label="Send emote"></div>
+
+        <details open>
+          <summary>Moves</summary>
+          <ol class="moves" id="moves"></ol>
+        </details>
+        <details open>
+          <summary>Events (newest first)</summary>
+          <ul class="log" id="log"></ul>
+        </details>
+        <p class="legend" id="legend"></p>
+      </section>
+    </main>
+
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>
