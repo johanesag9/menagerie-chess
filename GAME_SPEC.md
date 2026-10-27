@@ -1,6 +1,6 @@
 # Game spec — working title "Menagerie Chess"
 
-Status: Phase 1 is starting (2026-10-25). The world is decided (A, Shoreline diorama). The working title is still open; Johanes decides it.
+Status: Phase 2 (2026-10-27). The four streams are merged into `main` and wired into a playable game (`npm run dev`, or the `app` launch config on port 4410). The working title is still open; Johanes decides it.
 
 ## Pitch
 Real chess, played by a weird mix of animals. **Land** (dogs, horses, goats...) plays against **Sea** (crabs, seahorses, an octopus...).
@@ -68,13 +68,34 @@ src/world/       world stream: renderer, scene, shoreline diorama, camera, board
 src/cast/        cast stream: the 12 animals, materials, skins, all piece animations
 src/ui/          ui stream: DOM/CSS screens, HUD, emote wheel, promotion picker
 src/audio/       ui stream: Howler/WebAudio engine, synthesized sounds (any downloaded sound needs Johanes's OK)
-src/main.ts      orchestrator: wires everything together
+src/app/         orchestrator: the Match (game flow, animation order, input) and the piece registry
+src/main.ts      orchestrator: boots everything and hands it to the Match
 prototypes/      Phase 0 world directions (throwaway)
 ```
 Each stream works only in its own folder, builds a standalone demo page for itself (`src/<stream>/demo.html`), and codes against `src/contracts`.
 
+## Defaults waiting on Johanes (picked by the streams, easy to change)
+| Topic | Current default | Where |
+|---|---|---|
+| Clocks start | After Land's first move (like lichess) | core |
+| Draws | Threefold and fifty-move end the game on their own (no "claim draw" button) | core |
+| Bot levels 1–3 | Level 1 plays a random move 30% of the time; please play them | core |
+| Stockfish licence | GPL-3.0: a public release must offer the game's source under GPL | core |
+| Camera | 3/4 view from the right of your side; stays where you orbit it | world |
+| Coordinates | On by default | world / ui |
+| Highlight colours | Gold selected, red capture and check, orange last move, dark legal dots | world |
+| Knockout style | Chosen by the attacker (launch, pancake or dizzy) | cast |
+| Hats on royals | Sit on top of the crown | cast |
+| Goat bishop | No mitre (rock, blue collar and bell) | cast |
+| Emotes | Bubbles with short English text; HUD uses system emoji | cast / ui |
+| Bot names | Sleepy Snail … Grandmaster Kraken | ui |
+| Sounds | Synth sketches, balanced by numbers, not yet heard by Johanes | audio |
+| Camera intro | Plays when the first game starts, not on page load | integration |
+| Local 2-player | Camera swings to the side to move after every move | integration |
+| Bot emotes | The bot answers your emote 40% of the time | integration |
+
 ## Phases
 0. Setup, spec, contracts, 3 world prototypes, and Johanes picks one. Done 2026-10-25: picked A.
-1. Four parallel sessions (core, world, cast, ui+audio), each on its own branch. The rules for them are in `CLAUDE.md`.
-2. Merge, integrate, playtest, tune for phones, polish (this session).
+1. Four parallel sessions (core, world, cast, ui+audio), each on its own branch. The rules for them are in `CLAUDE.md`. Done 2026-10-27.
+2. Merge, integrate, playtest, tune for phones, polish. Merged and integrated 2026-10-27; playtesting and tuning next.
 3. Later: online play, campaign, achievements.

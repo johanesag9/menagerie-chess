@@ -12,7 +12,7 @@ The work is split into streams. Each one runs in its own session, on its own git
 | world | `src/world/` | `createWorld` from `src/world/index.ts` |
 | cast | `src/cast/` | `createCast` from `src/cast/index.ts` |
 | ui | `src/ui/`, `src/audio/` | `createUi` from `src/ui/index.ts`, `createAudio` from `src/audio/index.ts` |
-| orchestrator | `src/contracts/`, `src/main.ts`, `index.html`, root config, docs | wires everything together |
+| orchestrator | `src/contracts/`, `src/app/`, `src/main.ts`, `index.html`, root config, docs | wires everything together |
 
 Rules:
 - **Edit only your own folder(s).** Never edit `src/contracts/`, another stream's folder, `src/main.ts`, `GAME_SPEC.md` or this file.
