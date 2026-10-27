@@ -449,9 +449,11 @@ export class ModeGame implements GameController {
     this.startRound();
   }
 
+  /** A new throw round. The `modeState` (phase 'duel') is the signal to ask the human side(s) for a hand. */
   private startRound(): void {
     const d = this.duel!;
     d.hands = {};
+    this.events.emit('modeState', this.snapshot());
     const bot = this.botSide();
     if (bot && (bot === d.info.attacker || bot === d.info.defender)) d.hands[bot] = HANDS[Math.floor(this.botRandom() * 3)];
     this.maybeBot();

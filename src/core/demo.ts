@@ -67,6 +67,7 @@ let pendingPromo: { from: Square; to: Square } | null = null;
 let ms: ModeState | null = null;
 let duel: DuelInfo | null = null;
 let lastMove: [Square, Square] | null = null;
+let roundShownAt = -Infinity;
 
 const name = (p: { side: Side; kind: PieceKind }) => `${EMOJI[p.side][p.kind]} ${ANIMAL[p.side][p.kind]}`;
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
@@ -356,7 +357,6 @@ function askDuel(info: DuelInfo): void {
       button('Yes, duel!', () => {
         hideOverlay();
         game.answerDuel(true);
-        if (duel) askThrows();
       }, undefined, 'primary'),
       button('No', () => {
         hideOverlay();
@@ -533,14 +533,7 @@ game.on('duelRound', (r) => {
   story(`✊ Throw ${r.round}: ${cap(r.info.attacker)} ${HAND_EMOJI[r.attackerHand]} vs ${cap(r.info.defender)} ${HAND_EMOJI[r.defenderHand]}. ${who}`);
   raw('duelRound', `${r.round} ${r.attackerHand}/${r.defenderHand} ${r.result}`);
   showOverlay(para(`${HAND_EMOJI[r.attackerHand]}  vs  ${HAND_EMOJI[r.defenderHand]}`, 'hands'), para(who, 'big'));
-  const round = r.round;
-  setTimeout(() => {
-    // Still dueling after a tie: throw again.
-    if (duel && duel === r.info && round === r.round) {
-      hideOverlay();
-      askThrows();
-    }
-  }, 1100);
+  roundShownAt = performance.now();
 });
 game.on('duelEnded', (d) => {
   duel = null;
@@ -560,6 +553,16 @@ game.on('bonked', (b) => {
 game.on('logged', (l) => raw('logged', `[${l.kind}] ${l.label}`));
 game.on('modeState', (m) => {
   ms = m;
+  // During a duel, every modeState starts a new throw round (after the call, and after each tie).
+  if (m.phase === 'duel' && duel) {
+    const wait = Math.max(0, 1100 - (performance.now() - roundShownAt));
+    const info = duel;
+    setTimeout(() => {
+      if (duel !== info) return;
+      hideOverlay();
+      askThrows();
+    }, wait);
+  }
   if (aim && m.phase !== 'action' && aim.type !== 'bonus') aim = null;
   raw('modeState', `round ${m.round} · ${m.phase}${m.die ? ` · die ${m.die.value}` : ''} · ${m.statuses.length} statuses · ${m.squares.length} blocks`);
   render();

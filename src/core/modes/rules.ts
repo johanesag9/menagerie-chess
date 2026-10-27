@@ -286,6 +286,10 @@ export function powerOptions(s: MState, i: number): number[][] {
   if (!p || p.side !== s.turn || s.phase !== 'action' || powerUsed(s, p) || !canAct(s, p.id)) return [];
   const raw = powerOptionsRaw(s, i);
   if (s.mode === 'crazy') return raw;
+  const power = POWER_OF[p.kind];
+  // A stomp changes nothing on the board, and a new block can only shield: if the king is safe anyway, they all are.
+  if ((power === 'block' || power === 'stomp') && safeAfter(s, () => {})) return raw;
+  if (power === 'stomp') return [];
   return raw.filter((t) => safeAfter(s, (c) => applyPower(c, i, t)));
 }
 
