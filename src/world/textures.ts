@@ -26,6 +26,8 @@ export interface Textures {
   squareFill: THREE.Texture;
   /** 4x4 atlas of a..h and 1..8 for the frame coordinates. */
   labels: THREE.Texture;
+  /** Phase 3: a jagged branching ground crack (earthquake decals). */
+  crack: THREE.Texture;
 }
 
 export function makeTextures(bin: Bin): Textures {
@@ -103,5 +105,40 @@ export function makeTextures(bin: Bin): Textures {
     }
   });
 
-  return { softDisc, dot, ring, squareGlow, squareFill, labels };
+  const crack = canvasTexture(bin, 256, (g, s) => {
+    // Seeded so every load draws the same crack.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    const branch = (x: number, y: number, a: number, len: number, w: number, depth: number) => {
+      g.beginPath();
+      g.moveTo(x, y);
+      const steps = 6;
+      for (let i = 0; i < steps; i++) {
+        a += (rnd() - 0.5) * 0.9;
+        x += Math.cos(a) * (len / steps);
+        y += Math.sin(a) * (len / steps);
+        g.lineTo(x, y);
+      }
+      g.lineWidth = w;
+      g.stroke();
+      if (depth > 0) {
+        branch(x, y, a + 0.7, len * 0.55, w * 0.6, depth - 1);
+        branch(x, y, a - 0.6, len * 0.5, w * 0.6, depth - 1);
+      }
+    };
+    const draw = (style: string, grow: number) => {
+      g.strokeStyle = style;
+      seed = 7;
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + 0.4;
+        branch(s / 2, s / 2, a, s * 0.2, s * 0.035 + grow, 2);
+      }
+    };
+    draw('rgba(255,236,200,0.55)', 4); // light lip
+    draw('rgba(40,24,12,1)', 0); // dark crack
+  });
+
+  return { softDisc, dot, ring, squareGlow, squareFill, labels, crack };
 }

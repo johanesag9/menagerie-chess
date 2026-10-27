@@ -1,6 +1,8 @@
 /**
- * Square highlights: selected glow, legal-move dots, capture rings, last-move tint, check pulse.
+ * Square highlights: selected glow, legal-move dots, capture rings, last-move tint, check pulse,
+ * and (Phase 3) the violet "magic" target rings and the soft area wash.
  * Every marker eases in and out on its own (no popping). Legal dots ripple out from the selected square.
+ * Targets and area are one instanced draw call each (one slot per square), so 40 targets cost no more than 1.
  */
 import * as THREE from 'three';
 import type { HighlightSet, Square } from '../contracts/types';
@@ -34,10 +36,13 @@ export class Highlights {
   readonly group = new THREE.Group();
   private markers: Marker[] = [];
   private plane: THREE.PlaneGeometry;
-  private state: { selected: Square | null; legal: Square[]; captures: Square[]; lastMove: [Square, Square] | null; check: Square | null } = {
-    selected: null, legal: [], captures: [], lastMove: null, check: null,
-  };
+  private state: {
+    selected: Square | null; legal: Square[]; captures: Square[]; lastMove: [Square, Square] | null; check: Square | null;
+    targets: Square[]; area: Square[];
+  } = { selected: null, legal: [], captures: [], lastMove: null, check: null, targets: [], area: [] };
   private checkWave: Marker;
+  private targets: SquareField;
+  private area: SquareField;
 
   constructor(private bin: Bin, private tex: Textures, private bloomBoost: () => number) {
     this.group.name = 'highlights';
@@ -51,6 +56,9 @@ export class Highlights {
     this.checkWave.mat.map = tex.ring;
     for (let i = 0; i < 28; i++) this.make('legal');
     for (let i = 0; i < 8; i++) this.make('capture');
+    this.area = new SquareField(bin, 'area', LIFT.lastMove + 0.0015);
+    this.targets = new SquareField(bin, 'target', LIFT.capture + 0.003);
+    this.group.add(this.area.mesh, this.targets.mesh);
   }
 
   private make(kind: Kind): Marker {
@@ -80,6 +88,8 @@ export class Highlights {
     if (h.captures !== undefined) this.state.captures = [...h.captures];
     if (h.lastMove !== undefined) this.state.lastMove = h.lastMove ? [...h.lastMove] : null;
     if (h.check !== undefined) this.state.check = h.check;
+    if (h.targets !== undefined) this.state.targets = [...(h.targets ?? [])];
+    if (h.area !== undefined) this.state.area = [...(h.area ?? [])];
     this.sync();
   }
 
@@ -102,6 +112,8 @@ export class Highlights {
     const check = this.markers.filter((m) => m.kind === 'check');
     this.assignTo(check.filter((m) => m !== this.checkWave), s.check ? [s.check] : [], () => 0, 'check');
     this.assignTo([this.checkWave], s.check ? [s.check] : [], () => 0.1, 'check');
+    this.targets.set(s.targets, rippleDelay);
+    this.area.set(s.area, () => 0);
   }
 
   private assign(kind: Kind, squares: Square[], delay: (sq: Square) => number): void {
@@ -133,6 +145,8 @@ export class Highlights {
 
   update(dt: number, t: number): void {
     const boost = this.bloomBoost();
+    this.targets.update(dt, t, boost);
+    this.area.update(dt, t, boost);
     for (const m of this.markers) {
       if (m.target === 1 && m.delay > 0) {
         m.delay -= dt;
@@ -199,5 +213,158 @@ export class Highlights {
   /** Make every marker visible for one frame (shader warm-up before reveal). */
   setAllVisible(v: boolean): void {
     for (const m of this.markers) m.mesh.visible = v || m.v > 0;
+    this.targets.mesh.visible = v || this.targets.active;
+    this.area.mesh.visible = v || this.area.active;
+  }
+}
+
+const FIELD_VERT = /* glsl */ `
+  attribute vec2 aState; // x = shown 0..1, y = age in seconds
+  attribute float aPhase;
+  varying vec2 vUv; varying vec2 vState; varying float vPhase;
+  void main() {
+    vUv = uv; vState = aState; vPhase = aPhase;
+    gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+  }`;
+
+/** Violet ring with four turning star glints that twinkle; a soft violet glow inside. */
+const TARGET_FRAG = /* glsl */ `
+  uniform float t; uniform vec3 color; uniform vec3 spark; uniform float boost;
+  varying vec2 vUv; varying vec2 vState; varying float vPhase;
+  float star(vec2 p, float size) {
+    p = abs(p) / size;
+    return max(0.0, 1.0 - (p.x * p.y * 18.0 + (p.x + p.y) * 0.8)) * step(max(p.x, p.y), 1.2);
+  }
+  void main() {
+    float v = vState.x;
+    if (v <= 0.0) discard;
+    vec2 p = vUv * 2.0 - 1.0;
+    float pop = 1.0 + sin(min(vState.y * 9.0, 3.14159)) * 0.2 * (1.0 - min(vState.y * 2.0, 1.0));
+    p /= mix(0.6, 1.0, v) * pop;
+    float r = length(p);
+    float breathe = 0.5 + 0.5 * sin(t * 2.2 + vPhase);
+    float ringR = 0.66 + breathe * 0.03;
+    float ring = smoothstep(0.075, 0.03, abs(r - ringR));
+    float glowIn = smoothstep(ringR, 0.0, r) * 0.22;
+    // Four glints riding the ring, turning slowly, each twinkling on its own beat.
+    float a0 = t * 0.45 + vPhase;
+    float glints = 0.0;
+    for (int i = 0; i < 4; i++) {
+      float a = a0 + float(i) * 1.5708;
+      vec2 c = vec2(cos(a), sin(a)) * ringR;
+      float tw = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(t * 3.3 + float(i) * 2.1 + vPhase * 3.0), 3.0);
+      glints += star(p - c, 0.2 * tw);
+    }
+    float a = max(ring * 0.95, glowIn) * v;
+    vec3 c = mix(color, spark, clamp(glints, 0.0, 1.0)) * (1.0 + boost * 0.6);
+    a = max(a, clamp(glints, 0.0, 1.0) * v);
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(c, a);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+
+/** A soft rounded-square wash that breathes gently. */
+const AREA_FRAG = /* glsl */ `
+  uniform float t; uniform vec3 color; uniform vec3 spark; uniform float boost;
+  varying vec2 vUv; varying vec2 vState; varying float vPhase;
+  void main() {
+    float v = vState.x;
+    if (v <= 0.0) discard;
+    vec2 p = abs(vUv * 2.0 - 1.0);
+    vec2 q = max(p - 0.62, 0.0);
+    float d = length(q) + min(max(p.x, p.y) - 0.62, 0.0);
+    float fill = 1.0 - smoothstep(0.12, 0.32, d);
+    float edge = smoothstep(0.32, 0.22, d) * smoothstep(0.08, 0.2, d);
+    float breathe = 0.5 + 0.5 * sin(t * 2.6 + vPhase);
+    float a = (fill * (0.32 + breathe * 0.1) + edge * 0.25) * v;
+    gl_FragColor = vec4(mix(color, spark, edge * 0.6) * (1.0 + boost * 0.3), a);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+
+/** One instanced marker per board square (instance i = file * 8 + rank). Eases each one in and out. */
+class SquareField {
+  readonly mesh: THREE.InstancedMesh;
+  private v = new Float32Array(64);
+  private want = new Uint8Array(64);
+  private delay = new Float32Array(64);
+  private age = new Float32Array(64);
+  private state: THREE.InstancedBufferAttribute;
+  private mat: THREE.ShaderMaterial;
+  active = false;
+
+  constructor(bin: Bin, kind: 'target' | 'area', lift: number) {
+    const geo = bin.add(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+    this.mat = bin.add(new THREE.ShaderMaterial({
+      uniforms: {
+        t: { value: 0 }, boost: { value: 0 },
+        color: { value: new THREE.Color(kind === 'target' ? PALETTE.target : PALETTE.area) },
+        spark: { value: new THREE.Color(PALETTE.targetSpark) },
+      },
+      vertexShader: FIELD_VERT,
+      fragmentShader: kind === 'target' ? TARGET_FRAG : AREA_FRAG,
+      transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    }));
+    this.mesh = new THREE.InstancedMesh(geo, this.mat, 64);
+    this.mesh.name = `hl-${kind}`;
+    this.mesh.renderOrder = 2;
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    const m = new THREE.Matrix4();
+    const phase = new Float32Array(64);
+    const size = kind === 'target' ? SQUARE * 1.0 : SQUARE * 0.98;
+    for (let i = 0; i < 64; i++) {
+      const file = Math.floor(i / 8), rank = i % 8;
+      m.makeScale(size, 1, size).setPosition((file - 3.5) * SQUARE, BOARD_TOP + lift, (3.5 - rank) * SQUARE);
+      this.mesh.setMatrixAt(i, m);
+      phase[i] = (file * 1.7 + rank * 2.9) % 6.28;
+    }
+    this.state = new THREE.InstancedBufferAttribute(new Float32Array(128), 2);
+    this.state.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aState', this.state);
+    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phase, 1));
+  }
+
+  set(squares: Square[], delay: (sq: Square) => number): void {
+    const next = new Uint8Array(64);
+    for (const sq of squares) {
+      const { file, rank } = squareIndex(sq);
+      next[file * 8 + rank] = 1;
+    }
+    for (let i = 0; i < 64; i++) {
+      if (next[i] && !this.want[i]) {
+        const f = Math.floor(i / 8), r = i % 8;
+        this.delay[i] = delay(`${'abcdefgh'[f]}${r + 1}` as Square);
+        this.age[i] = 0;
+      }
+      this.want[i] = next[i];
+    }
+  }
+
+  update(dt: number, t: number, boost: number): void {
+    let any = false;
+    for (let i = 0; i < 64; i++) {
+      if (this.want[i] && this.delay[i] > 0) {
+        this.delay[i] -= dt;
+        continue;
+      }
+      const target = this.want[i];
+      if (!target && this.v[i] === 0) continue;
+      this.age[i] += dt;
+      let v = damp(this.v[i], target, target ? 12 : 10, dt);
+      if (!target && v < 0.01) v = 0;
+      if (target && v > 0.995) v = 1;
+      this.v[i] = v;
+      this.state.setXY(i, v, this.age[i]);
+      if (v > 0 || target) any = true;
+    }
+    for (let i = 0; i < 64; i++) if (this.want[i]) any = true;
+    this.state.needsUpdate = true;
+    this.active = any;
+    this.mesh.visible = any;
+    this.mat.uniforms.t.value = t;
+    this.mat.uniforms.boost.value = boost;
   }
 }

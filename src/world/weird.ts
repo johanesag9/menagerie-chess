@@ -344,7 +344,13 @@ export class WeirdEffects {
     return { ball, beams, spots };
   }
 
-  private discoParty(): Handle {
+  /** Phase 3 Wheel of Chaos: the same party, squeezed into about 1.5s (no slow lights-down). */
+  discoFlash(): Handle {
+    this.running.get('disco')?.cancel(true);
+    return this.discoParty({ inT: 0.3, hold: 0.85, outT: 0.35, quick: true });
+  }
+
+  private discoParty(timing = { inT: 0.9, hold: 5.6, outT: 1.1, quick: false }): Handle {
     const { ball, beams, spots } = this.disco;
     const d = this.c.diorama;
     const scene = this.c.scene;
@@ -354,7 +360,7 @@ export class WeirdEffects {
     const nightTint = new THREE.Color(0.32, 0.27, 0.5);
     const white = new THREE.Color(1, 1, 1);
     const reduced = this.c.reducedMotion();
-    const inT = 0.9, hold = 5.6, outT = 1.1;
+    const { inT, hold, outT, quick } = timing;
     let t = 0;
     const col = new THREE.Color();
     const tmp = new THREE.Vector3(), down = new THREE.Vector3(0, -1, 0), target = new THREE.Vector3();
@@ -370,6 +376,7 @@ export class WeirdEffects {
       sky.tint.value.copy(white);
       d.water.material.uniforms.tint.value.copy(white);
       ball.visible = false;
+      ball.scale.setScalar(1);
       beams.forEach((b) => (b.visible = false));
       spots.forEach((s) => (s.visible = false));
       for (let i = 0; i < 64; i++) sq.setColorAt(i, base[i]);
@@ -387,8 +394,11 @@ export class WeirdEffects {
       d.water.material.uniforms.tint.value.copy(white).lerp(nightTint, k * 0.7);
 
       // Mirror ball drops in and spins.
-      const ballY = lerp(9.5, 4.6, ease.backOut(clamp01(t / 1.1))) + (t > inT + hold ? (t - inT - hold) * 6 : 0);
+      const ballY = quick
+        ? 4.6 + (t > inT + hold ? (t - inT - hold) * 8 : 0)
+        : lerp(9.5, 4.6, ease.backOut(clamp01(t / 1.1))) + (t > inT + hold ? (t - inT - hold) * 6 : 0);
       ball.position.set(0, ballY, 0);
+      if (quick) ball.scale.setScalar(Math.max(0.001, ease.backOut(clamp01(t / inT))));
       ball.rotation.y += dt * (reduced ? 0.6 : 1.6);
 
       const beat = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(el * Math.PI * 4); // ~120 bpm
@@ -434,8 +444,10 @@ export class WeirdEffects {
 }
 
 /** A plump code-built pigeon with flapping wings and a bobbing head. */
-class Pigeon {
+export class Pigeon {
   readonly group = new THREE.Group();
+  /** At the pigeon's feet: a carried piece hangs from here and swings. */
+  private hook = new THREE.Group();
   private body = new THREE.Group();
   private head = new THREE.Group();
   private wingL = new THREE.Group();
@@ -492,10 +504,84 @@ class Pigeon {
     this.wingR.add(wr);
     this.wingR.position.set(0.1, 0.22, 0);
     this.body.add(this.wingL, this.wingR);
-    this.group.add(this.body);
+    this.group.add(this.body, this.hook);
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh) o.castShadow = true;
     });
+  }
+
+  /**
+   * Phase 3 Wheel of Chaos: fly in to `land` (on top of `cargo`), grab it by reparenting it to the pigeon,
+   * and fly off with it, wobbling. With no cargo it just flies past through `land`.
+   * The cargo is detached (removeFromParent, never disposed) before the handle resolves, also when cancelled.
+   */
+  carry(animator: Animator, from: THREE.Vector3, land: THREE.Vector3, to: THREE.Vector3, cargo: THREE.Object3D | null, reduced: boolean): Handle {
+    const g = this.group;
+    const flyIn = 0.75, grab = cargo ? 0.35 : 0, flyOut = reduced ? 0.8 : 0.95;
+    const total = cargo ? flyIn + grab + flyOut : 1.6;
+    const ctrlIn = from.clone().lerp(land, 0.5).add(new THREE.Vector3(0, 2.2, 0));
+    const ctrlOut = land.clone().lerp(to, 0.5).add(new THREE.Vector3(0, cargo ? 0.5 : 2, 0));
+    const ctrlPast = land.clone().multiplyScalar(2).sub(from.clone().add(to).multiplyScalar(0.5));
+    const bez = (a: THREE.Vector3, c: THREE.Vector3, b: THREE.Vector3, u: number, out: THREE.Vector3) =>
+      out.set(0, 0, 0).addScaledVector(a, (1 - u) ** 2).addScaledVector(c, 2 * (1 - u) * u).addScaledVector(b, u * u);
+    const prev = new THREE.Vector3();
+    const wobble = reduced ? 0.25 : 1;
+    let grabbed = false;
+    let t = 0;
+    g.visible = true;
+    g.position.copy(from);
+    g.rotation.set(0, 0, 0);
+    g.scale.setScalar(2);
+    const end = () => {
+      cargo?.removeFromParent();
+      g.visible = false;
+      g.rotation.set(0, 0, 0);
+      this.hook.rotation.set(0, 0, 0);
+      this.body.scale.set(1, 1, 1);
+    };
+    return animator.process((dt, el) => {
+      t += dt;
+      prev.copy(g.position);
+      let flapping = true;
+      if (!cargo) {
+        bez(from, ctrlPast, to, ease.sineInOut(clamp01(t / total)), g.position);
+      } else if (t < flyIn) {
+        bez(from, ctrlIn, land, ease.cubicOut(t / flyIn), g.position);
+      } else if (t < flyIn + grab) {
+        // Land, squash, clamp on, then a heave upward.
+        const s = t - flyIn;
+        flapping = s > grab * 0.45;
+        const squash = Math.exp(-s * 10) * Math.sin(s * 34) * 0.18;
+        this.body.scale.set(1 + squash, 1 - squash, 1 + squash);
+        g.position.copy(land);
+        if (s > grab * 0.35 && !grabbed) {
+          grabbed = true;
+          this.hook.attach(cargo);
+        }
+        g.position.y += ease.cubicIn(clamp01((s - grab * 0.45) / (grab * 0.55))) * 0.25;
+      } else {
+        this.body.scale.set(1, 1, 1);
+        const u = clamp01((t - flyIn - grab) / flyOut);
+        bez(land.clone().setY(land.y + 0.25), ctrlOut, to, ease.cubicIn(u), g.position);
+        // Heavy load: the pigeon rolls side to side and the cargo swings under it.
+        g.rotation.z = Math.sin(el * 9) * 0.22 * wobble;
+        this.hook.rotation.z = Math.sin(el * 6.5 + 1) * 0.3 * wobble;
+        this.hook.rotation.x = Math.sin(el * 4.3) * 0.18 * wobble;
+      }
+      if (flapping) {
+        const flap = Math.sin(el * (grabbed ? 38 : 28)) * 0.95;
+        this.wingL.rotation.z = flap;
+        this.wingR.rotation.z = -flap;
+        const v = g.position.clone().sub(prev);
+        if (v.x * v.x + v.z * v.z > 1e-6) g.rotation.y = Math.atan2(v.x, v.z);
+      } else {
+        this.wingL.rotation.z = 0.5;
+        this.wingR.rotation.z = -0.5;
+      }
+      const done = t >= total;
+      if (done) end();
+      return done;
+    }, end);
   }
 
   visit(animator: Animator, from: THREE.Vector3, land: THREE.Vector3, to: THREE.Vector3, reduced: boolean): Handle {
