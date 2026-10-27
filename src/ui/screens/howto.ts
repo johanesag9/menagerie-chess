@@ -1,0 +1,69 @@
+/** "How it works": the mode rules in plain words, as a sheet over the setup screen. */
+import type { GameMode } from '../../contracts/types';
+import { button, h, radioGroup } from '../dom';
+import { HOW_TO, MODES, MODE_TEXT } from '../modeText';
+import { ICON } from './hud';
+
+export interface HowToSheet {
+  el: HTMLElement;
+  open(mode: GameMode, behind: HTMLElement, returnFocus: HTMLElement): void;
+  close(): void;
+  readonly isOpen: boolean;
+}
+
+export function howToSheet(): HowToSheet {
+  const body = h('div', { class: 'mc-howto__body', tabindex: '0' });
+  let behind: HTMLElement | null = null;
+  let returnFocus: HTMLElement | null = null;
+
+  const render = (mode: GameMode) => {
+    body.replaceChildren(
+      h('p', { class: 'mc-howto__pitch', text: MODE_TEXT[mode].pitch }),
+      ...HOW_TO[mode].map((s) => h('section', { class: 'mc-howto__sec' },
+        h('h3', { text: s.title }),
+        h('ul', {}, ...s.items.map((t) => h('li', { text: t }))))));
+    body.scrollTop = 0;
+  };
+  const tabs = radioGroup<GameMode>('Mode', MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name })), 'normal', render, 'mc-seg mc-seg--tabs');
+  const closeBtn = button('', { variant: 'icon', sfx: 'back', label: 'Close', icon: ICON.close, onClick: () => close() });
+
+  const el = h('div', { class: 'mc-howto', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mc-howto-h', hidden: true },
+    h('div', { class: 'mc-panel mc-panel--wide mc-howto__panel' },
+      h('header', { class: 'mc-panel__head' }, h('h2', { id: 'mc-howto-h', text: 'How it works' }), h('span', { class: 'mc-grow' }), closeBtn),
+      h('div', { class: 'mc-howto__tabs' }, tabs.el),
+      body,
+      h('footer', { class: 'mc-panel__foot' }, button('Got it', { variant: 'primary', onClick: () => close() }))));
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    }
+  });
+  el.addEventListener('click', (e) => {
+    if (e.target === el) close();
+  });
+
+  function close() {
+    if (el.hidden) return;
+    el.hidden = true;
+    behind?.removeAttribute('inert');
+    returnFocus?.focus({ preventScroll: true });
+  }
+
+  return {
+    el,
+    open(mode, b, r) {
+      behind = b;
+      returnFocus = r;
+      tabs.set(mode);
+      render(mode);
+      el.hidden = false;
+      b.setAttribute('inert', '');
+      requestAnimationFrame(() => closeBtn.focus({ preventScroll: true }));
+    },
+    close,
+    get isOpen() {
+      return !el.hidden;
+    },
+  };
+}

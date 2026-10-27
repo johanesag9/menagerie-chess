@@ -50,12 +50,12 @@ describe('settings', () => {
 
 describe('setup', () => {
   it('builds bot options with the bot on the other side', () => {
-    const o = toGameOptions({ opponent: 'bot', level: 5, side: 'sea', timeId: '5+0', weirdMode: true }, { initialMs: 300000, incrementMs: 0 }, undefined);
-    expect(o).toEqual({ opponent: { type: 'bot', level: 5, botSide: 'land' }, time: { initialMs: 300000, incrementMs: 0 }, weirdMode: true });
+    const o = toGameOptions({ mode: 'classic', opponent: 'bot', level: 5, side: 'sea', timeId: '5+0', weirdMode: true }, { initialMs: 300000, incrementMs: 0 }, undefined);
+    expect(o).toEqual({ mode: 'classic', opponent: { type: 'bot', level: 5, botSide: 'land' }, time: { initialMs: 300000, incrementMs: 0 }, weirdMode: true });
   });
 
   it('resolves a random side', () => {
-    const c = { opponent: 'bot' as const, level: 1 as const, side: 'random' as const, timeId: 'none', weirdMode: false };
+    const c = { mode: 'normal' as const, opponent: 'bot' as const, level: 1 as const, side: 'random' as const, timeId: 'none', weirdMode: false };
     const t = { initialMs: null, incrementMs: 0 };
     expect(toGameOptions(c, t, undefined, () => 0.1).opponent).toMatchObject({ botSide: 'sea' });
     expect(toGameOptions(c, t, undefined, () => 0.9).opponent).toMatchObject({ botSide: 'land' });
