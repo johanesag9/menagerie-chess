@@ -312,6 +312,7 @@ function emoteMats(): Record<EmoteKind, THREE.SpriteMaterial> {
 
 /** A speech bubble that pops in above the head, wobbles, and pops away. Returns a remover. */
 export function emoteBubble(obj: THREE.Object3D, kind: EmoteKind, y: number, hold = 1.4): () => void {
+  if (typeof document === 'undefined') return () => {};
   const mat = emoteMats()[kind].clone();
   const s = new THREE.Sprite(mat);
   s.center.set(0.45, 0.05);
