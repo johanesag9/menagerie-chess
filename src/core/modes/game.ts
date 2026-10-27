@@ -510,7 +510,7 @@ export class ModeGame implements GameController {
       emitAction = () => e.emit('bonked', { info: info! });
     } else if (action.type === 'move') {
       const m = toMove(s, action);
-      const san = sanOf(s, m, legalMoves(s));
+      const san = sanOf(s, m, legalMoves(s, undefined, m.to));
       const out = applyAction(s, action).move!;
       const result: MoveResult = { ...out, san, check: false, fenAfter: '' };
       record = { side: mover, kind: 'move', label: san };
@@ -678,9 +678,10 @@ export class ModeGame implements GameController {
   private snapshot(): ModeState {
     const s = this.s;
     const crazy = s.mode === 'crazy';
+    const live = new Set<string>();
+    for (const p of s.board) if (p) live.add(p.id);
     const side = (sd: Side) => {
       const m = s[sd];
-      const live = new Set(piecesOf(s).map((p) => p.id));
       const playable = crazy && !this.over && !this.duel && s.turn === sd && s.phase === 'action'
         ? m.hand.filter((c) => cardOptions(s, c).length > 0).map((c) => c.id)
         : [];

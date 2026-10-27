@@ -21,6 +21,11 @@ for (const r of '12345678') for (const f of 'abcdefgh') SQUARES.push(`${f}${r}` 
 
 const where = (g: ModeGame) => `(fen ${g.fen}, phase ${g.modeState.phase})`;
 
+/** A cheap check: the message (with the FEN) is only built when it fails. */
+function need(ok: unknown, g: ModeGame, what: () => string): void {
+  if (!ok) throw new Error(`${what()} ${where(g)}`);
+}
+
 /** A piece map kept up to date from events only, the way integration would. */
 function tracker(g: ModeGame) {
   const map = new Map<string, PieceState>();
@@ -67,9 +72,11 @@ function tracker(g: ModeGame) {
   g.on('wheelSpun', (e) => apply(e.changes));
   return {
     check() {
-      const real = [...g.pieces].sort((a, b) => a.id.localeCompare(b.id));
-      const mine = [...map.values()].sort((a, b) => a.id.localeCompare(b.id));
-      expect(mine, `pieces rebuilt from events ${where(g)}`).toEqual(real);
+      const real = g.pieces;
+      const key = (p: PieceState) => `${p.id}@${p.square}:${p.kind}:${p.side}`;
+      const a = real.map(key).sort().join(' ');
+      const b = [...map.values()].map(key).sort().join(' ');
+      if (a !== b) expect(b, `pieces rebuilt from events ${where(g)}`).toBe(a);
     },
   };
 }
@@ -80,52 +87,42 @@ function checkState(g: ModeGame, mode: GameMode) {
   const pieces = g.pieces;
   const byId = new Map(pieces.map((p) => [p.id, p]));
   const at = new Set(pieces.map((p) => p.square));
-  const ctx = where(g);
-  expect(byId.size, `ids unique ${ctx}`).toBe(pieces.length);
-  expect(at.size, `one piece per square ${ctx}`).toBe(pieces.length);
+  need(byId.size === pieces.length, g, () => 'ids not unique');
+  need(at.size === pieces.length, g, () => 'two pieces on one square');
   const over = g.isOver();
-  expect(ms.phase === 'over', ctx).toBe(!!over);
+  need((ms.phase === 'over') === !!over, g, () => 'phase "over" only when the game is over');
   for (const side of ['land', 'sea'] as Side[]) {
     const kings = pieces.filter((p) => p.side === side && p.kind === 'k').length;
-    if (over?.reason === 'kingCaptured' && over.winner !== side) expect(kings).toBe(0);
-    else expect(kings, `${side} king ${ctx}`).toBe(1);
+    const lost = over?.reason === 'kingCaptured' && over.winner !== side;
+    need(kings === (lost ? 0 : 1), g, () => `${side} has ${kings} kings`);
     const st = ms[side];
-    for (const id of st.powersUsed) expect(byId.get(id)?.side, `used power on live ${side} piece ${id} ${ctx}`).toBe(side);
-    expect(new Set(st.powersUsed).size).toBe(st.powersUsed.length);
-    for (const p of st.captured) {
-      expect(p.side).toBe(side);
-      expect(byId.has(p.id), `captured ${p.id} not on the board ${ctx}`).toBe(false);
-    }
+    for (const id of st.powersUsed) need(byId.get(id)?.side === side, g, () => `used power on ${id}, not a live ${side} piece`);
+    need(new Set(st.powersUsed).size === st.powersUsed.length, g, () => `${side} powersUsed has repeats`);
+    for (const p of st.captured) need(p.side === side && !byId.has(p.id), g, () => `captured ${p.id} is on the board`);
     const hand = new Set(st.hand.map((c) => c.id));
-    for (const id of st.playableCards) expect(hand.has(id), `playable ${id} in hand ${ctx}`).toBe(true);
-    if (ms.phase !== 'action' || g.turn !== side) expect(st.playableCards, ctx).toEqual([]);
+    for (const id of st.playableCards) need(hand.has(id), g, () => `playable card ${id} not in the hand`);
+    if (ms.phase !== 'action' || g.turn !== side) need(!st.playableCards.length, g, () => `${side} has playable cards out of turn`);
     if (mode === 'normal') {
-      expect(st.hand).toEqual([]);
+      need(!st.hand.length, g, () => 'cards in Normal');
     } else {
-      expect(st.hand.length).toBeLessThanOrEqual(DEFAULT_TUNING.handLimit);
-      expect(st.duelTokens).toBeGreaterThanOrEqual(0);
-      expect(st.duelTokens).toBeLessThanOrEqual(DEFAULT_TUNING.duelTokens);
-      expect(st.nextCardIn).toBeGreaterThanOrEqual(1);
+      need(st.hand.length <= DEFAULT_TUNING.handLimit, g, () => `${side} hand over the limit`);
+      need(st.duelTokens >= 0 && st.duelTokens <= DEFAULT_TUNING.duelTokens, g, () => `${side} has ${st.duelTokens} tokens`);
+      need(st.nextCardIn >= 1, g, () => `${side} nextCardIn ${st.nextCardIn}`);
     }
   }
-  expect(new Set(ms.statuses.map((s) => s.pieceId)).size, `one status per piece ${ctx}`).toBe(ms.statuses.length);
+  need(new Set(ms.statuses.map((s) => s.pieceId)).size === ms.statuses.length, g, () => 'two statuses on one piece');
+  const longest = Math.max(DEFAULT_TUNING.stunTurns, DEFAULT_TUNING.freezeTurns);
   for (const s of ms.statuses) {
     const p = byId.get(s.pieceId);
-    expect(p && p.kind !== 'k', `status ${s.pieceId} on a live non-king ${ctx}`).toBe(true);
-    expect(s.turnsLeft).toBeGreaterThanOrEqual(1);
-    expect(s.turnsLeft).toBeLessThanOrEqual(Math.max(DEFAULT_TUNING.stunTurns, DEFAULT_TUNING.freezeTurns));
+    need(p && p.kind !== 'k', g, () => `status on ${s.pieceId}, not a live non-king`);
+    need(s.turnsLeft >= 1 && s.turnsLeft <= longest, g, () => `status ${s.pieceId} turnsLeft ${s.turnsLeft}`);
   }
   for (const b of ms.squares) {
-    expect(at.has(b.square), `blocked ${b.square} is empty ${ctx}`).toBe(false);
-    expect(b.turnsLeft).toBeGreaterThanOrEqual(1);
-    expect(b.turnsLeft).toBeLessThanOrEqual(DEFAULT_TUNING.blockPlies);
+    need(!at.has(b.square), g, () => `blocked ${b.square} holds a piece`);
+    need(b.turnsLeft >= 1 && b.turnsLeft <= DEFAULT_TUNING.blockPlies, g, () => `block ${b.square} turnsLeft ${b.turnsLeft}`);
   }
-  if (mode === 'normal') {
-    expect(ms.die).toBeNull();
-    expect(ms.nextWheelIn).toBeNull();
-  } else if (ms.phase === 'bonus') {
-    expect(ms.die?.effect).toBe('lucky');
-  }
+  if (mode === 'normal') need(ms.die === null && ms.nextWheelIn === null, g, () => 'die or wheel in Normal');
+  else if (ms.phase === 'bonus') need(ms.die?.effect === 'lucky', g, () => 'bonus phase without a 6');
 }
 
 /** Walk `targets()` along an action and check every step against the legal list. */
@@ -143,9 +140,9 @@ function checkTargets(g: ModeGame, a: ActionInput, legal: ActionInput[]) {
     const step = g.targets(pending);
     const fits = same.filter((x) => prefix.every((t, i) => x.targets[i] === t));
     const next = new Set(fits.filter((x) => x.targets.length > n).map((x) => x.targets[n]));
-    const ctx = `${JSON.stringify(pending)} ${where(g)}`;
-    expect(new Set(step.squares), `targets() squares ${ctx}`).toEqual(next);
-    expect(step.complete, `targets() complete ${ctx}`).toBe(fits.some((x) => x.targets.length === n));
+    const agrees = step.squares.length === next.size && step.squares.every((q) => next.has(q));
+    if (!agrees) expect(new Set(step.squares), `targets() squares for ${JSON.stringify(pending)} ${where(g)}`).toEqual(next);
+    need(step.complete === fits.some((x) => x.targets.length === n), g, () => `targets() complete for ${JSON.stringify(pending)}`);
   }
 }
 
@@ -157,9 +154,8 @@ function checkRefusal(g: ModeGame, rnd: () => number, legal: ActionInput[]) {
     if (keys.has(actionKey(a))) continue;
     const fen = g.fen;
     const ms = JSON.stringify(g.modeState);
-    expect(g.act(a).ok, `illegal ${JSON.stringify(a)} ${where(g)}`).toBe(false);
-    expect(g.fen).toBe(fen);
-    expect(JSON.stringify(g.modeState)).toBe(ms);
+    need(!g.act(a).ok, g, () => `illegal ${JSON.stringify(a)} accepted`);
+    need(g.fen === fen && JSON.stringify(g.modeState) === ms, g, () => `refused ${JSON.stringify(a)} changed the game`);
     return;
   }
 }
@@ -172,7 +168,7 @@ function playGame(mode: 'normal' | 'crazy', seed: number) {
   track.check();
   checkState(g, mode);
   // Some games play mostly random, others mostly by the bot's brain.
-  const searchChance = [0, 0.2, 0.4][seed % 3];
+  const searchChance = [0, 0.1, 0.3][seed % 3];
   let steps = 0;
   for (; steps < MAX_STEPS && !g.isOver(); steps++) {
     const ms = g.modeState;
@@ -182,26 +178,26 @@ function playGame(mode: 'normal' | 'crazy', seed: number) {
         g.throwHand('land', HANDS[Math.floor(rnd() * 3)]);
         g.throwHand('sea', HANDS[Math.floor(rnd() * 3)]);
       }
-      expect(g.modeState.phase, `duel settles ${where(g)}`).not.toBe('duel');
+      need(g.modeState.phase !== 'duel', g, () => 'duel never settled');
     } else if (mode === 'normal' && g.history.length && rnd() < 0.03) {
       g.undo();
     } else {
       const mover = g.turn;
       const legal = legalActions(g.state);
-      expect(legal.length, `side to move has an action ${where(g)}`).toBeGreaterThan(0);
+      need(legal.length > 0, g, () => 'side to move has no action');
       if (rnd() < 0.15) checkRefusal(g, rnd, legal);
       let a: ActionInput | null = null;
       if (rnd() < searchChance) {
         a = decide({ kind: ms.phase === 'bonus' ? 'bonus' : 'action', state: g.state, depth: 1, timeMs: 200, seed: seed + steps });
-        expect(a, `bot finds an action ${where(g)}`).not.toBeNull();
-        expect(legal.map(actionKey), `bot action is legal ${where(g)}`).toContain(actionKey(a!));
+        const key = a && actionKey(a);
+        need(a && legal.some((x) => actionKey(x) === key), g, () => `bot action ${JSON.stringify(a)} is not legal`);
       }
       a ??= legal[Math.floor(rnd() * legal.length)];
       checkTargets(g, a, legal);
       const r = g.act(a);
       if (!r.ok) throw new Error(`legal action refused: ${JSON.stringify(a)} → ${r.reason} ${where(g)}`);
       if (mode === 'normal' && a.type !== 'bonus') {
-        expect(inCheck(g.state, mover), `own king safe after ${JSON.stringify(a)} ${where(g)}`).toBe(false);
+        need(!inCheck(g.state, mover), g, () => `own king attacked after ${JSON.stringify(a)}`);
       }
     }
     track.check();

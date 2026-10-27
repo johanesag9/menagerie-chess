@@ -197,7 +197,7 @@ function safeAfter(s: MState, apply: (c: MState) => void): boolean {
 
 export function legalMoves(s: MState, from?: number, to?: number): Move[] {
   let ms = pseudoMoves(s, s.turn);
-  if (from !== undefined) ms = ms.filter((m) => m.from === from && (to === undefined || m.to === to));
+  if (from !== undefined || to !== undefined) ms = ms.filter((m) => (from === undefined || m.from === from) && (to === undefined || m.to === to));
   if (s.mode === 'crazy') return ms;
   return ms.filter((m) => safeAfter(s, (c) => applyMove(c, m)));
 }
@@ -974,7 +974,7 @@ export function positionKey(s: MState): string {
 
 const LETTER: Record<PieceKind, string> = { p: '', n: 'N', b: 'B', r: 'R', q: 'Q', k: 'K' };
 
-/** SAN without the check suffix, worked out before the move is applied. */
+/** SAN without the check suffix, worked out before the move is applied. `legal` needs at least the legal moves to the same square. */
 export function sanOf(s: MState, m: Move, legal: Move[]): string {
   if (m.castle) return m.castle === 'k' ? 'O-O' : 'O-O-O';
   const p = s.board[m.from]!;

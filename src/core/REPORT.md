@@ -50,7 +50,7 @@
 4. All the defaults in GAME_SPEC "Defaults in the mode rules" are in the tuning file, including "Tide pulls Sea back too" (off).
 
 ## Known issues
-- `npm test` now takes about 30s on a quiet laptop, mostly the Normal fuzz games. On a very busy machine, Classic's slow tests (random-games id check, bot game) can hit their own time limits; they pass when run alone.
+- The fuzz games add about 25s of CPU time to `npm test` (two files that run side by side). On a very busy machine, two of Classic's time-limited tests (the random-games id check and the bot game) can time out. They did here at load average 70–130, even when run alone; they don't touch the new code.
 - The bot at levels 7–8 rarely finishes depth 4 within 1.5s; it plays its depth-3 answer then.
 - Undo doesn't rewind the Weird Mode countdown (same as Classic; harmless).
 - The demo board squares are 43px at 390px wide, just under the 44px touch target. It's a dev tool.
