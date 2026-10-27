@@ -3,18 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Core demo · Menagerie Chess</title>
+    <title>Core playtest · Menagerie Chess</title>
     <link rel="stylesheet" href="./demo.css" />
   </head>
   <body>
     <header class="top">
-      <h1>Core demo</h1>
+      <h1>Core playtest</h1>
       <p class="note">Dev tool. Flat 2D board with emoji stand-ins, not the real game look.</p>
     </header>
 
     <main class="layout">
       <section class="play" aria-label="Board">
         <div class="clock" id="clock-top"></div>
+        <div class="modebar" id="bar-top" hidden></div>
         <div class="board-wrap">
           <div class="board" id="board" role="grid" aria-label="Chess board"></div>
           <div class="promo" id="promo" hidden>
@@ -22,14 +23,40 @@
             <div class="promo-row" id="promo-row"></div>
             <button type="button" class="ghost" id="promo-cancel">Cancel</button>
           </div>
+          <div class="overlay" id="overlay" hidden></div>
+          <div class="banner" id="banner" hidden></div>
           <div class="toast" id="toast" hidden></div>
         </div>
+        <div class="modebar" id="bar-bottom" hidden></div>
         <div class="clock" id="clock-bottom"></div>
         <p class="status" id="status" aria-live="polite"></p>
+        <div class="prompt" id="prompt" hidden>
+          <span id="prompt-text"></span>
+          <span class="prompt-buttons">
+            <button type="button" class="primary" id="prompt-go" hidden>Go</button>
+            <button type="button" id="prompt-cancel">Cancel</button>
+          </span>
+        </div>
+        <div class="lucky" id="lucky" hidden>
+          <span>🍀 Lucky 6! Take a bonus first?</span>
+          <span class="lucky-buttons">
+            <button type="button" id="lucky-recharge">Recharge a power</button>
+            <button type="button" id="lucky-step">Pawn steps forward</button>
+            <button type="button" class="ghost" id="lucky-skip">Skip</button>
+          </span>
+        </div>
+        <div class="selection" id="selection" hidden></div>
+        <ol class="story" id="story" aria-label="What happened, newest first" aria-live="polite"></ol>
       </section>
 
       <section class="panel" aria-label="Controls">
         <form id="setup" class="setup">
+          <fieldset class="modes wide">
+            <legend>Mode</legend>
+            <label><input type="radio" name="mode" value="classic" /> Classic</label>
+            <label><input type="radio" name="mode" value="normal" checked /> Normal</label>
+            <label><input type="radio" name="mode" value="crazy" /> Crazy</label>
+          </fieldset>
           <label>Opponent
             <select id="opponent">
               <option value="local">Local 2-player</option>
@@ -54,7 +81,10 @@
               <option value="900000+10000">15+10</option>
             </select>
           </label>
-          <label class="check"><input type="checkbox" id="weird" /> Weird Mode</label>
+          <label>Seed (optional)
+            <input id="seed" type="text" inputmode="numeric" autocomplete="off" placeholder="Random" />
+          </label>
+          <label class="check" id="weird-wrap"><input type="checkbox" id="weird" /> Weird Mode</label>
           <label class="wide">Start from FEN (optional)
             <input id="fen" type="text" spellcheck="false" autocomplete="off" placeholder="Leave empty for the normal start" />
           </label>
@@ -69,17 +99,25 @@
           <button type="button" id="flip">Flip board</button>
           <button type="button" id="copy-fen">Copy FEN</button>
           <label class="check"><input type="checkbox" id="show-ids" /> Show piece ids</label>
-          <label class="check"><input type="checkbox" id="sim-anim" /> Fake 0.6s move animation (pause/resume)</label>
+          <label class="check"><input type="checkbox" id="sim-anim" /> Fake 0.6s animations (pause/resume)</label>
         </div>
 
         <div class="emotes" id="emotes" aria-label="Send emote"></div>
 
+        <details>
+          <summary>Tuning (Normal and Crazy, applies to new games)</summary>
+          <div class="tuning" id="tuning"></div>
+          <div class="actions">
+            <button type="button" class="primary" id="tuning-apply">Apply and start a new game</button>
+            <button type="button" id="tuning-reset">Back to defaults</button>
+          </div>
+        </details>
         <details open>
           <summary>Moves</summary>
           <ol class="moves" id="moves"></ol>
         </details>
-        <details open>
-          <summary>Events (newest first)</summary>
+        <details>
+          <summary>Raw events (newest first)</summary>
           <ul class="log" id="log"></ul>
         </details>
         <p class="legend" id="legend"></p>
