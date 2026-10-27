@@ -9,6 +9,8 @@ import { FINISH, SLOTS, type Finish, type Slot, type SlotTable } from './materia
 import type { AnimalDef } from './animals/common';
 
 const F = FINISH;
+/** A softer glow than FINISH.glow, so neon accents keep their colour instead of clipping to white. */
+const NEON: Finish = { r: 0.35, m: 0, c: 0.6, e: 0.55 };
 
 export const TEAM: Record<Side, { base: string; rim: string }> = {
   land: { base: '#f3e3c3', rim: '#d9a441' },
@@ -108,16 +110,16 @@ export const PALETTES: Record<Side, Palette[]> = {
   sea: [
     { id: 'lagoon', name: 'Lagoon', swatch: '#2fa7a0' },
     {
-      id: 'abyss', name: 'Abyss', swatch: '#1a1f4a',
+      id: 'abyss', name: 'Abyss', swatch: '#2c1f50',
       apply: (t) => ({
-        ...twoTone(t, '#12163a', '#2a3a7a', F.gloss, '#1d2558'),
-        light: { color: '#5ef2ff', finish: F.glow },
-        extra2: { color: '#ff5ee8', finish: F.glow },
-        accent: { color: '#5ef2ff', finish: F.glow },
-        iris: { color: '#7dffef', finish: { r: 0.1, m: 0, c: 1, e: 1.4 } },
-        cheek: { color: '#ff5ee8', finish: F.glow },
+        ...twoTone(t, '#1a1230', '#46307a', F.gloss, '#2c1f50'),
+        light: { color: '#3fd8ff', finish: NEON },
+        extra2: { color: '#ff4fd8', finish: NEON },
+        accent: { color: '#3fd8ff', finish: NEON },
+        iris: { color: '#5effe0', finish: { r: 0.1, m: 0, c: 1, e: 0.9 } },
+        cheek: { color: '#ff4fd8', finish: NEON },
         gold: { color: '#c9d6ff', finish: F.metal },
-        pink: { color: '#ff5ee8', finish: F.glow },
+        pink: { color: '#ff4fd8', finish: NEON },
       }),
     },
     {

@@ -174,7 +174,23 @@ rmBtn.onclick = () => { cast.setReducedMotion(!cast.reducedMotion); rmBtn.setAtt
 $('skip').onclick = () => cast.skipAll();
 $('reset').onclick = () => { table.rotation.y = 0; buildLineup(); pick(pieceSel.value); };
 const panel = $('panel');
-$('toggle').onclick = () => panel.classList.toggle('closed');
+/** On phones the panel is a bottom sheet: shift the view up so the pieces sit above it. */
+function layout(refit = false) {
+  const narrow = innerWidth <= 640;
+  const cover = narrow ? panel.getBoundingClientRect().height : 0;
+  renderer.setSize(innerWidth, innerHeight);
+  if (refit) fitCamera();
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  if (cover > 0) camera.setViewOffset(innerWidth, innerHeight, 0, cover * 0.5, innerWidth, innerHeight);
+  else camera.clearViewOffset();
+}
+if (innerWidth <= 640) panel.classList.add('closed');
+$('toggle').onclick = () => {
+  panel.classList.toggle('closed');
+  $('toggle').setAttribute('aria-expanded', String(!panel.classList.contains('closed')));
+  layout();
+};
 
 /** Pause the turntable and ease it back to the front for actions. */
 async function frontTable() {
@@ -288,11 +304,8 @@ const fpsEl = $('fps');
 let frames = 0, fpsT = 0;
 const timer = new THREE.Timer();
 const shakeOff = new THREE.Vector3();
-addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-});
+addEventListener('resize', () => layout(true));
+layout();
 
 async function start() {
   await cast.preload(renderer, scene, camera);
@@ -351,4 +364,4 @@ Object.assign(window as object, {
 start();
 
 // Handy for poking at things from the console.
-Object.assign(window as object, { cast, lineup, table, camera });
+Object.assign(window as object, { cast, lineup, table, camera, controls });
