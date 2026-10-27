@@ -275,6 +275,7 @@ export function mouths(rig: Rig, head: string, o: MouthOpts) {
   const w = o.w;
   const tube = Math.max(0.006, w * 0.2);
   const f = rig.frame(head, o.p, o.r ?? [0, 0, 0]);
+  f.name = 'mouthFrame';
   const smile = rig.bone('mSmile', f);
   const neutral = o.neutral ?? 'smile';
   if (neutral === 'flat') rig.add(smile, C(tube, w * 1.4, 3, 6), dark, [0, 0, 0], [0, 0, Math.PI / 2]);
