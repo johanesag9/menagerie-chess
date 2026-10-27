@@ -46,11 +46,7 @@ export interface ShorelineWorld extends World {
   /** null = follow the OS setting (prefers-reduced-motion). */
   setReducedMotion(reduced: boolean | null): void;
   readonly reducedMotion: boolean;
-  playIntro(): Promise<void>;
-  skipIntro(): void;
   readonly stats: WorldStats;
-  /** The scene camera, e.g. for projecting a piece position to the screen. Don't move it yourself. */
-  readonly camera: THREE.PerspectiveCamera;
 }
 
 export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
@@ -123,7 +119,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   let dirty = true;
   let elapsed = 0;
   let introStarted = false;
-  let introSkipped = false;
+  let introSkipped = opts.autoIntro === false;
   let fps = 60;
   const timer = new THREE.Timer();
   timer.connect(document);
@@ -172,6 +168,8 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     },
     squareSize: SQUARE,
     camera,
+    renderer,
+    scene,
     pieceLayer: board.pieceLayer,
     squareToWorld(square: Square) {
       const { x, y, z } = squareToXZ(square);
@@ -216,6 +214,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       return reducedMotion();
     },
     playIntro() {
+      introStarted = true;
       return rig.intro();
     },
     skipIntro() {

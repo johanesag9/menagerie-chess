@@ -2,8 +2,10 @@
  * Shared contracts between the four build streams (core, world, cast, ui/audio).
  * Owned by the orchestrator. Sessions read these; they do not edit them.
  * Need a change? Note it in your session report and the orchestrator updates it.
+ *
+ * Phase 2 (2026-10-27): added the extras the streams asked for in their reports.
  */
-import type { Object3D, Vector3 } from 'three';
+import type { Camera, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 
 // ---------- Chess basics ----------
 
@@ -48,6 +50,8 @@ export interface MoveResult {
   /** Present when castling: the rook's move. */
   rookMove?: { pieceId: PieceId; from: Square; to: Square };
   promotion?: PieceKind;
+  /** Present on promotion: the id of the new piece (the pawn's id is gone from then on). */
+  promotedId?: PieceId;
   check: boolean;
   fenAfter: string;
 }
@@ -93,13 +97,14 @@ export type WeirdEventKind =
   | 'fog'           // cosmetic: fog rolls in, distant squares hazy for the mover's opponent
   | 'gravityHop'    // cosmetic: all pieces bounce
   | 'pigeonPeek'    // cosmetic: a pigeon lands on a random piece and leaves
-  | 'tideSwap'      // cosmetic: board colours swap land/sea theme briefly
+  | 'tideSwap'      // cosmetic: water rises over the beach squares briefly
   | 'disco';        // cosmetic: lights go party mode for one turn
 
 export interface WeirdEvent {
   kind: WeirdEventKind;
   /** Squares the effect focuses on, if any. */
   squares?: Square[];
+  /** A hint only: the world plays each effect for a fixed time (about 1.3–8s). */
   durationTurns: number;
 }
 
@@ -171,12 +176,17 @@ export interface HighlightSet {
 
 export interface World extends EventSource<WorldEventMap> {
   readonly quality: QualityTier;
-  /** Centre of a square on the board surface, in world space. */
+  /**
+   * Centre of a square on the board surface, with the board at rest. The board sits at the origin,
+   * so this is also the position inside `pieceLayer`: use it for piece positions there.
+   * For a live world-space point (the board may tilt or hop), use `pieceLayer.localToWorld(...)`.
+   */
   squareToWorld(square: Square): Vector3;
   /** Size of one square in world units (pieces scale to this). */
   readonly squareSize: number;
-  /** Root that pieces get added to. */
+  /** Root that pieces get added to. Picking ignores objects with `userData.noPick = true` (or under such a parent). */
   readonly pieceLayer: Object3D;
+  /** Fields you leave out keep their current value; pass null or [] to clear one. */
   setHighlights(h: HighlightSet): void;
   /** Turn the camera to face the given side (local 2-player hand-off). */
   faceSide(side: Side, animate?: boolean): Promise<void>;
@@ -187,12 +197,25 @@ export interface World extends EventSource<WorldEventMap> {
   /** Register a per-frame callback (dt in seconds). */
   onFrame(fn: (dt: number, elapsed: number) => void): Unsubscribe;
   setPaused(paused: boolean): void;
+  setQuality(q: QualityTier): void;
+  setCoordinatesVisible(visible: boolean): void;
+  /** null = follow the OS setting (prefers-reduced-motion). */
+  setReducedMotion(reduced: boolean | null): void;
+  /** The camera fly-in (about 2.5s). Any click, key or wheel skips it. */
+  playIntro(): Promise<void>;
+  skipIntro(): void;
+  /** Read-only access for shader warm-up (`cast.preload`) and screen projection. Don't move the camera yourself. */
+  readonly renderer: WebGLRenderer;
+  readonly scene: Scene;
+  readonly camera: PerspectiveCamera;
   dispose(): void;
 }
 
 export interface WorldOptions {
   container: HTMLElement;
   quality?: QualityTier; // default: auto-detect
+  /** Play the intro fly-in on the first frame. Default true. Pass false and call `playIntro()` yourself. */
+  autoIntro?: boolean;
 }
 
 // ---------- Session C: cast ----------
@@ -225,15 +248,46 @@ export interface PieceActor {
   celebrate(): Promise<void>;
   emote(e: EmoteKind): void;
   setSkin(skin: SkinChoice): void;
+  /** Jump any running action or emote to its end ("every animation can be skipped by clicking"). */
+  skip(): void;
   dispose(): void;
 }
 
-export interface Cast {
+export interface SkinCatalog {
+  palettes: { id: string; name: string; swatch: string }[];
+  accessories: { id: string; name: string }[];
+}
+
+/** Moments integration hooks camera shake, punch-ins and sounds to. `at` is world space, intensity 0..1 (0 under reduced motion). */
+export interface CastEventMap {
+  /** A heavy footstep (elephant). */
+  stomp: { id: PieceId; at: Vector3; intensity: number };
+  /** An attack connects. */
+  impact: { id: PieceId; victimId: PieceId; at: Vector3; intensity: number };
+  /** A piece lands at the end of a move. */
+  land: { id: PieceId; at: Vector3; intensity: number };
+  /** A defeated piece vanishes in a poof. */
+  poof: { id: PieceId; at: Vector3; intensity: number };
+}
+
+/**
+ * Board facing: rank 1 is at +Z. Land pieces face -Z (yaw PI), Sea pieces +Z (yaw 0); `createPiece` sets this.
+ * Add `actor.object` to `world.pieceLayer` (unscaled) before animating; the actor sets its own scale.
+ * `moveTo`/`lookAt` take world-space points.
+ * Capture flow: `await attacker.attack(victim); victim.defeat(attacker); await attacker.moveTo(square);`,
+ * then `victim.dispose()` once `defeat` resolves (defeat removes it from the board but doesn't free it).
+ */
+export interface Cast extends EventSource<CastEventMap> {
   createPiece(state: PieceState, skin?: SkinChoice): PieceActor;
   /** Skins the UI can offer, per side. */
-  listSkins(side: Side): { palettes: { id: string; name: string; swatch: string }[]; accessories: { id: string; name: string }[] };
+  listSkins(side: Side): SkinCatalog;
   /** Display names, e.g. ('sea','n') -> 'Seahorse'. */
   displayName(side: Side, kind: PieceKind): string;
+  setReducedMotion(on: boolean): void;
+  /** Compile every animal and effect shader up front so the first reveal doesn't hitch. */
+  preload(renderer: WebGLRenderer, scene: Scene, camera: Camera): Promise<void>;
+  /** `skip()` on every live piece. */
+  skipAll(): void;
 }
 
 export interface CastOptions {
@@ -282,6 +336,12 @@ export interface Ui extends EventSource<UiEventMap> {
   askPromotion(side: Side): Promise<Exclude<PieceKind, 'p' | 'k'>>;
   showResult(result: GameOver): void;
   showEmote(side: Side, emote: EmoteKind): void;
+  /** The real skin list from the cast (until called, Customize shows a stand-in list). */
+  setSkinCatalog(side: Side, catalog: SkinCatalog): void;
+  /** Tell the HUD about a game the setup screen didn't start (names, clocks, bot side). Also resets the HUD. */
+  setGameInfo(options: GameOptions): void;
+  /** A friendly error line, e.g. when core rejects a FEN. */
+  showError(message: string): void;
   dispose(): void;
 }
 

@@ -66,6 +66,7 @@ function spawn(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Mat
   m.position.copy(at);
   m.scale.setScalar(scale);
   m.castShadow = false;
+  m.userData.noPick = true; // effects float off their piece; never pick them as a square
   parent.add(m);
   return m;
 }

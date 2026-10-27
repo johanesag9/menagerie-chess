@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import gsap from 'gsap';
-import type { EmoteKind, PieceActor, PieceId, PieceKind, PieceState, QualityTier, Side, SkinChoice } from '../contracts/types';
+import type { CastEventMap, EmoteKind, PieceActor, PieceId, PieceKind, PieceState, QualityTier, Side, SkinChoice } from '../contracts/types';
 import { applySlotTable, createSlotMaterial, type SlotUniforms } from './material';
 import { instantiate } from './kit';
 import { getTemplate, type AnimalTemplate } from './roster';
@@ -53,16 +53,7 @@ export interface Face {
 
 // ---------- events ----------
 
-export interface CastEventMap {
-  /** A heavy footstep (elephant). Hook for camera shake. Intensity 0..1 (0 under reduced motion). */
-  stomp: { id: PieceId; at: THREE.Vector3; intensity: number };
-  /** An attack connects. */
-  impact: { id: PieceId; victimId: PieceId; at: THREE.Vector3; intensity: number };
-  /** A piece lands at the end of a move. */
-  land: { id: PieceId; at: THREE.Vector3; intensity: number };
-  /** A defeated piece vanishes in a poof. */
-  poof: { id: PieceId; at: THREE.Vector3; intensity: number };
-}
+export type { CastEventMap };
 export type Emit = <K extends keyof CastEventMap>(name: K, payload: CastEventMap[K]) => void;
 
 interface BoneRec { name: string; b: THREE.Bone; p: THREE.Vector3; r: THREE.Euler; s: THREE.Vector3 }
