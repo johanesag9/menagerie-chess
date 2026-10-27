@@ -1,7 +1,7 @@
 /** Builds and caches one rig template per animal. The body is scaled so each animal hits its target height. */
 import * as THREE from 'three';
-import type { PieceKind, Side } from '../contracts/types';
-import { PEDESTAL_H, Rig, type RigTemplate } from './kit';
+import type { PieceKind, QualityTier, Side } from '../contracts/types';
+import { PEDESTAL_H, Rig, detail, type RigTemplate } from './kit';
 import { LAND } from './animals/land';
 import { SEA } from './animals/sea';
 import type { AnimalDef, Anchor } from './animals/common';
@@ -20,13 +20,19 @@ export const KINDS: PieceKind[] = ['p', 'n', 'b', 'r', 'q', 'k'];
 
 const cache = new Map<string, AnimalTemplate>();
 
-export function getTemplate(side: Side, kind: PieceKind): AnimalTemplate {
-  const key = side + kind;
+/** `low` quality builds with ~60% of the segments (for phones). */
+export function getTemplate(side: Side, kind: PieceKind, quality: QualityTier = 'high'): AnimalTemplate {
+  const key = side + kind + quality;
   const hit = cache.get(key);
   if (hit) return hit;
   const def = ROSTER[side][kind];
   const rig = new Rig();
-  def.build(rig);
+  detail.k = quality === 'low' ? 0.6 : 1;
+  try {
+    def.build(rig);
+  } finally {
+    detail.k = 1;
+  }
   rig.root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(rig.root, true);
   const scale = (def.targetHeight - PEDESTAL_H) / Math.max(0.05, box.max.y - PEDESTAL_H);

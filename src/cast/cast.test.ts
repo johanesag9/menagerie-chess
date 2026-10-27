@@ -50,6 +50,15 @@ describe('roster', () => {
     expect(t.rig.vertexCount).toBeLessThan(40000);
   });
 
+  it('the low quality tier builds lighter meshes', () => {
+    for (const s of SIDES) for (const k of KINDS) {
+      const hi = getTemplate(s, k).rig.vertexCount;
+      const lo = getTemplate(s, k, 'low').rig.vertexCount;
+      expect(lo).toBeLessThan(hi * 0.8);
+      expect(getTemplate(s, k, 'low').height).toBe(getTemplate(s, k).height);
+    }
+  });
+
   it('kings and queens are the tallest, pawns the shortest', () => {
     for (const s of SIDES) {
       const h = (k: PieceKind) => getTemplate(s, k).height;

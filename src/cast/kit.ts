@@ -12,19 +12,25 @@ export type V3 = [number, number, number];
 
 // ---------- primitives (low-ish segment counts: 32 pieces share these, but skinning is per vertex) ----------
 
-export const S = (r: number, w = 20, h = 14) => new THREE.SphereGeometry(r, w, h);
-export const HS = (r: number, w = 20, h = 8) => new THREE.SphereGeometry(r, w, h, 0, Math.PI * 2, 0, Math.PI / 2);
-export const C = (r: number, len: number, cap = 5, radial = 12) => new THREE.CapsuleGeometry(r, len, cap, radial);
+/** Segment multiplier while building (the 'low' quality tier builds with fewer segments). */
+export const detail = { k: 1 };
+const d = (n: number, min = 3) => Math.max(min, Math.round(n * detail.k));
+
+export const S = (r: number, w = 20, h = 14) => new THREE.SphereGeometry(r, d(w, 6), d(h, 4));
+export const HS = (r: number, w = 20, h = 8) => new THREE.SphereGeometry(r, d(w, 6), d(h, 3), 0, Math.PI * 2, 0, Math.PI / 2);
+export const C = (r: number, len: number, cap = 5, radial = 12) => new THREE.CapsuleGeometry(r, len, d(cap, 2), d(radial, 6));
 export const Cy = (rt: number, rb: number, h: number, seg = 18, open = false, ts = 0, tl = Math.PI * 2) =>
-  new THREE.CylinderGeometry(rt, rb, h, seg, 1, open, ts, tl);
-export const Co = (r: number, h: number, seg = 12) => new THREE.ConeGeometry(r, h, seg);
-export const T = (r: number, tube: number, arc = Math.PI * 2, rs = 8, ts = 24) => new THREE.TorusGeometry(r, tube, rs, ts, arc);
+  new THREE.CylinderGeometry(rt, rb, h, d(seg, 6), 1, open, ts, tl);
+export const Co = (r: number, h: number, seg = 12) => new THREE.ConeGeometry(r, h, d(seg, 5));
+export const T = (r: number, tube: number, arc = Math.PI * 2, rs = 8, ts = 24) => new THREE.TorusGeometry(r, tube, d(rs, 4), d(ts, 6), arc);
 export const Box = (w: number, h: number, d: number, r = 0.01) => new RoundedBoxGeometry(w, h, d, 2, r);
 export const Tube = (pts: V3[], r: number, seg = 24, radial = 8) =>
   new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p))), seg, r, radial);
 /** Tapered tube: radius goes from r0 to r1 along the curve, with round end caps. */
 export function Taper(pts: V3[], r0: number, r1: number, seg = 20, radial = 8): THREE.BufferGeometry {
   const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p)));
+  seg = d(seg, 4);
+  radial = d(radial, 5);
   const tube = new THREE.TubeGeometry(curve, seg, 1, radial);
   const pos = tube.attributes.position;
   const frames = curve.computeFrenetFrames(seg, false);

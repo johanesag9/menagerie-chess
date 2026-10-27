@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import gsap from 'gsap';
-import type { EmoteKind, PieceActor, PieceId, PieceKind, PieceState, Side, SkinChoice } from '../contracts/types';
+import type { EmoteKind, PieceActor, PieceId, PieceKind, PieceState, QualityTier, Side, SkinChoice } from '../contracts/types';
 import { applySlotTable, createSlotMaterial, type SlotUniforms } from './material';
 import { instantiate } from './kit';
 import { getTemplate, type AnimalTemplate } from './roster';
@@ -115,13 +115,13 @@ export class Actor implements PieceActor {
   private clock = 0;
   private struck = false;
 
-  constructor(state: PieceState, skin: SkinChoice | undefined, private emitFn: Emit, squareSize: number) {
+  constructor(state: PieceState, skin: SkinChoice | undefined, private emitFn: Emit, squareSize: number, quality: QualityTier = 'high') {
     this.id = state.id;
     this.side = state.side;
     this.kind = state.kind;
-    this.tpl = getTemplate(state.side, state.kind);
+    this.tpl = getTemplate(state.side, state.kind, quality);
     this.style = STYLES[state.side][state.kind];
-    this.material = createSlotMaterial(paletteTable(this.tpl.def, skin?.palette));
+    this.material = createSlotMaterial(paletteTable(this.tpl.def, skin?.palette), quality === 'low');
     this.u = this.material.userData.u;
     if (this.side === 'land') this.u.uRim.value.set(1, 0.86, 0.55, 0.12);
     else this.u.uRim.value.set(0.55, 0.97, 1, 0.12);

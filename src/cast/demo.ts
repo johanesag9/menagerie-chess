@@ -92,7 +92,10 @@ table.add(disc);
 
 // ---------- cast ----------
 
-const cast = createCast({ squareSize: SQ, quality: isPhone ? 'low' : 'high' });
+// Quality: 'low' on phones; force with ?q=low or ?q=high.
+const qParam = new URLSearchParams(location.search).get('q');
+const quality = qParam === 'low' || qParam === 'high' ? qParam : isPhone ? 'low' : 'high';
+const cast = createCast({ squareSize: SQ, quality });
 const skins: Record<Side, SkinChoice> = { land: {}, sea: {} };
 const lineup = new Map<string, Actor>();
 const homes = new Map<string, THREE.Vector3>();
@@ -364,4 +367,4 @@ Object.assign(window as object, {
 start();
 
 // Handy for poking at things from the console.
-Object.assign(window as object, { cast, lineup, table, camera, controls });
+Object.assign(window as object, { cast, lineup, table, camera, controls, renderer });

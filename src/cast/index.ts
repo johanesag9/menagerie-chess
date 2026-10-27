@@ -46,7 +46,7 @@ export function createCast(opts: CastOptions): CastWithExtras {
 
   return {
     createPiece(state, skin) {
-      const a = new Actor(state, skin, emit, opts.squareSize);
+      const a = new Actor(state, skin, emit, opts.squareSize, opts.quality);
       actors.add(a);
       const dispose = a.dispose.bind(a);
       a.dispose = () => { actors.delete(a); dispose(); };
@@ -65,16 +65,17 @@ export function createCast(opts: CastOptions): CastWithExtras {
     setReducedMotion,
     get reducedMotion() { return motion.reduced; },
     async preload(renderer, scene, camera) {
+      const lite = opts.quality === 'low';
       const tmp = new THREE.Group();
       tmp.position.set(0, -500, 0);
       for (const side of ['land', 'sea'] as const) {
         for (const k of KINDS) {
-          const t = getTemplate(side, k);
-          tmp.add(instantiate(t.rig, createSlotMaterial(paletteTable(t.def, undefined))).mesh);
+          const t = getTemplate(side, k, opts.quality);
+          tmp.add(instantiate(t.rig, createSlotMaterial(paletteTable(t.def, undefined), lite)).mesh);
         }
       }
       // A non-skinned mesh with the slot material too (accessories use it).
-      const acc = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), createSlotMaterial(paletteTable(getTemplate('land', 'p').def, undefined)));
+      const acc = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), createSlotMaterial(paletteTable(getTemplate('land', 'p', opts.quality).def, undefined), lite));
       acc.geometry.setAttribute('slot', new THREE.BufferAttribute(new Float32Array(acc.geometry.attributes.position.count), 1));
       tmp.add(acc);
       for (const m of fxMaterials()) {

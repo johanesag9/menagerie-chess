@@ -44,14 +44,15 @@ export interface SlotUniforms {
 
 const PROGRAM_KEY = 'cast-slot-v1';
 
-export function createSlotMaterial(table: SlotTable): THREE.MeshPhysicalMaterial & { userData: { u: SlotUniforms } } {
+/** `lite` drops the clearcoat layer (cheaper pixels, for the 'low' quality tier). */
+export function createSlotMaterial(table: SlotTable, lite = false): THREE.MeshPhysicalMaterial & { userData: { u: SlotUniforms } } {
   const u: SlotUniforms = {
     uSlotColor: { value: SLOTS.map(() => new THREE.Color()) },
     uSlotMat: { value: SLOTS.map(() => new THREE.Vector4()) },
     uFlash: { value: 0 },
     uRim: { value: new THREE.Vector4(1, 0.92, 0.8, 0.18) },
   };
-  const m = new THREE.MeshPhysicalMaterial({ roughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.4 });
+  const m = new THREE.MeshPhysicalMaterial({ roughness: 0.5, clearcoat: lite ? 0 : 1, clearcoatRoughness: 0.4 });
   m.userData.u = u;
   applySlotTable(m as never, table);
   m.onBeforeCompile = (shader) => {
@@ -76,7 +77,7 @@ vec4 sMat = uSlotMat[ sIdx ];
 vec4 diffuseColor = vec4( uSlotColor[ sIdx ], opacity );`,
       )
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nroughnessFactor = sMat.x;\nmetalnessFactor = sMat.y;')
-      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\nmaterial.clearcoat = sMat.z;')
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n#ifdef USE_CLEARCOAT\nmaterial.clearcoat = sMat.z;\n#endif')
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
