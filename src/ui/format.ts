@@ -70,8 +70,8 @@ export type ListRow =
   | { type: 'move'; n: number; land?: string; sea?: string }
   | { type: 'log'; n: number; record: ActionRecord };
 
-/** Lines that end a player's turn (bonus and wheel happen inside a turn). */
-const TURN_KINDS: ActionRecord['kind'][] = ['move', 'power', 'card', 'pass', 'bonk'];
+/** Lines that belong to their side's turn (the wheel has no side; a bonus opens its side's turn). */
+const TURN_KINDS: ActionRecord['kind'][] = ['move', 'power', 'card', 'pass', 'bonk', 'bonus'];
 
 /**
  * Rows for the move list. Moves pair up as in Classic ("1. e4 e5"); a log line sits between them on its own

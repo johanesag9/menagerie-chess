@@ -4,7 +4,8 @@
  */
 import { Chess, type Move } from 'chess.js';
 import { ALL_CUES, createAudio, measureCue, type CueLevel } from '../audio';
-import type { AudioCue, EmoteKind, GameOptions, MoveFlag, MoveResult, PieceKind, Side, WeirdEventKind } from '../contracts/types';
+import type { AudioCue, DieValue, EmoteKind, GameOptions, MoveFlag, MoveResult, PieceKind, Side, WeirdEventKind, WheelOutcome } from '../contracts/types';
+import { FakeMode, addModeControls } from './demoModes';
 import { createUi, type MenagerieUi } from './index';
 
 // ---------- Stand-in board ----------
@@ -59,10 +60,18 @@ class FakeGame {
   private paused = false;
   private over = false;
   private opts: GameOptions | null = null;
+  /** Normal/Crazy: fake mode state (powers, cards, die, wheel). Moves still come from chess.js. */
+  private fm: FakeMode | null = null;
+  private rolledFor = -1;
+  private gen = 0;
 
   start(opts: GameOptions): void {
     this.stop();
+    this.gen++;
     this.opts = opts;
+    this.rolledFor = -1;
+    this.fm = opts.mode && opts.mode !== 'classic' ? new FakeMode(ui, opts.mode, this.botSide() ? other(this.botSide()!) : null) : null;
+    ui.setModeState(null);
     this.over = false;
     this.paused = false;
     try {
@@ -76,6 +85,7 @@ class FakeGame {
     this.running = opts.time.initialMs === null ? null : side(this.chess.turn());
     ui.setGameInfo(opts);
     ui.setTurn(side(this.chess.turn()));
+    this.fm?.push();
     ui.setClocks(this.ms.land, this.ms.sea, this.running);
     audio.play('gameStart');
     this.clockTimer = window.setInterval(() => this.tick(), 100);
@@ -83,6 +93,7 @@ class FakeGame {
   }
 
   stop(): void {
+    this.gen++;
     window.clearTimeout(this.stepTimer);
     window.clearInterval(this.clockTimer);
     this.running = null;
@@ -105,6 +116,11 @@ class FakeGame {
     if (this.over) return;
     if (this.paused) return this.schedule(400);
     const mover = side(this.chess.turn());
+    // Crazy: the wheel (when due) and the fate die come before each turn.
+    if (this.fm?.crazy && this.rolledFor !== this.history.length) {
+      this.rolledFor = this.history.length;
+      return void this.turnStart(mover);
+    }
     if (mover === this.botSide() && !this.thinking) {
       this.thinking = true;
       ui.setBotThinking(true);
@@ -128,6 +144,11 @@ class FakeGame {
     const r = toResult(m);
     this.history.push(r);
     ui.addMove(r);
+    if (this.fm) {
+      if (r.captured) this.fm.captured(r.captured);
+      this.fm.endTurn(r.side);
+      this.fm.push();
+    }
     audio.play(r.captured ? 'capture' : r.flags.some((f) => f.startsWith('castle')) ? 'castle' : r.side === 'land' ? 'moveLand' : 'moveSea');
     if (this.opts?.time.initialMs != null) this.ms[r.side]! += this.opts.time.incrementMs;
 
@@ -148,6 +169,37 @@ class FakeGame {
   }
 
   private thinking = false;
+
+  private async turnStart(mover: Side): Promise<void> {
+    const fm = this.fm!;
+    const g = this.gen;
+    if (mover === 'land' && fm.st.nextWheelIn === 0) {
+      const w = (['tide', 'pigeon', 'earthquake', 'disco'] as WheelOutcome[])[Math.floor(Math.random() * 4)];
+      await ui.spinWheel(w);
+      if (g !== this.gen) return;
+      ui.addLog({ side: null, kind: 'wheel', label: `Wheel: ${w[0].toUpperCase()}${w.slice(1)}` });
+      fm.st.nextWheelIn = 5;
+      fm.push();
+    }
+    if (fm.st[mover].nextCardIn === 1 && fm.st[mover].hand.length < 3) {
+      const c = fm.draw(mover);
+      await ui.showCardDrawn(mover, c);
+      if (g !== this.gen) return;
+      fm.push();
+    }
+    const v = (1 + Math.floor(Math.random() * 6)) as DieValue;
+    const effect = v === 1 ? 'banana' : v === 6 ? 'lucky' : 'none';
+    await ui.rollDie(mover, v, effect);
+    if (g !== this.gen) return;
+    fm.st.die = { value: v, effect };
+    fm.push();
+    if (v === 6 && mover !== this.botSide()) {
+      const c = await ui.askLucky(mover, { canRecharge: fm.st[mover].powersUsed.length > 0, canStep: true });
+      if (g !== this.gen) return;
+      ui.addLog({ side: mover, kind: 'bonus', label: c === 'skip' ? 'Lucky: skipped' : c === 'recharge' ? 'Lucky: recharge' : 'Lucky: pawn step' });
+    }
+    this.schedule(250);
+  }
 
   private end(result: { winner: Side | null; reason: 'checkmate' | 'stalemate' | 'insufficient' | 'threefold' | 'fiftyMove' | 'agreement' | 'timeout' | 'resign' }): void {
     this.over = true;
@@ -182,6 +234,12 @@ class FakeGame {
     }
     ui.resetMoves();
     this.history.forEach((m) => ui.addMove(m));
+    if (this.fm) {
+      this.fm.st.land.captured = [];
+      this.fm.st.sea.captured = [];
+      this.history.forEach((m) => m.captured && this.fm!.captured(m.captured));
+      this.fm.push();
+    }
     const t = side(this.chess.turn());
     if (this.running) this.running = t;
     ui.setTurn(t);
@@ -217,7 +275,7 @@ function note(name: string, payload: unknown) {
   log.length = Math.min(log.length, 8);
   logEl.replaceChildren(...log.map((l) => Object.assign(document.createElement('li'), { textContent: l })));
 }
-(['startGame', 'promotionChosen', 'emote', 'undo', 'resign', 'rematch', 'settingsChanged', 'screenChanged'] as const).forEach((n) => ui.on(n, (p) => note(n, p)));
+(['startGame', 'promotionChosen', 'emote', 'undo', 'resign', 'rematch', 'settingsChanged', 'screenChanged', 'powerRequested', 'cardRequested', 'cancelAction'] as const).forEach((n) => ui.on(n, (p) => note(n, p)));
 ui.on('startGame', (o) => game.start(o));
 ui.on('rematch', () => game.options && game.start(game.options));
 ui.on('undo', () => game.undo());
@@ -298,6 +356,8 @@ btn(fake, '▶ Start fake game', () => {
   ui.startGame(DEMO_OPTS);
 });
 btn(fake, 'Local 2-player', () => ui.startGame({ ...DEMO_OPTS, opponent: { type: 'local' }, time: { initialMs: null, incrementMs: 0 } }));
+btn(fake, 'Normal vs bot', () => ui.startGame({ ...DEMO_OPTS, mode: 'normal' }));
+btn(fake, 'Crazy vs bot', () => ui.startGame({ ...DEMO_OPTS, mode: 'crazy', weirdMode: false }));
 btn(fake, 'Low clock', () => game.lowClock());
 btn(fake, 'Stop', () => game.stop());
 
@@ -319,6 +379,8 @@ btn(results, 'You win', () => ui.showResult({ winner: game.options?.opponent.typ
 btn(results, 'Bot wins', () => ui.showResult({ winner: game.options?.opponent.type === 'bot' ? game.options.opponent.botSide : 'sea', reason: 'timeout' }));
 btn(results, 'Stalemate', () => ui.showResult({ winner: null, reason: 'stalemate' }));
 btn(results, 'Draw: threefold', () => ui.showResult({ winner: null, reason: 'threefold' }));
+
+addModeControls(ui, section, btn, note, () => game.stop());
 
 const music = section('Music');
 (['title', 'game', 'tense', 'none'] as const).forEach((t) => btn(music, t, () => audio.setMusic(t)));
