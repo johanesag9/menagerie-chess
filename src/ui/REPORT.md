@@ -1,78 +1,86 @@
 # ui + audio stream report
 
-Status: **done for Phase 1** (2026-10-26). Branch `claude/stream-ui-414e96`.
+Status: **Phase 3 done** (2026-10-27), branch `claude/p3-ui-518806`. Phase 1 work is unchanged (summary at the end).
 
-## What's done
+## What's done (Phase 3: Normal and Crazy)
 
-**UI (`src/ui/`)**: `createUi(root, audio)` in `index.ts`. Plain TypeScript and CSS, no framework, no new packages.
-- **Title**: a big wordmark with bouncing letters, "Land vs Sea", and Play, Customize, Settings. The name lives in one place: `GAME_NAME` in `config.ts`.
-- **Setup**: opponent (Bot or Friend on the same device), 8 bot levels with fun names (Sleepy Snail to Grandmaster Kraken), play as Land, Sea or Random, the 5 time controls, a Weird Mode switch, and an "Advanced" FEN box with a basic shape check. It remembers your last choices.
-- **HUD**: two player cards on the top and bottom edges. Each card has the king's face, the name, a turn glow, bot "thinking" dots, a clock (gold for Land, teal for Sea, red and pulsing under 20s), and a captured tray with animal icons and a "+3" lead. There's a collapsible move list in SAN (open by default on wide screens), an emote picker (6 emotes) with speech bubbles by the cards, an undo button and a pause button. The middle stays clear for the board.
-- **Promotion picker**: `askPromotion(side)` returns a promise. It shows 4 big animal choices and also takes the Q/R/B/N keys. You must pick one (Esc does nothing).
-- **Check banner**, **Weird Mode toast** (one line per event kind), and an **error line** (an extra, see contract requests).
-- **Result**: "You win!" / "Sly Fox wins" / "Land wins!" / "Stalemate!", with the reason, confetti on wins, and Rematch, New game and Title.
-- **Customize**: Land/Sea tabs, palette swatches, accessory chips, and a rough preview of all 6 animals in the chosen palette.
-- **Settings**: music and effects volume, quality (Auto/High/Low), reduced motion, board coordinates, and "reset to defaults".
-- **Pause**: Resume, Undo, Settings, Customize, Resign and Quit. Resign and Quit ask "are you sure?" first.
-- **Feel**: every screen change animates (a springy pop-in, a quick fade-out). Buttons have hover and press states and play hover/click/back sounds. The reduced motion setting turns animations into short fades.
-- **Access**: every control is 44px or more. Focus rings show for keyboard use. Tab stays inside open dialogs, Esc goes back (game ↔ pause, settings → back), arrow keys work in option groups, and a hidden live region reads out moves, check and results.
-- **Settings persistence**: `localStorage` key `menagerie.settings.v1`, with every read and write in try/catch. Bad or old saves get cleaned up, not crashed on. The default for reduced motion follows the system setting.
-- **Animal icons**: 12 flat faces drawn in SVG code (`icons.ts`). First-pass art, see the open questions.
-- **Tests** (`ui.test.ts`, 10): settings round-trip, junk and blocked storage, setup → GameOptions (incl. random side), FEN shape check, clock format, capture tally with promotions, move numbering.
+**Setup**
+- Three big mode cards (Classic, Normal, Crazy), each with a one-line pitch. The choice goes into `GameOptions.mode` and is remembered.
+- A "How it works" sheet with the rules in plain words, one tab per mode. The text follows GAME_SPEC "Game modes" and lives in `modeText.ts`.
+- Weird Mode is hidden in Crazy, and Crazy always sends `weirdMode: false`.
 
-**Audio (`src/audio/`)**: done in the earlier session. This session added:
-- A **level check**: `measureCue()` in `levels.ts` renders a cue offline and measures its peak and loudness. The demo has a "Check levels" button.
-- **Per-cue trims** (`TRIM` in `cues.ts`), set from that check. Before, cue loudness spread over about 18 dB (crab clicks -28, horse neigh -10). Now the voices and emotes sit at -16 dB (the crab is the exception, about -23, because its clicks are spiky). Board sounds are at about -20, captures -15, fanfares -13 to -18, clicks -26, hover -36 and the clock tick -28. No peak goes above -2 dBFS, and there's a compressor on the master too.
+**HUD (`setModeState`)**
+- A strip by each player card: a face per piece kind with "powers left" (greyed at 0), duel tokens (3 dots), and the other side's cards as small suit chips.
+- A chip in the top bar: "Round 4 · Wheel in 2 · Card in 2" and the current die face. Normal shows the round only.
+- The card hand: a fan of big cards at the bottom. Vs the bot it's your hand; in a local game it's the side to move. A card is greyed unless its id is in `playableCards`. Tapping emits `cardRequested`, and the card stays lit until the prompt clears.
+- The captured trays now come from `captured` in the mode state, so pigeons, double jumps and revives show up right.
+- No undo button in Crazy (HUD and pause menu).
+- `setModeState(null)` hides all of it. Classic looks as before.
 
-**Who plays which sound** (for integration):
-- The UI plays its own control sounds, `clockLow` (every second under 10s), and the cue for whatever it shows: `check`, `weird`, `checkmate`/`draw` on the result, and `emote:*`.
-- Integration plays the board sounds (moves, captures, select, castle, promote, voices), because they need to match the animations.
-- The UI picks the music: `title` on menus and the result screen, `game` in play, and `tense` when a running clock drops under 30s (back to calm above 45s).
-- The UI calls `audio.unlock()` on the first tap or key press.
+**Selection, prompt and move list**
+- `setSelection`: the piece, its power name, a one-line rule, and a big "Use Double jump" button (emits `powerRequested`). If it can't be used, it says why: Used, Stunned, Frozen, No target, Not your turn.
+- `setPrompt`: a violet aiming bar with Cancel. Esc cancels too. Both emit `cancelAction`.
+- `addLog`: power, card, bonus, bonk, wheel and pass lines sit between the moves, with an icon and a side colour. Round numbers stay right.
 
-**What the UI does by itself**: Start (setup) and Rematch reset the HUD and switch to the game screen, then emit `startGame` / `rematch`. "Quit to title" just shows the title, so integration should treat `screenChanged: title` from a game as quitting. `screenChanged: pause` means pause the game.
+**Overlays.** Shows can be skipped with a tap or Space/Enter/Esc. Questions take focus, keep Tab inside, have key shortcuts, and fit at 390px.
+- `rollDie`: a 3D die tumbles and lands. It calls "BANANA PEEL!" or "LUCKY!" with one line of what that means; 2–5 is a quiet number. About 1.2–1.7s.
+- `askLucky`: Recharge, Pawn step, or Skip. An option that can't be used is greyed with the reason. Keys 1, 2, Esc.
+- `showCardDrawn`: the card flips in, then flies to that side's hand. `showCardPlayed`: it flies from the hand to the middle, flips big, and shows its effect. A joker shakes to a drumroll, then flips to the outcome (Party, Teleport, Butterfingers, Double).
+- `askRevive`: one button per captured animal kind ("Crab ×3"), plus Cancel (returns null).
+- `askDuel`: "Sea's Crab wants to bonk your Dachshund!", both faces, tokens left, Duel / Let it go. Keys Y and N; Esc means no.
+- `askThrow`: three big hands (keys R, P, S). With `hotSeat`, an opaque cover first says "Sea, take the device. Land, look away!", then shows the picker, then "Locked in!". The cover stays up between two throws in a row.
+- `showDuelRound`: both hands slam in, the winner grows and the loser greys. It calls "You win the throw!" or "Tie! Again!".
+- `spinWheel`: a four-slice wheel spins about 1.9s and ticks on every peg. It stops on the result and shows one line of what happens.
+- "King in danger!" replaces "Check!" in Crazy.
+- Result: `kingCaptured` reads "Land wins by bonking the king.", with the loser's king lying dizzy.
+- Reduced motion: every show becomes a short fade.
+
+**Audio.** All 29 new cues are synthesized; nothing is downloaded. They are level-matched to the old ones with the level check (trims in `cues.ts`). No peak goes above −3 dBFS.
+
+**Who plays which sound**
+- **The UI plays:** dieRoll, dieBanana, dieLucky, cardDraw, cardPlay, joker, duelCall (when *you* call a duel), duelThrow, duelWin and duelLose (from your side; always "win" in local games), wheelSpin (one tick per peg), wheelStop, and check for "King in danger!".
+- **Integration plays,** timed with the board: `power:*`, bonk, `chaos:*` (with `world.playChaos`), stun, freeze, block, revive, slip, recharge, and duelCall when the bot calls.
+
+**Notes for integration**
+- `addLog` ignores records of kind `'move'`; use `addMove` for moves. To rebuild after an undo: `resetMoves()`, then walk `game.log`. For each `'move'` record, `addMove` the next `history` entry; for anything else, `addLog`.
+- `showResult` gives any open question its default answer and clears the prompt and selection.
+- Rematch from the result screen resets the mode HUD. Send the `modeState` from the new game again.
+- `setSelection` with `power: null` (Classic) shows nothing.
+
+**Tests** (`ui.test.ts`, now 17): mode saved and loaded, Crazy turns Weird Mode off, move-list rows with log lines (round numbers, "1. … e5" rows), trays from the mode state, power counts (exact and guessed), id parsing, and that every Phase 3 cue has a sound.
 
 ## How to run the demo
-1. Start the `ui-demo` launch config (port 4414; it moves to 4415 if 4414 is busy).
-2. Open `/src/ui/demo.html`.
-3. Click the **Demo controls** tab on the left edge. It has:
-   - buttons for every screen
-   - **▶ Start fake game**: a bot game with 3+2 clocks (running 4× fast) and Weird Mode on. It plays Morphy's Opera Game through chess.js: castling, checks, captures, then mate.
-   - **Local 2-player**
-   - **Low clock**: drops the clock to 12s so you hear the tick and the tense music
-   - single events: check, weird, emotes, bot thinking, promotion for each side, error line
-   - each result type
-   - the music tracks
-   - a **sound board** with all 35 cues
-   - the **level table**
-   - a log of the UI events
+1. Start the `ui-demo` launch config (port 4414, or 4415 if that's busy) and open `/src/ui/demo.html`.
+2. Open the **Demo controls** tab on the left. New sections:
+   - **Fake game:** "Normal vs bot" and "Crazy vs bot". These play chess.js moves with fake mode state. In Crazy you get the wheel, card draws and a die roll before every turn, and the lucky question on your 6s.
+   - **Mode HUD:** quiet game screens at round 4 (Normal, Crazy, Crazy 2-player, wheel due).
+   - **Selection and prompt:** each power state.
+   - **Move-list lines**, **Fate die**, **Cards** (every suit and joker outcome, revive), **Duels** (ask, throws, hot seat, round results), **Wheel of Chaos** (all four), **King in danger** and **Result: king bonked**.
+   - **▶ Crazy turn** (vs bot or 2 players): wheel, card draw, die, lucky, Land moves, Sea's Crab attacks, duel (you answer, then throw), and Land plays the joker. You answer the questions yourself.
+   - The **sound board** has every new cue.
+3. The board is a CSS stand-in, not the real world. The mode state is fake demo data that follows the spec's numbers (1 card to start, 3 tokens, a card every 3rd own turn, the wheel at round 6). It is not core: no power actually changes the board.
 
-You can also play through the real screens: Play → Start game runs the fake game with your setup choices. Undo, resign, emotes and rematch all work.
-
-Everything behind the UI is a **stand-in**: a flat CSS board, not the real world. It's labelled on the page.
-
-Checked: no console errors. Every control is 44px or more and nothing scrolls sideways, at 1024px and at 390px. Focus rings, the Tab trap and Esc work. Settings survive a reload.
+Checked in headless Chrome at 1280×800 and 390×844: no console errors, nothing scrolls sideways, and Classic looks as before. Keys, Esc-to-cancel, skipping and reduced motion work.
 
 ## Contract requests
-1. **Skins**: the Ui can't get the skin list. Add `Ui.setSkinCatalog(side, cast.listSkins(side))`, or pass the `Cast` to `createUi`. *Workaround*: `MenagerieUi.setSkinCatalog()` exists. Until it's called, Customize uses a stand-in list based on the cast stream's plan (Meadow, Porcelain, Candy, Gilded / Lagoon, Abyss, Coral, Pearl, plus 6 accessories). Those ids are guesses.
-2. **Errors**: the Ui has no way to show an error, e.g. when core rejects a FEN. Add `Ui.showError(message)`. *Workaround*: `MenagerieUi.showError()` exists.
-3. **Game info**: if integration starts a game without the Ui's setup screen, the HUD doesn't know the options (names, clocks, which side is the bot). Add `Ui.setGameInfo(options)`. *Workaround*: `MenagerieUi.setGameInfo()` exists. It also resets the HUD.
-4. (New, small) **Names**: the UI keeps its own animal names in `config.ts`, copied from the spec roster. If the cast's `displayName()` should be the only source of names, pass it in the same way as the skins.
-
-To use the extras, integration can do `const ui = createUi(root, audio) as MenagerieUi` (exported from `src/ui/index.ts`).
+1. **Live pieces for the HUD.** `ModeState` has no pieces, so "powers left per kind" has to guess from the standard start minus captures. A promoted piece reads as a pawn. Ask: add `pieces: PieceState[]` to `ModeState`, or a `Ui.setPieces(pieces)`. *Workaround:* `MenagerieUi.setPieces()` exists. Call it after each move and use the exact counts.
+2. **Animal kinds in `DuelInfo`.** It has only ids, so the duel question reads the kind from `setPieces`, or else from the id (wrong for promoted pieces). Ask: add `attackerKind` and `victimKind`.
+3. **Earthquake direction.** `spinWheel(outcome)` doesn't get `direction`, so the line says "shifts one file sideways". Ask: `spinWheel(outcome, direction?)`.
 
 ## Open design questions for Johanes
-- **Animal icons** are my first-pass SVG faces. Should they become proper drawn icons, or small renders of the 3D animals later?
-- **Emotes** use system emoji (😂 😍 😲 😜 😠 😴), so they look a bit different on each device. Keep them, or draw our own?
-- **Bot names** (Sleepy Snail … Grandmaster Kraken): are you happy with these?
-- **Card positions**: vs the bot, you're at the bottom. In local games Land is always at the bottom, even if the camera turns to face Sea. Should the cards swap when the camera turns?
-- **Move list** is open by default on wide screens and closed on phones. OK?
-- **Customize preview** just tints the face icons toward the swatch colour. The real look only shows on the board.
-- **Sounds**: I balanced them by numbers, but nobody has listened to them yet. The animal voices are synth sketches and may want recorded samples later (none downloaded). Please listen on the sound board.
-- **Music volume vs effects**: music sits at 55% of effects at equal slider settings. It hasn't been level-checked against them yet.
+- **Bot's cards** show face up in its strip (the rules don't say hands are secret). Keep, or show card backs?
+- **The big hand:** yours vs the bot. In 2-player games it's the side to move's hand, and the other side's shows small. OK?
+- **Hands and wheel icons** use system emoji (✊ ✋ ✌️, 🌊 🐦 🌋 🪩), like the emotes. Draw our own later?
+- **Timings:** the die takes about 1.7s on a 1 or 6, the wheel about 3s including its result line, and a joker about 2.6s. Each covers the middle only briefly and any tap skips it. Too long or too short?
+- **Key hints** (Y, N, 1, 2, R, P, S) also show on phones. Hide them on touch?
+- **Names:** the UI says "Dachshund" (roster), while the power table calls it the pup. Fine?
+- **Sounds:** balanced by numbers only, not yet heard. Please try the sound board.
 
 ## Known issues
-- The music tracks haven't been measured by the level check: it only renders effects. They have only been checked in code.
-- In the demo, if the window starts wide and then shrinks to phone size, the move list stays open (it only picks its default once at start).
-- `quality` and `showCoordinates` are only saved and emitted (`settingsChanged`). The world stream has to act on them.
-- FEN check is a basic shape check. Core does the real one and should report failures through `showError`.
+- The high-pass noise in `synth.ts` can spike at random when a sound starts. I found it on the freeze crackle and switched that one to band-pass. Older cues that use high-pass noise (clicks, capture, promote) may rarely play a louder tick; the master compressor softens it.
+- "Powers left" is a guess until `setPieces` is called (see contract request 1).
+- When the browser tab is hidden, the CSS animations pause, but every overlay's promise still resolves on a timer. Nothing hangs.
+- From Phase 1, still true: the music isn't level-checked, and `quality`/`showCoordinates` are only saved and emitted.
+
+## Phase 1 (unchanged)
+Title, setup, HUD (cards, clocks, captured trays, move list, emotes, undo, pause), promotion picker, check banner, Weird Mode toast, error line, result, customize, settings and pause. Every control is 44px or more, with focus rings, Tab traps, Esc to go back, and a live region for screen readers. Settings are saved in `localStorage`. There are 35 synthesized cues plus music, and the level check.

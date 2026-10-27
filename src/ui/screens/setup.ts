@@ -1,13 +1,21 @@
-import type { BotLevel, Side } from '../../contracts/types';
+import type { BotLevel, GameMode, Side } from '../../contracts/types';
 import { BOT_LEVELS, TIME_CONTROLS } from '../config';
 import type { UiCtx, View } from '../ctx';
 import { button, h, radioGroup, toggle } from '../dom';
 import { animalIcon } from '../icons';
+import { MODES, MODE_TEXT } from '../modeText';
+import { howToSheet } from './howto';
 import { checkFen, loadSetup, saveSetup, toGameOptions, type SetupChoice } from '../settings';
 
 export function setupScreen(ctx: UiCtx): View {
   const choice: SetupChoice = loadSetup(ctx.store, TIME_CONTROLS.map((t) => t.id));
   const save = () => saveSetup(ctx.store, choice);
+
+  const mode = radioGroup<GameMode>('Mode',
+    MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name, sub: MODE_TEXT[m].pitch, html: MODE_TEXT[m].icon })),
+    choice.mode, (v) => { choice.mode = v; save(); syncMode(); }, 'mc-modes');
+  const howTo = howToSheet();
+  const howBtn = button('How it works', { variant: 'ghost', class: 'mc-btn--sm', onClick: () => howTo.open(choice.mode, panel, howBtn) });
 
   const opponent = radioGroup<'bot' | 'local'>('Opponent', [
     { value: 'bot', label: 'Bot', sub: 'Play the computer', html: '🤖' },
@@ -50,6 +58,11 @@ export function setupScreen(ctx: UiCtx): View {
     botBlock.hidden = choice.opponent !== 'bot';
   }
   syncBot();
+  // Crazy has the Wheel of Chaos instead of Weird Mode.
+  function syncMode() {
+    weird.el.hidden = choice.mode === 'crazy';
+  }
+  syncMode();
 
   const start = button('Start game', { variant: 'primary', onClick: () => {
     const raw = fenInput.value.trim();
@@ -68,18 +81,19 @@ export function setupScreen(ctx: UiCtx): View {
     ctx.startGame(toGameOptions(choice, t.time, raw || undefined));
   } });
 
-  const el = h('section', { class: 'mc-screen mc-menu', 'aria-labelledby': 'mc-setup-h' },
-    h('div', { class: 'mc-panel mc-panel--wide' },
-      h('header', { class: 'mc-panel__head' },
-        button('', { variant: 'icon', sfx: 'back', label: 'Back', icon: '←', onClick: () => ctx.show('title') }),
-        h('h2', { id: 'mc-setup-h', text: 'New game' })),
-      h('div', { class: 'mc-panel__body' },
-        h('h3', { class: 'mc-label', text: 'Opponent' }), opponent.el,
-        botBlock,
-        h('h3', { class: 'mc-label', text: 'Time' }), time.el,
-        weird.el,
-        fen),
-      h('footer', { class: 'mc-panel__foot' }, start)));
+  const panel = h('div', { class: 'mc-panel mc-panel--wide' },
+    h('header', { class: 'mc-panel__head' },
+      button('', { variant: 'icon', sfx: 'back', label: 'Back', icon: '←', onClick: () => ctx.show('title') }),
+      h('h2', { id: 'mc-setup-h', text: 'New game' })),
+    h('div', { class: 'mc-panel__body' },
+      h('div', { class: 'mc-label-row' }, h('h3', { class: 'mc-label', text: 'Mode' }), howBtn), mode.el,
+      h('h3', { class: 'mc-label', text: 'Opponent' }), opponent.el,
+      botBlock,
+      h('h3', { class: 'mc-label', text: 'Time' }), time.el,
+      weird.el,
+      fen),
+    h('footer', { class: 'mc-panel__foot' }, start));
+  const el = h('section', { class: 'mc-screen mc-menu', 'aria-labelledby': 'mc-setup-h' }, panel, howTo.el);
 
-  return { el, focusTarget: () => start };
+  return { el, focusTarget: () => start, onShow: () => howTo.close() };
 }

@@ -8,13 +8,15 @@
  */
 import './styles.css';
 import type {
-  ActionRecord, AudioEngine, DieEffect, DieValue, EmoteKind, Hand, ModeState, PieceId, SelectionInfo, GameOptions, GameOver, MoveResult, PieceKind, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent,
+  ActionRecord, AudioEngine, Card, DieEffect, DieValue, DuelInfo, EmoteKind, GameEventMap, Hand, JokerOutcome, ModeState, PieceId, PieceState, SelectionInfo, GameOptions, GameOver,
+  MoveResult, PieceKind, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent, WheelOutcome,
 } from '../contracts/types';
 import type { CreateUi } from '../contracts/factories';
 import { Emitter } from '../contracts/emitter';
 import { FALLBACK_SKINS, type SkinCatalog } from './config';
 import type { UiCtx, View } from './ctx';
 import { focusables, h } from './dom';
+import { Chaos } from './screens/chaos';
 import { Hud } from './screens/hud';
 import { customizeScreen, settingsScreen } from './screens/options';
 import { PromotionPicker, ResultView, pauseScreen } from './screens/overlays';
@@ -49,6 +51,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   private layer: HTMLElement;
   private views: Record<Screen, View>;
   private hud: Hud;
+  private chaos: Chaos;
   private result: ResultView;
   private promo: PromotionPicker;
   private errorEl: HTMLElement;
@@ -76,6 +79,8 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.hud.onTrack = (t) => {
       if (this.current === 'game' || this.current === 'pause') audio.setMusic(t);
     };
+    this.chaos = new Chaos(this, { kindOf: (id) => this.hud.mode.kindOf(id), handRect: (side) => this.hud.mode.handRect(side) });
+    this.hud.el.append(this.chaos.el);
     this.result = new ResultView(this);
     this.promo = new PromotionPicker(this);
     this.views = {
@@ -139,7 +144,10 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     if (screen === 'settings' || screen === 'customize') {
       if (from !== 'settings' && from !== 'customize') this.returnTo = from === 'game' ? 'pause' : (from ?? 'title');
     }
-    if (screen === 'title' || screen === 'setup') this.inGame = false;
+    if (screen === 'title' || screen === 'setup') {
+      this.inGame = false;
+      this.chaos.reset();
+    }
     if (screen === 'game') this.inGame = true;
     // Rematch / new game from the result screen: start clean.
     if (screen === 'game' && from === 'result') this.hud.reset(this._gameInfo);
@@ -200,6 +208,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   }
 
   showResult(result: GameOver): void {
+    this.chaos.reset(); // an open question gets its default answer; the game is over
+    this.hud.mode.setPrompt(null);
+    this.hud.mode.setSelection(null);
     this.result.set(result);
     this.show('result');
   }
@@ -211,6 +222,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   dispose(): void {
     this.cleanup.forEach((f) => f());
     this.hud.dispose();
+    this.chaos.dispose();
     this.promo.dispose();
     this.layer.remove();
     this.clear();
@@ -242,20 +254,64 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.errorEl.dataset.t = String(window.setTimeout(() => (this.errorEl.hidden = true), 4000));
   }
 
-  // ---------- Phase 3 stubs (orchestrator, so main typechecks). The ui session replaces these. ----------
-  setModeState(_state: ModeState | null): void {}
-  addLog(_record: ActionRecord): void {}
-  setSelection(_sel: SelectionInfo | null): void {}
-  setPrompt(_text: string | null): void {}
-  rollDie(_side: Side, _value: DieValue, _effect: DieEffect): Promise<void> { return Promise.resolve(); }
-  askLucky(): Promise<'recharge' | 'pawnStep' | 'skip'> { return Promise.resolve('skip'); }
-  showCardDrawn(): Promise<void> { return Promise.resolve(); }
-  showCardPlayed(): Promise<void> { return Promise.resolve(); }
-  askRevive(): Promise<PieceId | null> { return Promise.resolve(null); }
-  askDuel(): Promise<boolean> { return Promise.resolve(false); }
-  askThrow(): Promise<Hand> { return Promise.resolve('rock'); }
-  showDuelRound(): Promise<void> { return Promise.resolve(); }
-  spinWheel(): Promise<void> { return Promise.resolve(); }
+  // ---------- Phase 3: game modes ----------
+
+  setModeState(state: ModeState | null): void {
+    this.hud.setModeState(state);
+  }
+
+  addLog(record: ActionRecord): void {
+    this.hud.addLog(record);
+  }
+
+  setSelection(sel: SelectionInfo | null): void {
+    this.hud.mode.setSelection(sel);
+  }
+
+  setPrompt(text: string | null): void {
+    this.hud.mode.setPrompt(text);
+  }
+
+  rollDie(side: Side, value: DieValue, effect: DieEffect): Promise<void> {
+    return this.chaos.rollDie(side, value, effect);
+  }
+
+  askLucky(side: Side, opts: { canRecharge: boolean; canStep: boolean }): Promise<'recharge' | 'pawnStep' | 'skip'> {
+    return this.chaos.askLucky(side, opts);
+  }
+
+  showCardDrawn(side: Side, card: Card): Promise<void> {
+    return this.chaos.showCardDrawn(side, card);
+  }
+
+  showCardPlayed(side: Side, card: Card, joker?: JokerOutcome): Promise<void> {
+    return this.chaos.showCardPlayed(side, card, joker);
+  }
+
+  askRevive(side: Side, pieces: PieceState[]): Promise<PieceId | null> {
+    return this.chaos.askRevive(side, pieces);
+  }
+
+  askDuel(info: DuelInfo): Promise<boolean> {
+    return this.chaos.askDuel(info);
+  }
+
+  askThrow(side: Side, opts: { hotSeat: boolean }): Promise<Hand> {
+    return this.chaos.askThrow(side, opts);
+  }
+
+  showDuelRound(r: GameEventMap['duelRound']): Promise<void> {
+    return this.chaos.showDuelRound(r);
+  }
+
+  spinWheel(outcome: WheelOutcome): Promise<void> {
+    return this.chaos.spinWheel(outcome);
+  }
+
+  /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */
+  setPieces(pieces: PieceState[]): void {
+    this.hud.mode.setPieces(pieces);
+  }
 
   // ---------- internals ----------
 
@@ -332,6 +388,14 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     on(document, 'keydown', (e) => {
       if (this.promo.open) return this.trap(e, this.promo.el);
       const cur = this.current;
+      if (cur === 'game' && this.chaos.dialog) return this.trap(e, this.chaos.dialog);
+      // Esc while aiming a power or card cancels it instead of pausing.
+      if (cur === 'game' && e.key === 'Escape' && this.hud.mode.promptOpen) {
+        e.preventDefault();
+        this.audio.play('uiBack');
+        this.emit('cancelAction', {});
+        return;
+      }
       if (e.key === 'Escape') {
         const to: Partial<Record<Screen, Screen>> = { game: 'pause', pause: 'game', setup: 'title', settings: this.returnTo, customize: this.returnTo };
         const next = cur ? to[cur] : undefined;

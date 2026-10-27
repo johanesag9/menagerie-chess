@@ -2,12 +2,13 @@
  * In-game HUD: two player cards on the top and bottom edges, a collapsible move list,
  * the emote picker, and the check banner / Weird Mode toast. The middle stays clear for the board.
  */
-import type { EmoteKind, GameOptions, MoveResult, Side, WeirdEvent } from '../../contracts/types';
+import type { ActionRecord, EmoteKind, GameOptions, ModeState, MoveResult, PieceKind, Side, WeirdEvent } from '../../contracts/types';
 import { ANIMAL_NAME, EMOTES, SIDE_NAME, WEIRD_TEXT, botName } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
-import { formatClock, moveRows, otherSide, spokenClock, tallyCaptures } from '../format';
+import { formatClock, listRows, otherSide, spokenClock, tallyCaptures, tallyFromCaptured, type CapturedTally, type ListEntry } from '../format';
 import { animalIcon } from '../icons';
+import { ModeHud } from './modeHud';
 
 export const ICON = {
   menu: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>',
@@ -47,6 +48,10 @@ export class Hud {
   private toast: HTMLElement;
   private live: HTMLElement;
   private moves: MoveResult[] = [];
+  /** Moves and log lines in order (Normal/Crazy add log lines between moves). */
+  private entries: ListEntry[] = [];
+  private lastTally: CapturedTally | null = null;
+  readonly mode: ModeHud;
   private info: GameOptions | null = null;
   private turn: Side = 'land';
   private thinking = false;
@@ -60,6 +65,7 @@ export class Hud {
 
   constructor(private ctx: UiCtx) {
     this.cards = { land: this.card('land'), sea: this.card('sea') };
+    this.mode = new ModeHud(ctx);
 
     this.movesBtn = button('', { variant: 'icon', label: 'Move list', icon: ICON.moves, onClick: () => this.toggleMoves() });
     this.movesBtn.setAttribute('aria-expanded', 'false');
@@ -103,8 +109,8 @@ export class Hud {
     this.toast = h('div', { class: 'mc-toast', 'aria-hidden': 'true' });
     this.live = h('div', { class: 'mc-sr', 'aria-live': 'polite', 'aria-atomic': 'true' });
 
-    this.top = h('div', { class: 'mc-hud__bar mc-hud__bar--top' }, h('div', { class: 'mc-hud__slot' }), h('div', { class: 'mc-hud__tools' }, this.movesBtn, menuBtn));
-    this.bottom = h('div', { class: 'mc-hud__bar mc-hud__bar--bottom' }, h('div', { class: 'mc-hud__slot' }), h('div', { class: 'mc-hud__tools' }, this.undoBtn, h('div', { class: 'mc-emote-anchor' }, this.emotePicker, this.emoteBtn)));
+    this.top = h('div', { class: 'mc-hud__bar mc-hud__bar--top' }, h('div', { class: 'mc-hud__slot' }), this.mode.chip, h('div', { class: 'mc-hud__tools' }, this.movesBtn, menuBtn));
+    this.bottom = h('div', { class: 'mc-hud__bar mc-hud__bar--bottom' }, h('div', { class: 'mc-hud__slot' }), this.mode.dock, h('div', { class: 'mc-hud__tools' }, this.undoBtn, h('div', { class: 'mc-emote-anchor' }, this.emotePicker, this.emoteBtn)));
 
     this.el = h('section', { class: 'mc-screen mc-hud', 'aria-label': 'Game' }, this.top, this.movesPanel, this.banner, this.toast, this.bottom, this.live);
     document.addEventListener('pointerdown', this.onOutside, true);
@@ -134,8 +140,12 @@ export class Hud {
     this.info = info;
     const bot = info?.opponent.type === 'bot' ? info.opponent : null;
     const bottomSide: Side = bot ? otherSide(bot.botSide) : 'land';
-    this.top.firstElementChild!.replaceChildren(this.cards[otherSide(bottomSide)].el);
-    this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el);
+    const topSide = otherSide(bottomSide);
+    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide]);
+    this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide]);
+    this.mode.setInfo(info);
+    this.lastTally = null;
+    this.renderTrays();
     for (const side of ['land', 'sea'] as const) {
       const c = this.cards[side];
       const isBot = bot?.botSide === side;
@@ -145,7 +155,8 @@ export class Hud {
     }
     const timed = info ? info.time.initialMs !== null : false;
     this.el.classList.toggle('is-untimed', !timed);
-    this.undoBtn.hidden = false;
+    // No undo in Crazy: luck is luck.
+    this.undoBtn.hidden = info?.mode === 'crazy';
     this.refresh();
   }
 
@@ -163,6 +174,7 @@ export class Hud {
 
   setTurn(turn: Side): void {
     this.turn = turn;
+    this.mode.setTurn(turn);
     this.refresh();
     this.announce(`${this.cards[turn].name.textContent} to move.`);
   }
@@ -185,7 +197,7 @@ export class Hud {
       else if (isTurn) c.status.textContent = bot && bot.botSide !== side ? 'Your move' : 'To move';
     }
     // Undo needs a move to take back (and, vs the bot, one of yours).
-    this.undoBtn.disabled = this.moves.length === 0 || this.thinking;
+    this.undoBtn.disabled = this.entries.length === 0 || this.thinking;
   }
 
   setClocks(landMs: number | null, seaMs: number | null, running: Side | null): void {
@@ -224,42 +236,70 @@ export class Hud {
 
   addMove(m: MoveResult): void {
     this.moves.push(m);
+    this.entries.push({ move: m });
     for (const s of ['land', 'sea'] as const) this.cards[s].el.classList.remove('in-check');
     this.renderMoves();
-    this.renderTrays(m.captured ? m.side : null);
+    this.renderTrays();
     this.refresh();
     const who = ANIMAL_NAME[m.side][m.kind];
     this.announce(m.captured ? `${who} takes ${ANIMAL_NAME[m.captured.side][m.captured.kind]}. ${m.san}` : `${who} ${m.san}`);
   }
 
+  /** A non-move line (power, card, bonus, bonk, wheel, pass). Records of kind 'move' are skipped: addMove shows moves. */
+  addLog(r: ActionRecord): void {
+    if (r.kind === 'move') return;
+    this.entries.push({ log: r });
+    this.renderMoves();
+    this.refresh();
+    this.announce(r.side ? `${SIDE_NAME[r.side]}: ${r.label}` : r.label);
+  }
+
   resetMoves(): void {
     this.moves = [];
+    this.entries = [];
+    this.lastTally = null;
     this.renderMoves();
-    this.renderTrays(null);
+    this.renderTrays();
     this.refresh();
   }
 
+  setModeState(st: ModeState | null): void {
+    this.mode.setState(st);
+    this.renderTrays();
+  }
+
   private renderMoves(): void {
-    const rows = moveRows(this.moves);
-    this.movesList.replaceChildren(...rows.map((r) =>
-      h('li', { class: 'mc-moves__row' },
+    const rows = listRows(this.entries);
+    const icon: Record<ActionRecord['kind'], string> = { move: '', power: '⚡', card: '🃏', bonus: '🍀', bonk: '💫', wheel: '🎡', pass: '💤' };
+    this.movesList.replaceChildren(...rows.map((r) => r.type === 'log'
+      ? h('li', { class: 'mc-moves__log', 'data-side': r.record.side ?? 'none', 'data-kind': r.record.kind },
+        h('span', { class: 'mc-moves__logicon', 'aria-hidden': 'true', text: icon[r.record.kind] }),
+        h('span', { class: 'mc-moves__logtext', text: r.record.label }))
+      : h('li', { class: 'mc-moves__row' },
         h('span', { class: 'mc-moves__n', text: `${r.n}.` }),
         h('span', { class: 'mc-moves__san', 'data-side': 'land', text: r.land ?? '…' }),
         h('span', { class: 'mc-moves__san', 'data-side': 'sea', text: r.sea ?? '' }))));
-    const last = this.movesList.querySelectorAll('.mc-moves__san:not(:empty)');
+    const last = this.movesList.lastElementChild?.matches('.mc-moves__log')
+      ? [this.movesList.lastElementChild]
+      : Array.from(this.movesList.querySelectorAll('.mc-moves__san:not(:empty)'));
     last[last.length - 1]?.classList.add('is-last');
     this.movesPanel.classList.toggle('is-empty', rows.length === 0);
     this.movesList.scrollTop = this.movesList.scrollHeight;
   }
 
-  /** Captured animals under each card. `popSide` = who just captured: their newest one pops in. */
-  private renderTrays(popSide: Side | null): void {
-    const t = tallyCaptures(this.moves);
-    const newKind = popSide ? this.moves[this.moves.length - 1].captured?.kind : undefined;
+  /**
+   * Captured animals under each card: from the mode state in Normal/Crazy (pigeons, double jumps and revives too),
+   * from the moves in Classic. A newly taken animal pops in.
+   */
+  private renderTrays(): void {
+    const st = this.mode.modeState;
+    const t = st ? tallyFromCaptured(st.land.captured, st.sea.captured) : tallyCaptures(this.moves);
+    const prev = this.lastTally;
+    this.lastTally = t;
     for (const side of ['land', 'sea'] as const) {
       const c = this.cards[side];
       const victims = otherSide(side);
-      const fresh = side === popSide && newKind ? t[side].lastIndexOf(newKind) : -1;
+      const fresh = prev && t[side].length > prev[side].length ? freshIndex(prev[side], t[side]) : -1;
       c.tray.replaceChildren(...t[side].map((k, i) =>
         h('span', { class: `mc-card__piece${i === fresh ? ' is-new' : ''}`, title: ANIMAL_NAME[victims][k], html: animalIcon(victims, k, { disc: true, label: ANIMAL_NAME[victims][k] }) })));
       const lead = side === 'land' ? t.diff : -t.diff;
@@ -309,9 +349,14 @@ export class Hud {
   showCheck(side: Side): void {
     this.cards[side].el.classList.add('in-check');
     const king = ANIMAL_NAME[side].k;
-    this.pop(this.banner, `<strong>Check!</strong><span>${SIDE_NAME[side]}'s ${king} is in danger</span>`, 1800);
+    // Crazy has no check rule: it's only a warning that the king can be bonked.
+    const crazy = this.info?.mode === 'crazy';
+    const head = crazy ? 'King in danger!' : 'Check!';
+    const sub = crazy ? `${SIDE_NAME[side]}'s ${king} can be bonked` : `${SIDE_NAME[side]}'s ${king} is in danger`;
+    this.banner.classList.toggle('is-danger', crazy);
+    this.pop(this.banner, `<strong>${head}</strong><span>${sub}</span>`, 1800);
     this.ctx.audio.play('check');
-    this.announce(`Check! ${SIDE_NAME[side]}'s ${king} is in danger.`);
+    this.announce(`${head} ${sub}.`);
   }
 
   showWeirdEvent(e: WeirdEvent): void {
@@ -346,7 +391,7 @@ export class Hud {
   }
 
   get moveCount(): number {
-    return this.moves.length;
+    return this.entries.length;
   }
 
   hideTransient(): void {
@@ -357,4 +402,15 @@ export class Hud {
     document.removeEventListener('pointerdown', this.onOutside, true);
     this.timers.forEach((t) => window.clearTimeout(t));
   }
+}
+
+/** Index in `now` of the piece that wasn't in `before` (both sorted the same way). */
+function freshIndex(before: PieceKind[], now: PieceKind[]): number {
+  const left = before.slice();
+  for (let i = now.length - 1; i >= 0; i--) {
+    const j = left.lastIndexOf(now[i]);
+    if (j < 0) return i;
+    left.splice(j, 1);
+  }
+  return -1;
 }
