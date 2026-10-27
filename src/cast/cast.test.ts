@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import gsap from 'gsap';
-import type { PieceKind, Side } from '../contracts/types';
+import { POWER_OF, type MoveStyle, type PieceKind, type Side } from '../contracts/types';
 import { createCast, type Actor } from './index';
 import { getTemplate, KINDS } from './roster';
 import { PALETTES, paletteTable } from './palettes';
@@ -194,6 +194,165 @@ describe('actors', () => {
     expect(short.t).toBeLessThan(full.t);
     expect(stomps.length).toBeGreaterThan(0);
     expect(stomps.every((s) => s === 0)).toBe(true);
+    a.dispose();
+  });
+});
+
+describe('phase 3', () => {
+  const world = new THREE.Group();
+  const cast = createCast({ squareSize: 2, quality: 'high' });
+  const make = (side: Side, kind: PieceKind, x = 0, z = 0) => {
+    const a = cast.createPiece({ id: `${side}-${kind}-p3-${x}-${z}`, side, kind, square: 'a1' });
+    a.object.position.set(x, 0, z);
+    world.add(a.object);
+    return a;
+  };
+  const ALL = SIDES.flatMap((s) => KINDS.map((k) => [s, k] as [Side, PieceKind]));
+  const STYLES: MoveStyle[] = ['sidestep', 'jump', 'slip', 'pushed', 'teleport', 'dig', 'swept', 'quake', 'bonked', 'step'];
+
+  it.each(ALL)('%s %s: its power flourish takes effect in 0.4-1s and emits `power` once, at that moment', async (side, kind) => {
+    const a = make(side, kind);
+    const power = POWER_OF[kind];
+    const seen: { power: string; t: number }[] = [];
+    let t = 0;
+    const off = cast.on('power', (p) => { if (p.id === a.id) seen.push({ power: p.power, t }); });
+    const target = new THREE.Vector3(4, 0, 4);
+    let done = false;
+    a.powerUp(power, target).then(() => (done = true));
+    while (!done && t < 3) {
+      T += 1 / 60;
+      t += 1 / 60;
+      gsap.updateRoot(T);
+      a.update(1 / 60, T);
+      await Promise.resolve();
+    }
+    off();
+    expect(done).toBe(true);
+    expect(t).toBeGreaterThan(0.4);
+    expect(t).toBeLessThan(1.0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].power).toBe(power);
+    expect(Math.abs(seen[0].t - t)).toBeLessThan(0.05);
+    await run([a], () => !a.isBusy);
+    a.dispose();
+  });
+
+  it('a power the animal does not own still plays (generic flourish)', async () => {
+    const a = make('land', 'p');
+    expect((await settle([a], a.powerUp('stomp'))).done).toBe(true);
+    a.dispose();
+  });
+
+  it.each(ALL)('%s %s: every move style ends on target in under 1.2s', async (side, kind) => {
+    const a = make(side, kind);
+    let at = new THREE.Vector3(0, 0, 0);
+    for (const style of STYLES) {
+      const to = at.clone().add(new THREE.Vector3(style === 'jump' ? 2 : 0, 0, style === 'jump' ? 4 : 2));
+      const r = await settle([a], a.moveTo(to, { style }));
+      expect(r.done, style).toBe(true);
+      expect(r.t, style).toBeLessThanOrEqual(1.2);
+      expect(a.object.position.distanceTo(to), style).toBeLessThan(1e-6);
+      await run([a], () => !a.isBusy);
+      at = to;
+    }
+    // No helper objects (wave humps) are left behind.
+    let extra = 0;
+    a.object.traverse((o) => { if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) extra++; });
+    expect(extra).toBe(0);
+    a.dispose();
+  });
+
+  it('a double jump is two hops in a row, both under 1.2s', async () => {
+    const a = make('land', 'n');
+    const mid = new THREE.Vector3(2, 0, 4), to = new THREE.Vector3(4, 0, 8);
+    const one = await settle([a], a.moveTo(mid, { style: 'jump' }));
+    const two = await settle([a], a.moveTo(to, { style: 'jump' }));
+    expect(one.t + two.t).toBeLessThan(2.2);
+    expect(a.object.position.distanceTo(to)).toBeLessThan(1e-6);
+    a.dispose();
+  });
+
+  it('statuses add one cheap mesh, survive moves and skins, and clear', async () => {
+    for (const side of SIDES) {
+      const a = make(side, 'b');
+      const extras = () => {
+        let n = 0;
+        a.object.traverse((o) => { if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) n++; });
+        return n;
+      };
+      a.setStatus('stunned');
+      expect(a.statusKind).toBe('stunned');
+      expect(extras()).toBe(1);
+      await settle([a], a.moveTo(new THREE.Vector3(0, 0, 2), { style: 'pushed' }));
+      a.setSkin({ palette: PALETTES[side][1].id });
+      expect(extras()).toBe(1);
+      a.setStatus('frozen');
+      await run([a], () => false, 0.5);
+      expect(extras()).toBe(1);
+      // Frozen: the idle stops dead.
+      a.update(1 / 60, 10);
+      for (const o of a.idleL.m.values()) expect(o.ry + o.rz + o.rx).toBe(0);
+      a.setStatus(null);
+      expect(a.statusKind).toBeNull();
+      await run([a], () => false, 0.5);
+      expect(extras()).toBe(0);
+      a.dispose();
+    }
+  });
+
+  it('hit and appear resolve; appear ends at full size', async () => {
+    for (const side of SIDES) {
+      const a = make(side, 'q');
+      const h = await settle([a], a.hit());
+      expect(h.done).toBe(true);
+      expect(h.t).toBeLessThan(1);
+      const ap = await settle([a], a.appear());
+      expect(ap.done).toBe(true);
+      expect(ap.t).toBeGreaterThan(0.6);
+      expect(ap.t).toBeLessThan(1.0);
+      await run([a], () => !a.isBusy);
+      const base = a.act.get('base');
+      expect(base.py).toBeCloseTo(0);
+      expect(base.sx).toBeCloseTo(1);
+      a.dispose();
+    }
+  });
+
+  it('everything new resolves on skip', async () => {
+    const a = make('sea', 'k');
+    const check = async (p: Promise<void>) => {
+      let done = false;
+      p.then(() => (done = true));
+      await run([a], () => false, 0.1);
+      cast.skipAll();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(done).toBe(true);
+    };
+    await check(a.powerUp('escape'));
+    await check(a.moveTo(new THREE.Vector3(4, 0, 4), { style: 'teleport' }));
+    expect(a.object.position.distanceTo(new THREE.Vector3(4, 0, 4))).toBeLessThan(1e-6);
+    await check(a.moveTo(new THREE.Vector3(4, 0, 6), { style: 'swept' }));
+    await check(a.hit());
+    await check(a.appear());
+    let extra = 0;
+    a.object.traverse((o) => { if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) extra++; });
+    expect(extra).toBe(0);
+    a.dispose();
+  });
+
+  it('reduced motion: power and land events have zero intensity, and flourishes are quicker', async () => {
+    const a = make('land', 'r');
+    const full = await settle([a], a.powerUp('stomp'));
+    await run([a], () => !a.isBusy);
+    const ints: number[] = [];
+    const off = cast.on('power', (p) => ints.push(p.intensity));
+    cast.setReducedMotion(true);
+    const short = await settle([a], a.powerUp('stomp'));
+    cast.setReducedMotion(false);
+    off();
+    expect(short.t).toBeLessThan(full.t);
+    expect(ints).toEqual([0]);
     a.dispose();
   });
 });

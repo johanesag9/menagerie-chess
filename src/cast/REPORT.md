@@ -2,7 +2,76 @@
 
 The 12 animals and all their animations. Everything is built in code. No downloaded assets, and nothing from `steam-scrape/`.
 
+# Phase 3: powers, travel styles, statuses (2026-10-27)
+
 ## What's done
+- **`powerUp(power, target)`**: 12 flourishes, one per power per side (`powers.ts`). Each resolves, and emits the `power` cast event, at the moment of effect. All take effect in 0.55–0.85s.
+
+  | Power | Land | Sea |
+  |---|---|---|
+  | Sidestep | Pup bows, sniffs, digs (dirt flies behind) | Crab clacks its claws, crouches |
+  | Double jump | Horse rears, kicks, whinnies, slams down | Seahorse puffs a big bubble that pops |
+  | Headbutt | Goat turns to the victim, lowers its horns, paws the ground | Pufferfish turns, inflates, fins buzzing |
+  | Stomp | Elephant rears, trumpets, stomps; dust ring | Turtle tucks in, shell lifts and slams; splash ring |
+  | Block | Cat turns, winds up, swats toward the square | Octopus turns, squirts an ink arc onto the square |
+  | Escape | Pug crouches and spins up (zoomies) | Blobfish wobbles and goes gloopy |
+
+  The `power` event's `at` is the target square for block and headbutt, otherwise the piece. The elephant also fires `stomp` (camera shake).
+- **Every `MoveStyle` in `moveTo`** (`travels.ts`). All end exactly on target, in under 1.1s:
+  - sidestep: the pup burrows under and pops up with a dirt trail; the crab scuttles across without turning.
+  - jump: one knight hop (the horse's leap, the seahorse's float). Two in a row make a double jump.
+  - slip: a banana peel appears under the feet, the piece slides with flailing limbs, the peel is left spinning, then fades.
+  - pushed: tips over in the push direction, skids a square, rocks back upright, with stars.
+  - teleport: Land pieces turn into a speed blur and dash (the pug spins up first). Sea pieces melt into a puddle, ooze over and reform. Use it for swaps too.
+  - dig: burrows backward (dirt for Land, sand for Sea).
+  - swept: rides a water hump, then a splash.
+  - quake: stumbles sideways with arms flailing.
+  - bonked: dizzy waddle back with circling stars, then turns to face forward.
+  - step: one quick hop.
+- **`setStatus`**: stunned shows 4 circling stars, droopy eyes and a sway. Frozen shows a clear ice block with frost, a frosty tint, and the idle stops dead. Each is one extra mesh (one draw call). Both hang on the pedestal, so they ride along with moves, survive skin changes, and stay until cleared. Clearing a freeze shatters the ice. `defeat` clears any status.
+- **`hit()`**: a flinch, a big bonk star and a white flash, about 0.6s. It plays on top of whatever is running, so it never cuts a push or a wave.
+- **`appear()`**: Land rises out of a dirt mound; Sea bubbles up out of a puddle. Resolves at 0.8s.
+- **Skip and reduced motion**: everything new resolves on `skip()`/`skipAll()`. Under reduced motion the new actions run 1.3× faster, with no spins, smaller tilts, fewer particles, and `power`/`land` events at intensity 0.
+- **Existing animations are unchanged.** `moveTo` with no style (or `'normal'`) is the Phase 1 move.
+- **Tests**: 30 new (73 in the cast). They cover every flourish's timing and its single `power` event, every style for all 12 animals landing on target under 1.2s, a double jump, statuses (one mesh, survive moves and skins, frozen idle stops, clear), hit, appear, skip and reduced motion. `npm run typecheck` and `npm test` (139 tests) pass.
+
+## How to run the demo
+Start the `cast-demo` launch config (port 4413), then open http://localhost:4413/src/cast/demo.html
+- **Powers and modes** section. These play on a copy of the picked animal in the empty middle row:
+  - **Use power** plays the power the way the game will. For example, the goat headbutts a crab that gets pushed away, the elephant's stomp stuns two pawns, and the pug flourishes and then teleports.
+  - Hit, Appear, Stunned, Frozen, Clear status.
+  - The 10 travel styles. After each one, the piece walks back.
+  - **Power showcase** plays all 12 in a row (about 55s). Press it again to stop.
+- The gold ring is a **stand-in** marking the blocked square. The world draws the real vase or ink cloud.
+- Checked in headless Chrome (real frame loop) at 1280×800 and 390×844: 60fps, no console errors, no sideways scroll at 390px.
+
+## Contract requests
+None needed. Notes for integration:
+- Headbutt: `await bishop.powerUp('headbutt', victimPoint); await bishop.attack(victim);` then together `bishop.moveTo(home)`, `victim.hit()` and `victim.moveTo(dest, { style: 'pushed' })`.
+- Banana slide: call `moveTo(slideSquare, { style: 'slip' })` after the normal move resolves. The peel appears where the slide starts.
+- Swap: call `moveTo(..., { style: 'teleport' })` on both pieces at once.
+- Escape and sidestep: `await powerUp(power, destPoint)`, then `moveTo(dest, { style })`.
+- Stomp victims: `hit()` and `setStatus('stunned')` when the `power` event fires (or when `powerUp` resolves).
+- Revive: add the object at its square, then `appear()`.
+- Extra (not in the contract): `actor.statusKind` reads the current status.
+
+## Open design questions for Johanes
+1. **Teleport goes by side, not by animal.** Every Land piece dashes as a blur (the pug adds a spin). Every Sea piece melts into a puddle. This covers swaps and joker teleports too. Should each animal get its own?
+2. **Pushed is a tip-and-skid, not a somersault.** A full roll would sink the animal into the board mid-roll.
+3. **Stunned and frozen looks**: gold stars plus droopy eyes; a clear ice block plus a pale tint. Colours and sizes are easy to change.
+4. **Crab dig** burrows backward into sand, like the pup's dig into dirt.
+5. **Block flourish**: the cat and octopus turn back to face forward afterwards. Should they keep looking at the vase or ink until the turn ends?
+
+## Known issues
+- **Not seen in the real game yet**: the world's vase and ink cloud, the real camera, and integration's order of calls.
+- Burrow and appear shrink the animal and sink it below the surface. On the real board the board top should hide it, but this isn't checked.
+- Little effects (dirt, peel, splash, ice chips) aren't cut by skip; they finish on their own within about 1.4s, like the Phase 1 effects.
+- An emote played during `hit()` resets the flinch (both use the emote layer).
+- FPS isn't measured on a real phone. The demo had 78–99 draw calls with 12–15 animals and effects on screen.
+
+---
+
+## What's done (Phase 1)
 - **`createCast(opts)`** in `src/cast/index.ts`. It matches `CreateCast`, with a compile-time check. It returns the contract `Cast` plus the extras listed under "Contract requests".
 - **All 12 animals** (`animals/land.ts`, `animals/sea.ts`). Chibi proportions, a toy vinyl look, each on its team pedestal, each inside one square.
   - Heights in squares: pawns 0.55, knights and bishops 0.86, rooks 0.97, queens 1.15, kings 1.25. Kings are the tallest, then queens.
@@ -59,9 +128,9 @@ The 12 animals and all their animations. Everything is built in code. No downloa
   - `listSkins` and `displayName` are done.
 - **Reduced motion:** shorter moves, no spins or flips, fewer particles, and stomp/impact events fire with intensity 0 (so no camera shake).
 - **Quality:** `quality: 'low'` builds the animals with about 60% of the segments and drops the clearcoat layer. It looks almost the same, and on a full board the pieces cost about a fifth of what high costs.
-- **Tests:** `src/cast/cast.test.ts` has 43 tests. They cover every animal building with a full face and hitting its height, kings and queens being the tallest, the skins, display names, moves under 1.2s landing exactly on target, captures under 2.1s with the victim removed, skip and dispose resolving promises, and reduced motion. `npm run typecheck` and `npm test` pass.
+- **Tests:** `src/cast/cast.test.ts` had 43 tests (73 now, with Phase 3). They cover every animal building with a full face and hitting its height, kings and queens being the tallest, the skins, display names, moves under 1.2s landing exactly on target, captures under 2.1s with the victim removed, skip and dispose resolving promises, and reduced motion. `npm run typecheck` and `npm test` pass.
 
-## How to run the demo
+## How to run the demo (Phase 1 parts)
 Start the `cast-demo` launch config (port 4413), then open http://localhost:4413/src/cast/demo.html
 - All 12 animals sit on a slowly turning turntable. Tap a piece to pick it, and hover to see it perk up.
 - There's a button for every animation: Select, Move 1, Move 2, L jump, Diagonal, Back home, Look at me, Celebrate, and all 6 emotes.
@@ -72,16 +141,10 @@ Start the `cast-demo` launch config (port 4413), then open http://localhost:4413
 - At 390px the controls become a bottom sheet. It starts collapsed, and the view shifts up when you open it.
 - Test hooks for headless checks, from the console: `__manual()`, then `__advance(seconds)`.
 
-## Contract requests
-1. **Event hook on `Cast`:** `on('stomp' | 'impact' | 'land' | 'poof', fn)`. The payload is `{ id, at: world Vector3, intensity 0..1 }`, and `impact` also carries `victimId`. Use it for camera shake (`world.shake`), `focusOn` and sounds. Today it's an extra on the object `createCast` returns.
-2. **`PieceActor.skip()`** and **`Cast.skipAll()`**, for "every animation can be skipped by clicking". Both exist today as extras.
-3. **`Cast.setReducedMotion(on)`**, driven by `Settings.reducedMotion`. It exists today as an extra.
-4. **Warm-up:** `cast.preload(renderer, scene, camera)` compiles every animal and effect shader up front, so the first reveal doesn't hitch. `World` doesn't expose its renderer, scene or camera, so integration can't call it yet. One fix: `World` exposes `compile()` or its renderer. Another: the cast gives integration objects to add before the world's own `compileAsync`.
-5. **Board facing:** I assumed rank 1 is at +Z. Land faces −Z (yaw π) and Sea faces +Z (yaw 0), which `createPiece` sets by default. If the world differs, integration sets `actor.object.rotation.y` after `createPiece`. Each piece reads its "home" yaw at its first action.
-6. **Coordinates:** `moveTo` and `lookAt` take world-space points, such as `world.squareToWorld(sq)`. Add `actor.object` to `world.pieceLayer` before animating. The pieceLayer should be unscaled, because the actor sets `object.scale = squareSize` itself.
-7. **Capture flow** for integration: `await attacker.attack(victim); victim.defeat(attacker); await attacker.moveTo(square);`. After `defeat` resolves, call `victim.dispose()`. `defeat` removes the piece from the board but doesn't free it.
+## Contract requests (Phase 1)
+All Phase 1 requests (events, `skip`/`skipAll`, `setReducedMotion`, `preload`, board facing) are now in the contracts.
 
-## Open design questions for Johanes
+## Open design questions for Johanes (Phase 1)
 1. **Defeat style is picked by the attacker.** The Horse, Goat, Dachshund, Elephant, Seahorse, Pufferfish and Turtle launch their victims. The Pug, Octopus and Blobfish make pancakes. The Cat and Crab make victims dizzy. Should it go by victim instead, or be random? The map is easy to change.
 2. **Hats on kings and queens sit on top of the crown** (stacked, which looks funny). They could replace the crown instead, but the crown is how you spot the royals.
 3. **Bishop identity.** The pufferfish wears a mitre. The goat has no mitre: it stands on a rock and wears a blue collar with a bell. Should the goat get a mitre too?
@@ -90,7 +153,7 @@ Start the `cast-demo` launch config (port 4413), then open http://localhost:4413
 6. **Palette and accessory names and colours** are first picks. The same 6 accessories are offered to both sides.
 7. **Knight leap height** is 1.1 squares. Higher reads more as "jumping over pieces", but it's slower.
 
-## Known issues
+## Known issues (Phase 1)
 - **FPS isn't verified in a visible browser.** The app window wasn't on screen during this session, so the browser didn't animate on its own. I measured with the manual time-stepping hook, at 1024×768:
   - The CPU cost for 32 pieces is about 3.9 ms per frame.
   - Frame times with the graphics card included (a hidden page at 2× pixel ratio, so treat them as rough):

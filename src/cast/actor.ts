@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import gsap from 'gsap';
-import type { CastEventMap, EmoteKind, PieceActor, PieceId, PieceKind, PieceState, PieceStatusKind, PowerKind, QualityTier, Side, SkinChoice } from '../contracts/types';
+import { POWER_OF, type CastEventMap, type EmoteKind, type MoveStyle, type PieceActor, type PieceId, type PieceKind, type PieceState, type PieceStatusKind, type PowerKind, type QualityTier, type Side, type SkinChoice } from '../contracts/types';
 import { applySlotTable, createSlotMaterial, type SlotUniforms } from './material';
 import { instantiate } from './kit';
 import { getTemplate, type AnimalTemplate } from './roster';
@@ -19,6 +19,8 @@ import { ACCESSORIES, accessoryGeometry } from './accessories';
 import { motion } from './motion';
 import * as fx from './fx';
 import { STYLES, type Gait, type Style } from './styles';
+import { FLOURISH, genericFlourish, POWER_INTENSITY } from './powers';
+import { travelStyle } from './travels';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -51,6 +53,9 @@ export interface Face {
   m: Record<MouthKind, number>;
 }
 
+const yo3 = (tl: TL, o: object, vars: gsap.TweenVars, dur: number, at: number, repeat = 1) =>
+  tl.to(o, { ...vars, duration: dur, yoyo: true, repeat, ease: 'sine.inOut' }, at);
+
 // ---------- events ----------
 
 export type { CastEventMap };
@@ -60,6 +65,8 @@ interface BoneRec { name: string; b: THREE.Bone; p: THREE.Vector3; r: THREE.Eule
 
 const MOUTH_BONES: [MouthKind, string][] = [['smile', 'mSmile'], ['open', 'mOpen'], ['o', 'mO'], ['frown', 'mFrown']];
 const shortest = (from: number, to: number) => from + ((((to - from) % TAU) + TAU + PI) % TAU) - PI;
+/** Phase 3 actions play this much faster under reduced motion (on top of their smaller moves). */
+const RM_SPEED = 1.3;
 
 export class Actor implements PieceActor {
   readonly id: PieceId;
@@ -105,6 +112,14 @@ export class Actor implements PieceActor {
   private flashV = { v: 0 };
   private clock = 0;
   private struck = false;
+  // Phase 3
+  private status: PieceStatusKind | null = null;
+  private statusMesh: THREE.Mesh | null = null;
+  /** Droopy eyelids (stunned) and a frosty tint (frozen), eased in and out. */
+  private statusFx = { droop: 0, tint: 0 };
+  private hitTl: TL | null = null;
+  private hitDone: (() => void) | null = null;
+  private temps = new Set<THREE.Object3D>();
 
   constructor(state: PieceState, skin: SkinChoice | undefined, private emitFn: Emit, squareSize: number, quality: QualityTier = 'high') {
     this.id = state.id;
@@ -173,10 +188,22 @@ export class Actor implements PieceActor {
     return gsap.to(this.object.rotation, { y: shortest(this.object.rotation.y, yaw), duration, ease: 'power2.out' });
   }
   homeYaw() { return this.home ?? this.object.rotation.y; }
+  /** The home facing, as the angle nearest the current one (tween to it without extra spins). */
+  homeYawNear() { return shortest(this.object.rotation.y, this.homeYaw()); }
+  /** Unit vector this piece faces, in parent space. */
+  forward(): THREE.Vector3 { return new THREE.Vector3(Math.sin(this.object.rotation.y), 0, Math.cos(this.object.rotation.y)); }
+  /** A heavy footfall: camera-shake hook plus dust. */
+  stomp(intensity: number) {
+    this.emit('stomp', { id: this.id, at: this.worldPos(), intensity: this.rm ? 0 : intensity });
+    fx.dust(this.fxParent, this.above(0), this.sq, 0.5 + intensity * 0.5);
+  }
+  /** Attach a helper object (square units) for the current action; it is removed if the action is cut. */
+  temp(o: THREE.Object3D) { this.temps.add(o); this.object.add(o); }
+  untemp(o: THREE.Object3D) { this.temps.delete(o); o.removeFromParent(); }
 
   // ---------- action plumbing ----------
 
-  private begin(): TL {
+  private begin(relax = true): TL {
     this.cut();
     if (this.home === null) this.home = this.object.rotation.y;
     // Bake a leftover lunge (from an attack) into the board position, so the next move starts from there.
@@ -188,13 +215,16 @@ export class Actor implements PieceActor {
     }
     const tl = gsap.timeline();
     this.own(tl);
-    this.relaxNow(0.15);
+    if (relax) this.relaxNow(0.15);
+    else this.act.reset();
     return tl;
   }
   /** Kill the running action and resolve its promises (the action is over). */
   private cut() {
     for (const t of [...this.actionTls]) t.kill();
     this.actionTls.clear();
+    for (const o of this.temps) o.removeFromParent();
+    this.temps.clear();
     this.resolveAll();
   }
   private resolveAll() {
@@ -290,12 +320,22 @@ export class Actor implements PieceActor {
     this.clock += dt;
     const t = this.phase + elapsed * this.rate;
     this.idleL.reset();
-    this.style.idle(this, t);
+    const frozen = this.status === 'frozen';
+    // Frozen: the idle stops dead (no breathing, blinks or glances).
+    if (!frozen) this.style.idle(this, t);
+    if (this.status === 'stunned') {
+      if (this.statusMesh) this.statusMesh.rotation.y += dt * (this.rm ? 1.2 : 3);
+      if (!this.rm) {
+        this.ib('base').rz += Math.sin(t * 3.1) * 0.05;
+        this.ib('head').rz += Math.sin(t * 2.3 + 1) * 0.1;
+      }
+    }
 
     // Blinks (sometimes a double blink).
     this.blinkIn -= dt;
     if (this.blinkIn <= 0 && this.blinkT < 0) this.blinkT = 0;
     let blink = 0;
+    if (frozen) this.blinkT = -1;
     if (this.blinkT >= 0) {
       this.blinkT += dt;
       const d = 0.14;
@@ -307,7 +347,7 @@ export class Actor implements PieceActor {
     }
 
     // Glances, and lookAt() targets (held a few seconds).
-    this.glanceIn -= dt;
+    if (!frozen) this.glanceIn -= dt;
     if (this.glanceIn <= 0) {
       this.glanceIn = 3 + Math.random() * 5;
       this.glance = { yaw: (Math.random() - 0.5) * 0.9, pitch: (Math.random() - 0.5) * 0.3, until: this.clock + 0.8 + Math.random() * 1.2 };
@@ -339,7 +379,7 @@ export class Actor implements PieceActor {
     body.sx *= perk; body.sy *= perk; body.sz *= perk;
     head.rx -= this.hov * 0.12;
     this.u.uRim.value.w = 0.12 + this.hov * 0.35 + this.sel * 0.55;
-    this.u.uFlash.value = this.flashV.v;
+    this.u.uFlash.value = Math.max(this.flashV.v, this.statusFx.tint);
 
     this.applyBones(blink, t);
   }
@@ -371,7 +411,7 @@ export class Actor implements PieceActor {
       }
     }
     // Face.
-    const open = Math.max(0.06, 1 - Math.max(idleBlink, Math.min(1, f.blink)));
+    const open = Math.max(0.06, 1 - Math.max(idleBlink, Math.min(1, f.blink + this.statusFx.droop)));
     const es = f.eyeScale;
     for (const r of this.eyeRecs) r.b.scale.set(r.s.x * es, r.s.y * es * open, r.s.z * es);
     const gx = this.look.yaw * 0.5, gy = this.look.pitch * 0.4 + Math.sin(t * 0.37) * 0.04;
@@ -423,10 +463,18 @@ export class Actor implements PieceActor {
     this.lookTarget = { yaw: THREE.MathUtils.clamp(yaw, -1.1, 1.1), pitch: THREE.MathUtils.clamp(pitch, -0.5, 0.5), hold: 2.5 };
   }
 
-  moveTo(target: THREE.Vector3, opts?: { duration?: number }): Promise<void> {
+  moveTo(target: THREE.Vector3, opts?: { duration?: number; style?: MoveStyle }): Promise<void> {
     if (this.disposed || this.gone) return Promise.resolve();
     const tl = this.begin();
     const to = this.toParent(target);
+    const style = opts?.style ?? 'normal';
+    if (style !== 'normal') {
+      this.struck = false;
+      if (this.rm) tl.timeScale(RM_SPEED);
+      const leg = travelStyle(this, tl, to, style);
+      this.relaxFaceAndPose(tl, leg.end);
+      return this.promiseAt(tl, leg.arrive);
+    }
     const g = this.style.gait;
     let scale: number | undefined;
     if (opts?.duration) {
@@ -483,6 +531,7 @@ export class Actor implements PieceActor {
   defeat(by: PieceActor): Promise<void> {
     if (this.disposed || this.gone) return Promise.resolve();
     const a = by as Actor;
+    this.setStatus(null);
     const tl = this.begin();
     const rm = this.rm;
     const sq = this.sq;
@@ -672,13 +721,130 @@ export class Actor implements PieceActor {
     for (const t of [...this.actionTls]) t.progress(1);
     this.emoTl?.progress(1);
     this.reactTl?.progress(1);
+    this.hitTl?.progress(1);
   }
 
-  // ---------- Phase 3 stubs (orchestrator, so main typechecks). The cast session replaces these. ----------
-  powerUp(_power: PowerKind, _target?: THREE.Vector3): Promise<void> { return Promise.resolve(); }
-  setStatus(_status: PieceStatusKind | null): void {}
-  hit(): Promise<void> { return Promise.resolve(); }
-  appear(): Promise<void> { return Promise.resolve(); }
+  // ---------- Phase 3 ----------
+
+  powerUp(power: PowerKind, target?: THREE.Vector3): Promise<void> {
+    if (this.disposed || this.gone) return Promise.resolve();
+    const tl = this.begin();
+    if (this.rm) tl.timeScale(RM_SPEED);
+    const aim = target ? this.toParent(target) : null;
+    const flourish = POWER_OF[this.kind] === power ? FLOURISH[this.side][power] : genericFlourish;
+    const effect = flourish(this, tl, 0, aim);
+    tl.call(() => {
+      const at = target && (power === 'block' || power === 'headbutt') ? target.clone() : this.worldPos();
+      this.emit('power', { id: this.id, power, at, intensity: this.rm ? 0 : POWER_INTENSITY[power] });
+    }, [], effect);
+    this.relaxFaceAndPose(tl, Math.max(effect + 0.15, tl.duration()));
+    return this.promiseAt(tl, effect);
+  }
+
+  /** The current status look (null = none). */
+  get statusKind(): PieceStatusKind | null { return this.status; }
+
+  setStatus(status: PieceStatusKind | null): void {
+    if (this.disposed || status === this.status) return;
+    const old = this.statusMesh;
+    const wasFrozen = this.status === 'frozen';
+    this.status = status;
+    this.statusMesh = null;
+    if (old) {
+      gsap.killTweensOf(old.scale);
+      gsap.to(old.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.18, ease: 'back.in(2)', onComplete: () => { old.removeFromParent(); } });
+      if (wasFrozen && this.object.parent) fx.shatter(this.fxParent, this.above(0), this.sq, this.height);
+    }
+    gsap.to(this.statusFx, { droop: status === 'stunned' ? 0.5 : 0, tint: status === 'frozen' ? 0.28 : 0, duration: 0.3, ease: 'power2.out', overwrite: true });
+    if (!status) return;
+    // Hang the look on the pedestal bone so it rides along with hops, tumbles and slides.
+    const holder = this.bones.get('base') ?? this.object;
+    const h = this.height;
+    if (status === 'stunned') {
+      const ring = fx.starRing();
+      ring.position.y = h + 0.1;
+      ring.scale.setScalar(0.001);
+      holder.add(ring);
+      gsap.to(ring.scale, { x: 1, y: 1, z: 1, duration: 0.3, ease: 'back.out(2.5)' });
+      this.statusMesh = ring;
+      if (this.object.parent) fx.bonkStar(this.fxParent, this.above(h + 0.15), this.sq);
+    } else {
+      const ice = fx.iceBlock();
+      const w = 0.86, ih = h + 0.1;
+      ice.scale.set(w, 0.001, w);
+      holder.add(ice);
+      gsap.to(ice.scale, { y: ih, duration: 0.35, ease: 'back.out(1.6)' });
+      this.statusMesh = ice;
+      if (this.object.parent) fx.dust(this.fxParent, this.above(0), this.sq, 0.7);
+    }
+  }
+
+  hit(): Promise<void> {
+    if (this.disposed || this.gone) return Promise.resolve();
+    this.hitTl?.progress(1);
+    const rm = this.rm;
+    const k = rm ? 0.4 : 1;
+    const body = this.eb('body'), head = this.eb('head'), base = this.eb('base');
+    const f = this.face;
+    // Plays on the emote layer so it never cuts a running action (a push, a wave).
+    const tl = (this.hitTl = gsap.timeline());
+    if (rm) tl.timeScale(RM_SPEED);
+    tl.to(body, { sy: 1 - 0.22 * k, sx: 1 + 0.12 * k, sz: 1 + 0.12 * k, duration: 0.06, ease: 'power3.out' }, 0)
+      .to(body, { sy: 1, sx: 1, sz: 1, duration: 0.45, ease: 'elastic.out(1.1, 0.35)' }, 0.08)
+      .to(head, { rx: 0.3 * k, duration: 0.06 }, 0)
+      .to(head, { rx: 0, duration: 0.35, ease: 'back.out(2)' }, 0.1)
+      .to(base, { rz: 0.12 * k, duration: 0.06 }, 0)
+      .to(base, { rz: 0, duration: 0.4, ease: 'elastic.out(1.2, 0.3)' }, 0.06)
+      .to(f, { blink: 1, duration: 0.05 }, 0)
+      .to(f, { blink: 0, eyeScale: 1, duration: 0.15 }, 0.3);
+    this.mouth('o', tl, 0);
+    this.mouth('smile', tl, 0.45);
+    tl.call(() => {
+      const p = this.bonePoint('head').add(new THREE.Vector3(0, this.sq * 0.25, 0));
+      fx.bonkStar(this.fxParent, p, this.sq);
+      if (!rm) fx.stars(this.fxParent, p, this.sq, 4, 0.35);
+      this.flash(0.6);
+    }, [], 0.02);
+    return new Promise<void>((resolve) => {
+      const done = () => { if (this.hitDone === done) this.hitDone = null; resolve(); };
+      this.hitDone?.();
+      this.hitDone = done;
+      tl.eventCallback('onComplete', done);
+    });
+  }
+
+  appear(): Promise<void> {
+    if (this.disposed || this.gone) return Promise.resolve();
+    const tl = this.begin(false);
+    const rm = this.rm;
+    if (rm) tl.timeScale(RM_SPEED);
+    const base = this.b('base'), body = this.b('body');
+    const sea = this.side === 'sea';
+    const P = this.fxParent, sq = this.sq, h = this.height;
+    const at = this.object.position.clone();
+    tl.call(() => {
+      if (sea) { fx.puddle(P, at, sq, 0.55); fx.bubbles(P, at, sq, 5, 0.6); }
+      else { fx.mound(P, at, sq, 0.5); fx.clods(P, at, sq, 5); }
+    }, [], 0);
+    // Start tucked under the ground, tiny.
+    tl.set(base, { py: -h * 0.8, sx: 0.25, sy: 0.25, sz: 0.25 }, 0);
+    tl.set(this.face, { blink: 1 }, 0);
+    if (sea) {
+      tl.call(() => fx.bubbles(P, at, sq, 6, 0.8), [], 0.2);
+      tl.to(base, { py: 0.12, sx: 1, sy: 1, sz: 1, duration: 0.45, ease: 'back.out(1.4)' }, 0.18);
+      yo3(tl, body, { sy: 1.15, sx: 0.92, sz: 0.92 }, 0.1, 0.4, 3);
+    } else {
+      tl.call(() => fx.clods(P, at, sq, 7), [], 0.18);
+      tl.to(base, { py: 0.2, sx: 1, sy: 1, sz: 1, duration: 0.38, ease: 'power2.out' }, 0.16);
+    }
+    tl.to(base, { py: 0, duration: 0.16, ease: 'power2.in' }, 0.6);
+    tl.call(() => this.emit('land', { id: this.id, at: this.worldPos(), intensity: rm ? 0 : 0.2 }), [], 0.76);
+    tl.fromTo(body, { sy: 0.8, sx: 1.12, sz: 1.12 }, { sy: 1, sx: 1, sz: 1, duration: 0.4, ease: 'elastic.out(1.1, 0.4)', immediateRender: false }, 0.76);
+    tl.to(this.face, { blink: 0, eyeScale: 1.25, duration: 0.12 }, 0.4);
+    this.mouth('open', tl, 0.4);
+    this.relaxFaceAndPose(tl, 0.95);
+    return this.promiseAt(tl, 0.8);
+  }
 
   get selected(): boolean { return this.selT === 1; }
 
@@ -691,7 +857,13 @@ export class Actor implements PieceActor {
     this.actionTls.clear();
     this.emoTl?.kill();
     this.reactTl?.kill();
+    this.hitTl?.kill();
+    this.hitDone?.();
+    gsap.killTweensOf(this.statusFx);
+    if (this.statusMesh) gsap.killTweensOf(this.statusMesh.scale);
     this.killBubble?.();
+    for (const o of this.temps) o.removeFromParent();
+    this.temps.clear();
     this.resolveAll();
     this.object.removeFromParent();
     this.mesh.skeleton.dispose();
