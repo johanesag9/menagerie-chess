@@ -522,12 +522,12 @@ export class Chaos {
       await r.wait(300);
     } else {
       r.anim(el.animate([{ opacity: 0, transform: 'translate(-50%, -50%) scale(.5)' }, { opacity: 1, transform: 'translate(-50%, -50%) scale(1)' }], { duration: 320, easing: SPRING, fill: 'both' }));
-      await this.spin(r, disc, pointer, final, 2100);
+      await this.spin(r, disc, pointer, final, 1900);
     }
     this.ctx.audio.play('wheelStop');
     el.classList.add('is-stopped');
     if (!this.rm) r.anim(cap.animate([{ opacity: 0, transform: 'translateY(10px) scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: SPRING, fill: 'both' }));
-    await r.hold(1300);
+    await r.hold(1100);
     this.endRun(r, el);
   }
 

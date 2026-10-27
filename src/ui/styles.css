@@ -1196,6 +1196,8 @@
 }
 
 @media (max-width: 600px) {
+  /* The bars wrap (for the chip and dock), so the card slot must not ask for its full text width. */
+  .mc-hud__slot { flex: 1 1 0; }
   .mc-modes__opt { min-height: 118px; padding: 10px 6px; }
   .mc-modes__label { font-size: 18px; }
   .mc-modes__sub { font-size: 12px; }
