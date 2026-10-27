@@ -4,8 +4,9 @@
  */
 import * as THREE from 'three';
 import { Chess, type Square as CSquare } from 'chess.js';
-import type { PieceKind, Side, Square, WeirdEventKind } from '../contracts/types';
-import { createWorld, type ShorelineWorld } from './index';
+import type { PieceKind, Side, Square, SquareEffect, WeirdEventKind, WheelOutcome } from '../contracts/types';
+import { ALL_SQUARES, squareIndex } from './coords';
+import { createWorld, TIDE_TIMING, type ShorelineWorld } from './index';
 
 const SAMPLE_FEN = 'r1bqkb1r/pppp1Bpp/2n2n2/4p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 4'; // Black king in check, captures available
 const $ = (id: string) => document.getElementById(id)!;
@@ -286,6 +287,132 @@ for (const [kind, label] of WEIRD) {
   });
 }
 
+// ---------- Phase 3: blocked squares, chaos, aiming ----------
+const blocks = new Map<Square, SquareEffect>();
+const emptySquares = () => ALL_SQUARES.filter((sq) => !chess.get(sq as CSquare) && !blocks.has(sq));
+const showBlocks = () => world.setSquareEffects([...blocks.values()]);
+function placeBlock(by: Side) {
+  // Land likes the middle of the board, Sea the beach side, just so the demo spreads them out.
+  const pool = emptySquares().filter((sq) => (by === 'land' ? +sq[1] <= 4 : +sq[1] >= 5));
+  const list = pool.length ? pool : emptySquares();
+  if (!list.length) return log('No empty square left.');
+  const sq = list[Math.floor(Math.random() * list.length)];
+  blocks.set(sq, { square: sq, effect: 'blocked', by, turnsLeft: 4 });
+  showBlocks();
+  log(`${by === 'land' ? 'Vase' : 'Ink cloud'} on ${sq} (4 turns)`);
+}
+button('blocks', 'Land vase', () => placeBlock('land'));
+button('blocks', 'Sea ink', () => placeBlock('sea'));
+button('blocks', 'Next turn (−1)', () => {
+  for (const [sq, b] of blocks) {
+    if (b.turnsLeft <= 1) blocks.delete(sq);
+    else blocks.set(sq, { ...b, turnsLeft: b.turnsLeft - 1 });
+  }
+  showBlocks();
+  log(`Blocks: ${[...blocks.values()].map((b) => `${b.square} ${b.turnsLeft}`).join(', ') || 'none'}`);
+});
+button('blocks', 'Clear blocks', () => {
+  blocks.clear();
+  showBlocks();
+});
+
+/** Demo of what integration does: Land tokens on the beach slide back one rank at the wave crest. */
+async function tideDemo() {
+  const swept: [Square, Square][] = [];
+  // Closest to the meadow first, only onto an empty, unblocked square.
+  for (let r = 5; r <= 8; r++) for (const f of 'abcdefgh') {
+    const from = `${f}${r}` as Square, to = `${f}${r - 1}` as Square;
+    const p = chess.get(from as CSquare);
+    if (!p || p.color !== 'w' || chess.get(to as CSquare) || blocks.has(to)) continue;
+    chess.remove(from as CSquare);
+    chess.put(p, to as CSquare);
+    swept.push([from, to]);
+  }
+  const reduced = world.reducedMotion;
+  const crest = (reduced ? TIDE_TIMING.reduced : TIDE_TIMING.normal).crest;
+  const done = world.playChaos('tide', { squares: swept.map(([from]) => from) });
+  // A real game would use world time; the demo uses onFrame so it pauses with the world.
+  let t = 0;
+  const off = world.onFrame((dt) => {
+    t += dt;
+    if (t < crest) return;
+    off();
+    for (const [from, to] of swept) {
+      const tok = tokens.get(from)!;
+      tokens.delete(from);
+      tokens.set(to, tok);
+      void hop(tok, world.squareToWorld(to), 0.5);
+    }
+  });
+  await done;
+  off();
+  log(swept.length ? `Tide swept ${swept.map(([a, b]) => `${a}→${b}`).join(', ')}` : 'Tide: no Land piece on the beach to sweep');
+}
+
+async function pigeonDemo() {
+  const pawns = [...tokens.entries()].filter(([sq]) => chess.get(sq as CSquare)?.type === 'p');
+  if (!pawns.length) {
+    log('Pigeon: no pawns, it flies past');
+    return world.playChaos('pigeon', {});
+  }
+  const [sq, tok] = pawns[Math.floor(Math.random() * pawns.length)];
+  tokens.delete(sq);
+  chess.remove(sq as CSquare);
+  if (selected === sq) selected = null;
+  log(`Pigeon steals the pawn on ${sq}`);
+  await world.playChaos('pigeon', { squares: [sq], carry: tok });
+  // The world detached it; disposing is the caller's job (integration disposes the actor).
+  log(`Pigeon gone. Token still attached: ${tok.parent ? 'yes (bug)' : 'no'}`);
+}
+
+const CHAOS: [WheelOutcome | 'earthquakeRight', string][] = [
+  ['tide', 'Tide'], ['pigeon', 'Pigeon steals'], ['earthquake', 'Quake ←'], ['earthquakeRight', 'Quake →'], ['disco', 'Disco'],
+];
+async function playChaosDemo(kind: WheelOutcome | 'earthquakeRight') {
+  const t0 = performance.now();
+  log(`chaos: ${kind} started`);
+  if (kind === 'tide') await tideDemo();
+  else if (kind === 'pigeon') await pigeonDemo();
+  else if (kind === 'earthquake' || kind === 'earthquakeRight') await world.playChaos('earthquake', { direction: kind === 'earthquake' ? 'left' : 'right' });
+  else await world.playChaos(kind);
+  log(`chaos: ${kind} finished in ${((performance.now() - t0) / 1000).toFixed(2)}s`);
+}
+for (const [kind, label] of CHAOS) button('chaos', label, () => void playChaosDemo(kind));
+
+const near = (a: Square, b: Square, n: number) => {
+  const p = squareIndex(a), q = squareIndex(b);
+  return Math.max(Math.abs(p.file - q.file), Math.abs(p.rank - q.rank)) <= n && a !== b;
+};
+function kingOfTurn(): Square {
+  return kingSquare(chess.turn()) ?? 'e1';
+}
+button('aim', 'Targets: escape', () => {
+  const k = kingOfTurn();
+  selected = k;
+  world.setHighlights({ selected: k, legal: [], captures: [], targets: emptySquares().filter((sq) => near(k, sq, 2)), area: [] });
+  log(`Escape targets around ${k}`);
+});
+button('aim', 'Targets: block', () => {
+  selected = null;
+  world.setHighlights({ selected: null, legal: [], captures: [], targets: emptySquares(), area: [] });
+  log('Block targets: every empty square');
+});
+button('aim', 'Area: stomp', () => {
+  const rook = (['a1', 'h1', 'a8', 'h8'] as Square[]).find((sq) => chess.get(sq as CSquare)?.type === 'r') ?? 'd4';
+  selected = rook;
+  world.setHighlights({ selected: rook, legal: [], captures: [], targets: [], area: ALL_SQUARES.filter((sq) => near(rook, sq, 1)) });
+  log(`Stomp area around ${rook}`);
+});
+button('aim', 'Targets + area', () => {
+  const sq: Square = 'd4';
+  world.setHighlights({ selected: sq, legal: [], captures: [], targets: ['c5', 'e5', 'd6'], area: ['d5'] });
+  log('Aiming a headbutt: violet = pick, wash = will be affected');
+});
+button('aim', 'Clear aim', () => {
+  selected = null;
+  world.setHighlights({ selected: null, targets: [], area: [] });
+});
+
 const qBtn = button('settings', 'Quality: …', () => {
   world.setQuality(world.quality === 'high' ? 'low' : 'high');
   qBtn.textContent = `Quality: ${world.quality}`;
@@ -344,6 +471,14 @@ if (params.has('skipIntro')) world.skipIntro();
 if (params.has('sample')) [...document.querySelectorAll('button')].find((b) => b.textContent === 'Sample position')!.click();
 if (params.get('select')) onSquareClicked(params.get('select') as Square);
 if (params.get('face') === 'sea') void world.faceSide('sea', false);
+if (params.has('blocks')) {
+  for (const [sq, by, n] of [['d5', 'sea', 4], ['f5', 'sea', 1], ['c4', 'land', 4], ['e4', 'land', 1]] as const) blocks.set(sq, { square: sq, effect: 'blocked', by, turnsLeft: n });
+  showBlocks();
+}
+if (params.get('aim') === 'targets') [...document.querySelectorAll('button')].find((b) => b.textContent === 'Targets: escape')!.click();
+if (params.get('aim') === 'area') [...document.querySelectorAll('button')].find((b) => b.textContent === 'Targets + area')!.click();
+const autoChaos = params.get('chaos') as WheelOutcome | 'earthquakeRight' | null;
+if (autoChaos) setTimeout(() => void playChaosDemo(autoChaos), 300);
 const autoWeird = params.get('weird') as WeirdEventKind | null;
 if (autoWeird) setTimeout(() => void world.playWeirdEvent({ kind: autoWeird, durationTurns: 1, squares: ['e1'] }), 300);
 setInterval(() => {

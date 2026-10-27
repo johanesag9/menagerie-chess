@@ -1,5 +1,81 @@
 # World stream report
 
+## Phase 3: blocked squares, chaos spectacles, aiming highlights
+
+Branch `claude/p3-world-022f8e`. New files: `squareFx.ts` (blocks), `chaos.ts` (Wheel of Chaos), `phase3.test.ts`. Changed: `highlights.ts`, `weird.ts`, `textures.ts`, `constants.ts`, `index.ts`, the demo.
+
+### What's done
+- **`setSquareEffects`** shows exactly the blocks given. It compares with what is already shown: new blocks appear, missing ones vanish, a changed `turnsLeft` eases in.
+  - **Land:** a cream-and-cobalt porcelain vase falls, tips over with a bounce and spills water, petals and three flowers.
+  - **Sea:** a dark purple ink cloud, a lumpy dome that slowly swirls (animated shader) over a stain with moving tendrils.
+  - **Countdown:** the puddle shrinks and the cloud thins and shrinks as `turnsLeft` goes from 4 to 1.
+  - Both are `noPick`, so clicks go through to the square. Objects are pooled and reused.
+- **`playChaos`**, each one skippable:
+  - **tide:** a wave with a foamy rolling crest comes in from the sea over ranks 5–8 and reaches the middle line. Spray comes off the crest, then a splash. It drains back and leaves a wet sheen. The beach squares darken while wet, and the sea pool surges.
+  - **pigeon:** the pigeon flies in, lands on `opts.carry`, grabs it (reparents it to a hook under its feet) and flies up and off-screen. It wobbles and the piece swings under it. `carry` is detached (`removeFromParent`, never disposed) before the promise resolves, also when skipped. With no `carry` (no pawns), it just flies past.
+  - **earthquake:** the board rumbles and tips slightly toward `direction`, with two camera shakes, dust puffs drifting that way, and three crack decals that fade.
+  - **disco:** a 1.5s version of the Weird Mode disco (mirror ball, coloured beams and spots, dance-floor squares), plus three sparkle bursts.
+- **Skipping:** any click or tap on the canvas, or any key, jumps every running spectacle to its end. It also skips the intro, as before.
+- **Reduced motion:** shorter effects, no camera shake, a low wave, a gentle rumble and less wobble.
+- **Highlights:**
+  - `targets`: a violet ring with four turning star glints that twinkle, and a soft violet glow inside. It ripples in from the selected square.
+  - `area`: a soft lilac rounded-square wash that breathes.
+  - Each is a single instanced draw call, however many squares are shown.
+- **No first-use hitch:** every new shader is compiled in the existing warm-up before the first frame. The program count stays the same (63 high, 28 low) before and after running every block, chaos effect and highlight.
+- **Tests:** tide crest at 40% (normal and reduced), and the block diff (show exactly, vanish, swap Land↔Sea, pooling). World tests: 18.
+
+### Tide timing (exact)
+Exported as `TIDE_TIMING` from `src/world/index.ts`.
+
+| | Total | Crest | Holds until | Gone |
+|---|---|---|---|---|
+| Normal | 1.80s | **0.72s** (40%) | 1.02s | 1.80s |
+| Reduced motion | 1.40s | **0.56s** (40%) | 0.80s | 1.40s |
+
+**Crest** means the wave front reaches the middle line (rank 4/5) at full height. Start the swept pieces' slide at the crest; a slide of about 0.5s lands while the water is still on the beach. The demo does exactly this with its stand-in tokens.
+
+**Other lengths:**
+- pigeon: 2.05s with a piece (1.9s reduced); it grabs at 0.87s. A fly-past takes 1.6s.
+- earthquake: 1.6s (1.0s reduced).
+- disco: 1.5s.
+
+All of them run on world time, so `setPaused` holds them.
+
+### How to run the demo
+Start `world-demo` (port 4412) and open http://localhost:4412/src/world/demo.html. The pieces are **stand-in tokens**, not the animals.
+- **Blocked squares:** Land vase, Sea ink, "Next turn (−1)" counts every block down and removes it at 0, Clear blocks.
+- **Wheel of Chaos:**
+  - Tide: Land tokens on the beach slide back one rank at the crest. This stands in for integration.
+  - Pigeon steals: it takes a random pawn token.
+  - Quake ← and Quake →.
+  - Disco.
+  - The log shows how long each one took.
+- **Aiming:** Targets: escape, Targets: block, Area: stomp, Targets + area, Clear aim.
+- **URL shortcuts:** `&blocks` (sample blocks), `&aim=targets` or `&aim=area`, `&chaos=tide|pigeon|earthquake|earthquakeRight|disco`.
+
+### Contract requests
+1. **Tide crest timing in the contract.** Integration shouldn't import from `src/world/`. Suggest either `playChaos(..., { onCrest })`, or a `World.chaosTiming` field. For now it's `TIDE_TIMING` from `src/world/index.ts`.
+2. **A skip on `World`.** Today only clicks and keys on the canvas skip a spectacle. If the Director has its own skip (a button, or `cast.skipAll`), add `World.skipEffects()`. It's a one-liner here.
+3. **Earthquake `direction`.** I took `'left'` to mean toward the a-file (−x, as Land sees it). Please confirm that core means the same.
+4. **Tide `squares`** is accepted but not needed: the wave always covers the whole beach. Fine to keep as a hint.
+
+### Open design questions for Johanes
+- **Vase look:** cream porcelain with cobalt stripes, and pink and yellow flowers. **Ink:** near-black purple. Do these fit?
+- **Target colour:** violet `#8a4dff` with cream glints. Area wash: lilac `#b866ff`. They're easy to change in `constants.ts`.
+- **Wave height:** the crest stands about a third of a square tall. Bigger reads more, but hides more of the pieces.
+- **Chaos disco** is a short version of the Weird Mode disco. Should it be its own look?
+- **Earthquake dust** is subtle on the cream squares. Should it be heavier?
+
+### Known issues
+- **Draw calls:** each blocked square adds 3 (vase, plus its shadow) or 2 (ink). Targets and area are 1 each. Chaos adds a few draws only while it runs; idle cost is unchanged.
+- **Disco objects are shared.** Weird disco and chaos disco use the same objects, so if both played at once the later one would win. That can't happen in Crazy, because Weird Mode is off there.
+- **Testing:** checked in headless Chrome on this Mac only, at 1280×800 and 390×844, at about 60fps with no console errors. No real phone yet.
+- **Test timeouts:** `npm test` passes. Two earlier full runs failed on core's slow tests (rules fuzz, bot game) timing out while the machine was heavily loaded (load average about 40). Core is untouched here.
+
+---
+
+## Phase 1 (unchanged)
+
 Branch `claude/stream-world-c0afbe`. Everything lives in `src/world/`. The only export the contract needs is `createWorld` from `src/world/index.ts`.
 
 ## What's done

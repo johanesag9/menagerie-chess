@@ -13,7 +13,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Emitter } from '../contracts/emitter';
 import type { CreateWorld } from '../contracts/factories';
 import type {
-  HighlightSet, QualityTier, Side, Square, Unsubscribe, WeirdEvent, World, WorldEventMap, WorldOptions,
+  HighlightSet, QualityTier, Side, Square, SquareEffect, Unsubscribe, WeirdEvent, WheelOutcome, World, WorldEventMap, WorldOptions,
 } from '../contracts/types';
 import { Animator } from './anim';
 import { createBoard } from './board';
@@ -28,6 +28,10 @@ import { PROFILES, detectQuality, readDeviceInfo } from './quality';
 import { Stage } from './stage';
 import { makeTextures } from './textures';
 import { WeirdEffects } from './weird';
+import { ChaosEffects, type ChaosOptions } from './chaos';
+import { SquareEffects } from './squareFx';
+
+export { TIDE_TIMING } from './chaos';
 
 export interface WorldStats {
   fps: number;
@@ -93,11 +97,16 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   };
   rig.onResize();
 
+  // Any click or key skips the intro and a running Wheel of Chaos spectacle.
+  const skipAll = () => {
+    rig.skipIntro();
+    chaos?.skip();
+  };
   const picker = new Picker(stage.canvas, camera, board.group, board.pieceLayer, events, {
     canPick: () => !rig.introRunning,
-    onPress: () => rig.skipIntro(),
+    onPress: skipAll,
   });
-  const onKey = () => rig.skipIntro();
+  const onKey = skipAll;
   window.addEventListener('keydown', onKey);
   stage.canvas.addEventListener('wheel', onKey, { passive: true });
 
@@ -105,13 +114,26 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     scene, board, diorama, rig, animator, bin, mats, tex, reducedMotion, quality: () => stage.quality,
   });
 
+  // Phase 3: blocked squares and Wheel of Chaos spectacles.
+  const squareFx = new SquareEffects(bin);
+  board.overlay.add(squareFx.group);
+  const bufSize = new THREE.Vector2();
+  const chaos: ChaosEffects = new ChaosEffects({
+    board, diorama, rig, animator, bin, mats, tex, weird, reducedMotion, quality: () => stage.quality,
+    pxScale: () => renderer.getDrawingBufferSize(bufSize).y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)),
+  });
+
   // Compile every shader (including hidden effects) before the first visible frame.
   weird.setPrewarm(true);
+  chaos.setPrewarm(true);
+  squareFx.setPrewarm(true);
   highlights.setAllVisible(true);
   for (const t of Object.values(tex)) renderer.initTexture(t);
   await renderer.compileAsync(scene, camera);
   stage.render(0);
   weird.setPrewarm(false);
+  chaos.setPrewarm(false);
+  squareFx.setPrewarm(false);
   highlights.setAllVisible(false);
 
   let paused = false;
@@ -136,6 +158,8 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       animator.update(dt);
       diorama.update(dt, elapsed);
       highlights.update(dt, elapsed);
+      squareFx.update(dt, elapsed);
+      chaos.update(dt);
       for (const fn of frameFns) {
         try {
           fn(dt, elapsed);
@@ -221,10 +245,12 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       if (!introStarted) introSkipped = true;
       rig.skipIntro();
     },
-    // Phase 3 stubs (orchestrator, so main typechecks). The world session replaces these.
-    setSquareEffects() {},
-    playChaos() {
-      return Promise.resolve();
+    setSquareEffects(effects: SquareEffect[]) {
+      squareFx.set(effects);
+      dirty = true;
+    },
+    playChaos(outcome: WheelOutcome, o?: ChaosOptions) {
+      return chaos.play(outcome, o);
     },
     get stats(): WorldStats {
       const i = stage.info;
@@ -238,6 +264,8 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       window.removeEventListener('keydown', onKey);
       stage.canvas.removeEventListener('wheel', onKey);
       picker.dispose();
+      chaos.dispose();
+      squareFx.dispose();
       weird.dispose();
       animator.clear();
       rig.dispose();
