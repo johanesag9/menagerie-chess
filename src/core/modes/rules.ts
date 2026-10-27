@@ -195,10 +195,18 @@ function safeAfter(s: MState, apply: (c: MState) => void): boolean {
   return !inCheck(c, side);
 }
 
-export function legalMoves(s: MState): Move[] {
-  const ms = pseudoMoves(s, s.turn);
+export function legalMoves(s: MState, from?: number, to?: number): Move[] {
+  let ms = pseudoMoves(s, s.turn);
+  if (from !== undefined) ms = ms.filter((m) => m.from === from && (to === undefined || m.to === to));
   if (s.mode === 'crazy') return ms;
   return ms.filter((m) => safeAfter(s, (c) => applyMove(c, m)));
+}
+
+/** Is there at least one legal move? (Stops at the first.) */
+function hasLegalMove(s: MState): boolean {
+  const ms = pseudoMoves(s, s.turn);
+  if (s.mode === 'crazy') return ms.length > 0;
+  return ms.some((m) => safeAfter(s, (c) => applyMove(c, m)));
 }
 
 // ---------- powers ----------
@@ -472,7 +480,7 @@ function trimPowerOptions(s: MState, i: number, opts: number[][]): number[][] {
 
 /** Does the side to move have any action at all? (Crazy: else its turn passes.) */
 export function hasAnyAction(s: MState): boolean {
-  if (legalMoves(s).length) return true;
+  if (hasLegalMove(s)) return true;
   for (let i = 0; i < 64; i++) if (s.board[i]?.side === s.turn && powerOptions(s, i).length) return true;
   if (s.mode === 'crazy') return s[s.turn].hand.some((c) => cardOptions(s, c).length > 0);
   return false;

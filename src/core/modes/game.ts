@@ -126,13 +126,13 @@ export class ModeGame implements GameController {
   legalTargets(from: Square): Square[] {
     if (!this.humanCanAct('action')) return [];
     const i = sqIndex(from);
-    return [...new Set(legalMoves(this.s).filter((m) => m.from === i).map((m) => sqName(m.to)))];
+    return [...new Set(legalMoves(this.s, i).map((m) => sqName(m.to)))];
   }
 
   needsPromotion(from: Square, to: Square): boolean {
     const f = sqIndex(from);
     const t = sqIndex(to);
-    return legalMoves(this.s).some((m) => m.from === f && m.to === t && !!m.promo);
+    return legalMoves(this.s, f, t).some((m) => !!m.promo);
   }
 
   // ---------- game flow ----------
@@ -370,7 +370,7 @@ export class ModeGame implements GameController {
     if (input.type === 'move') {
       const f = sqIndex(input.from);
       const t = sqIndex(input.to);
-      const ms = legalMoves(this.s).filter((m) => m.from === f && m.to === t);
+      const ms = legalMoves(this.s, f, t);
       if (!ms.length) return null;
       const want = ms.some((m) => m.promo) ? (input.promotion ?? 'q') : undefined;
       if (want && !ms.some((m) => m.promo === want)) return null;

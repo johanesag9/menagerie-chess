@@ -19,6 +19,7 @@
   - `rules.ts`: moves, all six powers, all five cards and four joker outcomes, both lucky bonuses, the banana slide, the four wheel results, statuses, blocked squares, castling and en passant rules, and game-over checks.
   - `game.ts`: the controller with every Phase 3 `GameController` member and the event order from `docs/phase3-briefs.md`, duels, passes, clocks (stopped during duels), pause holds, undo (Normal only) and Weird Mode (Normal).
   - `controller.ts`: `createGame()` now returns one controller that runs Classic or Normal/Crazy depending on `GameOptions.mode`.
+- **Tests** (`npm test`): `normal.test.ts` (31: every power, blocked cases, mate by block, stalemate by stuns, threefold, fifty-move, undo, promotion), `crazy.test.ts` (43: every card and joker outcome incl. when they can't be played, every wheel result and its edge cases, every banana-slide shape, both lucky bonuses, duels incl. ties, bonks, the king, the bot on either side, king capture, passes, no undo, card draws), and a fuzz test (`fuzz.normal.test.ts`, `fuzz.crazy.test.ts`): 200 seeded bot-vs-bot games per mode. After every step it checks that legal actions are accepted and illegal ones refused, `targets()` matches the legal list, a piece map rebuilt from events alone matches `pieces` (so ids stay stable), `modeState` fits `pieces`, and in Normal your own king is never left attacked. Classic's tests are unchanged.
 - **Custom bot** (`search.ts`, `botWorker.ts`, `botClient.ts`): alpha-beta over moves, powers and cards in a Web Worker. It also takes lucky bonuses, answers duels (always for its king, more often for big pieces and when it has spare tokens) and throws at random. Level 1 = depth 1 with 35% random actions; level 8 = depth 4 within 1.5s (depth 3 usually completes; the time cap stops depth 4 early).
 
 ## Rules choices where the spec was silent
@@ -38,7 +39,7 @@
 
 ## Contract requests
 1. **Event order after a bonk.** Core sends `bonked`, then `logged` ("Bonked! …"), then `check` if the defender's king is attacked, then `modeState`, `turnChanged`. The brief said "straight to step 4", but `logged` lists bonks, and the HUD needs the king-in-danger warning. The same goes for a pass: `turnPassed`, `logged`, `check` (if any), `modeState`, `turnChanged`. Please confirm or tell me to drop them.
-2. **No signal for "throw again" after a tie.** Today a `duelRound` with `result: 'tie'` and no `duelEnded` right after means "ask for new throws". A `duelThrowNeeded { side }` event, or a `duel` field in `ModeState` with the round and who still has to throw, would make this explicit.
+2. **Signal for "throw now".** Core sends a `modeState` with phase `'duel'` at the start of every throw round: after the defender calls, and again after each tie. That is the cue to ask for hands (the demo does this). A dedicated event, or a `duel` field in `ModeState` with the round and who still has to throw, would be clearer.
 3. **`SideModeState.captured` shows the kind at capture.** A promoted queen comes back as a pawn. A `reviveAs?: PieceKind` on each entry would let the revive picker show that.
 4. `setTuning()`, `getTuning()` and `DEFAULT_TUNING` are exported from `src/core/index.ts` (not in the contract, as the brief asked).
 
@@ -49,6 +50,7 @@
 4. All the defaults in GAME_SPEC "Defaults in the mode rules" are in the tuning file, including "Tide pulls Sea back too" (off).
 
 ## Known issues
+- `npm test` now takes about 30s on a quiet laptop, mostly the Normal fuzz games. On a very busy machine, Classic's slow tests (random-games id check, bot game) can hit their own time limits; they pass when run alone.
 - The bot at levels 7–8 rarely finishes depth 4 within 1.5s; it plays its depth-3 answer then.
 - Undo doesn't rewind the Weird Mode countdown (same as Classic; harmless).
 - The demo board squares are 43px at 390px wide, just under the 44px touch target. It's a dev tool.
