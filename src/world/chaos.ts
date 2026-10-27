@@ -248,7 +248,7 @@ export class ChaosEffects {
           this.particles.emit({
             x: (Math.random() - 0.5) * 8.4, y: BOARD_TOP + height * crestK * 0.9, z,
             vx: (Math.random() - 0.5) * 0.4, vy: 0.8 + Math.random() * 0.8, vz: 0.6 + Math.random() * 0.6,
-            life: 0.45, size: [0.12, 0.05], color: '#ffffff', alpha: 0.9, gravity: -5,
+            life: 0.45, size: [0.22, 0.1], color: '#ffffff', alpha: 0.9, gravity: -5,
           });
         }
       }
@@ -259,7 +259,7 @@ export class ChaosEffects {
           this.particles.emit({
             x: (Math.random() - 0.5) * 8.2, y: BOARD_TOP + height * 0.8, z: z - 0.1,
             vx: (Math.random() - 0.5) * 0.8, vy: 1.4 + Math.random() * 1.6, vz: 0.4 + Math.random() * 0.8,
-            life: 0.55 + Math.random() * 0.3, size: [0.16, 0.06], color: Math.random() < 0.7 ? '#ffffff' : PALETTE.waterShallow, alpha: 0.95, gravity: -7,
+            life: 0.55 + Math.random() * 0.3, size: [0.3, 0.12], color: Math.random() < 0.7 ? '#ffffff' : PALETTE.waterShallow, alpha: 0.95, gravity: -7,
           });
         }
       }
@@ -311,7 +311,7 @@ export class ChaosEffects {
         r = Math.floor(Math.random() * 8);
       } while (used.has(f) && used.size < 8);
       used.add(f);
-      crackAt.push({ x: (f - 3.5) * SQUARE + (Math.random() - 0.5) * 0.4, z: (3.5 - r) * SQUARE + (Math.random() - 0.5) * 0.4, rot: Math.random() * 6.28, delay: 0.08 + crackAt.length * 0.12, size: 1.2 + Math.random() * 0.5 });
+      crackAt.push({ x: (f - 3.5) * SQUARE + (Math.random() - 0.5) * 0.4, z: (3.5 - r) * SQUARE + (Math.random() - 0.5) * 0.4, rot: Math.random() * 6.28, delay: 0.08 + crackAt.length * 0.12, size: 1.7 + Math.random() * 0.5 });
       c.visible = true;
       c.material.opacity = 0;
     }
@@ -346,9 +346,9 @@ export class ChaosEffects {
         const x = edge ? (Math.random() < 0.5 ? -1 : 1) * (4 + FRAME_W * 0.5) : (Math.random() - 0.5) * 8;
         const z = edge ? (Math.random() - 0.5) * 8 : (Math.floor(Math.random() * 8) - 3.5) * SQUARE + 0.3;
         this.particles.emit({
-          x, y: BOARD_TOP + 0.05, z,
+          x, y: BOARD_TOP + 0.15, z,
           vx: sign * (0.3 + Math.random() * 0.5), vy: 0.35 + Math.random() * 0.4, vz: (Math.random() - 0.5) * 0.3,
-          life: 0.9 + Math.random() * 0.4, size: [0.35, 0.9], color: Math.random() < 0.5 ? '#d9bb8a' : '#c7a476', alpha: 0.55, gravity: 0, drag: 1.5, shape: 0,
+          life: 0.9 + Math.random() * 0.4, size: [0.6, 1.6], color: Math.random() < 0.5 ? '#a8845a' : '#8f6d48', alpha: 0.95, gravity: 0, drag: 1.5, shape: 0,
         });
       }
       this.cracks.forEach((c, i) => {
@@ -383,7 +383,7 @@ export class ChaosEffects {
           this.particles.emit({
             x: cx, y: BOARD_TOP + 1.6 + Math.random() * 0.6, z: cz,
             vx: Math.cos(a) * s, vy: 0.8 + Math.random() * 1.6, vz: Math.sin(a) * s,
-            life: 0.7 + Math.random() * 0.5, size: [0.22, 0.08], color: col.getHex(), alpha: 1, gravity: -2.5, drag: 1.2, shape: 1,
+            life: 0.7 + Math.random() * 0.5, size: [0.5, 0.22], color: col.getHex(), alpha: 1, gravity: -2.5, drag: 1.2, shape: 1,
           });
         }
         next++;
@@ -466,7 +466,7 @@ class Particles {
           float a;
           if (vShape > 0.5) {
             vec2 q = abs(p);
-            a = max(0.0, 1.0 - (q.x * q.y * 30.0 + (q.x + q.y) * 0.9)) + max(0.0, 1.0 - length(p) * 3.0);
+            a = max(0.0, 1.0 - (q.x * q.y * 14.0 + (q.x + q.y) * 0.7)) + max(0.0, 1.0 - length(p) * 2.2);
           } else {
             a = texture2D(map, gl_PointCoord).a;
           }

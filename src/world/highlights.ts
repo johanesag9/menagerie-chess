@@ -243,9 +243,9 @@ const TARGET_FRAG = /* glsl */ `
     p /= mix(0.6, 1.0, v) * pop;
     float r = length(p);
     float breathe = 0.5 + 0.5 * sin(t * 2.2 + vPhase);
-    float ringR = 0.66 + breathe * 0.03;
-    float ring = smoothstep(0.075, 0.03, abs(r - ringR));
-    float glowIn = smoothstep(ringR, 0.0, r) * 0.22;
+    float ringR = 0.68 + breathe * 0.03;
+    float ring = smoothstep(0.12, 0.06, abs(r - ringR));
+    float glowIn = smoothstep(ringR + 0.05, 0.1, r) * (0.3 + breathe * 0.12);
     // Four glints riding the ring, turning slowly, each twinkling on its own beat.
     float a0 = t * 0.45 + vPhase;
     float glints = 0.0;
@@ -253,7 +253,7 @@ const TARGET_FRAG = /* glsl */ `
       float a = a0 + float(i) * 1.5708;
       vec2 c = vec2(cos(a), sin(a)) * ringR;
       float tw = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(t * 3.3 + float(i) * 2.1 + vPhase * 3.0), 3.0);
-      glints += star(p - c, 0.2 * tw);
+      glints += star(p - c, 0.3 * tw);
     }
     float a = max(ring * 0.95, glowIn) * v;
     vec3 c = mix(color, spark, clamp(glints, 0.0, 1.0)) * (1.0 + boost * 0.6);
@@ -277,7 +277,7 @@ const AREA_FRAG = /* glsl */ `
     float fill = 1.0 - smoothstep(0.12, 0.32, d);
     float edge = smoothstep(0.32, 0.22, d) * smoothstep(0.08, 0.2, d);
     float breathe = 0.5 + 0.5 * sin(t * 2.6 + vPhase);
-    float a = (fill * (0.32 + breathe * 0.1) + edge * 0.25) * v;
+    float a = (fill * (0.46 + breathe * 0.1) + edge * 0.35) * v;
     gl_FragColor = vec4(mix(color, spark, edge * 0.6) * (1.0 + boost * 0.3), a);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

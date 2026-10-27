@@ -133,7 +133,7 @@ export function makeTextures(bin: Bin): Textures {
       seed = 7;
       for (let k = 0; k < 3; k++) {
         const a = (k / 3) * Math.PI * 2 + 0.4;
-        branch(s / 2, s / 2, a, s * 0.2, s * 0.035 + grow, 2);
+        branch(s / 2, s / 2, a, s * 0.2, s * 0.06 + grow, 2);
       }
     };
     draw('rgba(255,236,200,0.55)', 4); // light lip

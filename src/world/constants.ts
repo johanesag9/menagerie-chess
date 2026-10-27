@@ -44,6 +44,6 @@ export const PALETTE = {
   /** Phase 3: squares you may pick for a power or card (violet "magic" ring) and the affected-area wash. */
   target: '#8a4dff',
   targetSpark: '#fff4c2',
-  area: '#c38bff',
+  area: '#b866ff',
   label: '#5b3a20',
 } as const;

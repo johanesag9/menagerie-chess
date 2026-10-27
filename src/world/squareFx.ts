@@ -15,6 +15,9 @@ import { type Bin, seeded } from './kit';
 const MAX_TURNS = 4;
 const APPEAR_S = 0.7;
 const VANISH_S = 0.45;
+/** The vase is modelled at a small size; this makes it read at phone size from the default camera. */
+const VASE_SCALE = 1.7;
+const VASE_BELLY = 0.15 * VASE_SCALE;
 
 interface Fx {
   by: Side;
@@ -144,9 +147,9 @@ export class SquareEffects {
     const rnd = seeded(31);
     const petals: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 8; i++) {
-      const a = rnd() * Math.PI * 2, r = 0.12 + rnd() * 0.24;
+      const a = rnd() * Math.PI * 2, r = 0.1 + rnd() * 0.26;
       const col = ['#ff6f91', '#ff9ecb', '#ffd23f', '#ffffff'][i % 4];
-      petals.push(paint(new THREE.SphereGeometry(0.028, 8, 5).scale(1, 0.25, 1.5).rotateY(rnd() * 3).translate(Math.cos(a) * r + 0.18, 0.006, Math.sin(a) * r), col));
+      petals.push(paint(new THREE.SphereGeometry(0.04, 8, 5).scale(1, 0.25, 1.5).rotateY(rnd() * 3).translate(Math.cos(a) * r + 0.18, 0.006, Math.sin(a) * r), col));
     }
     this.petalGeo = bin.add(mergeGeometries(petals)!);
     petals.forEach((p) => p.dispose());
@@ -164,7 +167,7 @@ export class SquareEffects {
 
     this.toyMat = bin.add(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.2 }));
     this.puddleMat = bin.add(new THREE.MeshPhysicalMaterial({
-      color: '#9ad8ff', roughness: 0.04, clearcoat: 1, transparent: true, opacity: 0.6, depthWrite: false,
+      color: '#6cc4ff', roughness: 0.03, clearcoat: 1, transparent: true, opacity: 0.75, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     }));
 
@@ -275,7 +278,6 @@ export class SquareEffects {
     root.name = 'block-vase';
     // The vase tips over around a pivot on the board, toward +x.
     const pivot = new THREE.Group();
-    pivot.position.x = -0.2;
     const vase = new THREE.Mesh(this.vaseGeo, this.toyMat);
     vase.castShadow = true;
     pivot.add(vase);
@@ -293,17 +295,17 @@ export class SquareEffects {
         const fall = clamp01(fx.t / 0.45);
         const tip = out ? 1 : ease.backOut(clamp01((fx.t - 0.15) / 0.55));
         pivot.rotation.z = -Math.PI / 2 * tip;
-        pivot.position.y = 0.15 * Math.min(1, tip) + (out ? 0 : (1 - ease.cubicIn(fall)) * 0.6);
-        pivot.position.x = -0.2 * (1 - Math.min(1, tip)) - 0.05;
+        pivot.position.y = VASE_BELLY * Math.min(1, tip) + (out ? 0 : (1 - ease.cubicIn(fall)) * 0.6);
+        pivot.position.x = -0.12 - 0.24 * Math.min(1, tip);
         // A tiny settled rock so it feels alive.
         pivot.rotation.x = fx.state === 'on' ? Math.sin(el * 1.3) * 0.02 : 0;
         const spill = out ? fx.t : ease.cubicOut(clamp01((fx.t - 0.4) / 0.6));
         const size = 0.45 + 0.55 * fx.life;
         puddle.scale.set(size * spill, 1, size * spill);
-        puddleMat.opacity = 0.62 * spill;
+        puddleMat.opacity = 0.78 * spill;
         petals.scale.setScalar(Math.max(0.001, spill));
         const shrink = out ? ease.cubicOut(fx.t) : 1;
-        pivot.scale.setScalar(Math.max(0.001, shrink));
+        pivot.scale.setScalar(VASE_SCALE * Math.max(0.001, shrink));
       },
     };
     return fxObj;
@@ -326,7 +328,7 @@ export class SquareEffects {
       by: 'sea', root, t: 0, state: 'in', life: 1, lifeTarget: 1, square: null,
       update: (fx, _dt, el) => {
         const k = fx.state === 'out' ? ease.cubicIn(fx.t) : ease.backOut(fx.t);
-        const thin = 0.4 + 0.6 * fx.life;
+        const thin = 0.55 + 0.45 * fx.life;
         const breathe = 1 + Math.sin(el * 1.6 + seed) * 0.04;
         dome.scale.set(0.42 * k * (0.75 + 0.25 * fx.life) * breathe, 0.3 * k * (0.6 + 0.4 * fx.life), 0.42 * k * (0.75 + 0.25 * fx.life) * breathe);
         dome.position.y = 0.02 + (fx.state === 'in' ? (1 - k) * 0.3 : 0);

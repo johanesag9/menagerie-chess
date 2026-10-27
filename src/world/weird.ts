@@ -531,7 +531,7 @@ export class Pigeon {
     g.visible = true;
     g.position.copy(from);
     g.rotation.set(0, 0, 0);
-    g.scale.setScalar(2);
+    g.scale.setScalar(2.6);
     const end = () => {
       cargo?.removeFromParent();
       g.visible = false;
