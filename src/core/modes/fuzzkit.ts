@@ -1,0 +1,227 @@
+/**
+ * Fuzz: 200 seeded bot-vs-bot games per mode, both sides driven through the controller by the bot's brain
+ * (depth-1 search) mixed with random legal actions, random duel calls and throws, and (Normal) the odd undo.
+ * After every step: no exceptions, every legal action is accepted and an illegal one refused, `targets()` agrees
+ * with the legal list, a piece map rebuilt from events alone matches `pieces` (ids stable), and `modeState` fits `pieces`.
+ */
+import { describe, expect, it } from 'vitest';
+import type { ActionInput, BoardChange, GameMode, Hand, PendingAction, PieceState, Side, Square } from '../../contracts/types';
+import { seeded } from '../testUtils';
+import { ModeGame } from './game';
+import { actionKey, inCheck, legalActions } from './rules';
+import { decide } from './search';
+import { DEFAULT_TUNING } from './tuning';
+
+const GAMES = 200;
+const CHUNK = 25;
+const MAX_STEPS = 80;
+const HANDS: Hand[] = ['rock', 'paper', 'scissors'];
+const SQUARES: Square[] = [];
+for (const r of '12345678') for (const f of 'abcdefgh') SQUARES.push(`${f}${r}` as Square);
+
+const where = (g: ModeGame) => `(fen ${g.fen}, phase ${g.modeState.phase})`;
+
+/** A cheap check: the message (with the FEN) is only built when it fails. */
+function need(ok: unknown, g: ModeGame, what: () => string): void {
+  if (!ok) throw new Error(`${what()} ${where(g)}`);
+}
+
+/** A piece map kept up to date from events only, the way integration would. */
+function tracker(g: ModeGame) {
+  const map = new Map<string, PieceState>();
+  const reset = (pieces: PieceState[]) => {
+    map.clear();
+    for (const p of pieces) map.set(p.id, { ...p });
+  };
+  const move = (id: string, to: Square) => {
+    const p = map.get(id);
+    if (!p) throw new Error(`event moved unknown piece ${id}`);
+    p.square = to;
+  };
+  const apply = (changes: BoardChange[]) => {
+    for (const c of changes) {
+      if (c.type === 'move') move(c.pieceId, c.to);
+      else if (c.type === 'capture') {
+        if (!map.delete(c.pieceId)) throw new Error(`event captured unknown piece ${c.pieceId}`);
+      } else if (c.type === 'spawn') {
+        if (map.has(c.piece.id)) throw new Error(`spawned a live id ${c.piece.id}`);
+        map.set(c.piece.id, { ...c.piece });
+      } else if (c.type === 'promote') {
+        const p = map.get(c.pieceId)!;
+        map.delete(c.pieceId);
+        map.set(c.newId, { ...p, id: c.newId, kind: c.kind, square: c.square });
+      }
+    }
+  };
+  g.on('gameStarted', (e) => reset(e.pieces));
+  g.on('undone', (e) => reset(e.pieces));
+  g.on('moved', (m) => {
+    if (m.captured && !map.delete(m.captured.id)) throw new Error(`moved captured unknown ${m.captured.id}`);
+    if (m.rookMove) move(m.rookMove.pieceId, m.rookMove.to);
+    const end = m.slide?.to ?? m.to;
+    move(m.pieceId, end);
+    if (m.promotedId) {
+      const p = map.get(m.pieceId)!;
+      map.delete(m.pieceId);
+      map.set(m.promotedId, { ...p, id: m.promotedId, kind: m.promotion!, square: end });
+    }
+  });
+  g.on('powerUsed', (e) => apply(e.changes));
+  g.on('cardPlayed', (e) => apply(e.changes));
+  g.on('bonusUsed', (e) => apply(e.changes));
+  g.on('wheelSpun', (e) => apply(e.changes));
+  return {
+    check() {
+      const real = g.pieces;
+      const key = (p: PieceState) => `${p.id}@${p.square}:${p.kind}:${p.side}`;
+      const a = real.map(key).sort().join(' ');
+      const b = [...map.values()].map(key).sort().join(' ');
+      if (a !== b) expect(b, `pieces rebuilt from events ${where(g)}`).toBe(a);
+    },
+  };
+}
+
+/** `modeState` must fit `pieces`. */
+function checkState(g: ModeGame, mode: GameMode) {
+  const ms = g.modeState;
+  const pieces = g.pieces;
+  const byId = new Map(pieces.map((p) => [p.id, p]));
+  const at = new Set(pieces.map((p) => p.square));
+  need(byId.size === pieces.length, g, () => 'ids not unique');
+  need(at.size === pieces.length, g, () => 'two pieces on one square');
+  const over = g.isOver();
+  need((ms.phase === 'over') === !!over, g, () => 'phase "over" only when the game is over');
+  for (const side of ['land', 'sea'] as Side[]) {
+    const kings = pieces.filter((p) => p.side === side && p.kind === 'k').length;
+    const lost = over?.reason === 'kingCaptured' && over.winner !== side;
+    need(kings === (lost ? 0 : 1), g, () => `${side} has ${kings} kings`);
+    const st = ms[side];
+    for (const id of st.powersUsed) need(byId.get(id)?.side === side, g, () => `used power on ${id}, not a live ${side} piece`);
+    need(new Set(st.powersUsed).size === st.powersUsed.length, g, () => `${side} powersUsed has repeats`);
+    for (const p of st.captured) need(p.side === side && !byId.has(p.id), g, () => `captured ${p.id} is on the board`);
+    const hand = new Set(st.hand.map((c) => c.id));
+    for (const id of st.playableCards) need(hand.has(id), g, () => `playable card ${id} not in the hand`);
+    if (ms.phase !== 'action' || g.turn !== side) need(!st.playableCards.length, g, () => `${side} has playable cards out of turn`);
+    if (mode === 'normal') {
+      need(!st.hand.length, g, () => 'cards in Normal');
+    } else {
+      need(st.hand.length <= DEFAULT_TUNING.handLimit, g, () => `${side} hand over the limit`);
+      need(st.duelTokens >= 0 && st.duelTokens <= DEFAULT_TUNING.duelTokens, g, () => `${side} has ${st.duelTokens} tokens`);
+      need(st.nextCardIn >= 1, g, () => `${side} nextCardIn ${st.nextCardIn}`);
+    }
+  }
+  need(new Set(ms.statuses.map((s) => s.pieceId)).size === ms.statuses.length, g, () => 'two statuses on one piece');
+  const longest = Math.max(DEFAULT_TUNING.stunTurns, DEFAULT_TUNING.freezeTurns);
+  for (const s of ms.statuses) {
+    const p = byId.get(s.pieceId);
+    need(p && p.kind !== 'k', g, () => `status on ${s.pieceId}, not a live non-king`);
+    need(s.turnsLeft >= 1 && s.turnsLeft <= longest, g, () => `status ${s.pieceId} turnsLeft ${s.turnsLeft}`);
+  }
+  for (const b of ms.squares) {
+    need(!at.has(b.square), g, () => `blocked ${b.square} holds a piece`);
+    need(b.turnsLeft >= 1 && b.turnsLeft <= DEFAULT_TUNING.blockPlies, g, () => `block ${b.square} turnsLeft ${b.turnsLeft}`);
+  }
+  if (mode === 'normal') need(ms.die === null && ms.nextWheelIn === null, g, () => 'die or wheel in Normal');
+  else if (ms.phase === 'bonus') need(ms.die?.effect === 'lucky', g, () => 'bonus phase without a 6');
+}
+
+/** Walk `targets()` along an action and check every step against the legal list. */
+function checkTargets(g: ModeGame, a: ActionInput, legal: ActionInput[]) {
+  if (a.type === 'move' || (a.type === 'bonus' && a.choice === 'skip')) return;
+  const same = legal.filter((x): x is typeof a => {
+    if (x.type !== a.type) return false;
+    if (a.type === 'power') return x.type === 'power' && x.pieceId === a.pieceId;
+    if (a.type === 'card') return x.type === 'card' && x.cardId === a.cardId && x.pieceId === a.pieceId;
+    return x.type === 'bonus' && x.choice === a.choice;
+  });
+  for (let n = 0; n <= a.targets.length; n++) {
+    const prefix = a.targets.slice(0, n);
+    const pending = { ...a, targets: prefix } as PendingAction;
+    const step = g.targets(pending);
+    const fits = same.filter((x) => prefix.every((t, i) => x.targets[i] === t));
+    const next = new Set(fits.filter((x) => x.targets.length > n).map((x) => x.targets[n]));
+    const agrees = step.squares.length === next.size && step.squares.every((q) => next.has(q));
+    if (!agrees) expect(new Set(step.squares), `targets() squares for ${JSON.stringify(pending)} ${where(g)}`).toEqual(next);
+    need(step.complete === fits.some((x) => x.targets.length === n), g, () => `targets() complete for ${JSON.stringify(pending)}`);
+  }
+}
+
+/** Something that isn't legal now must be refused and change nothing. */
+function checkRefusal(g: ModeGame, rnd: () => number, legal: ActionInput[]) {
+  const keys = new Set(legal.map(actionKey));
+  for (let tries = 0; tries < 20; tries++) {
+    const a: ActionInput = { type: 'move', from: SQUARES[Math.floor(rnd() * 64)], to: SQUARES[Math.floor(rnd() * 64)] };
+    if (keys.has(actionKey(a))) continue;
+    const fen = g.fen;
+    const ms = JSON.stringify(g.modeState);
+    need(!g.act(a).ok, g, () => `illegal ${JSON.stringify(a)} accepted`);
+    need(g.fen === fen && JSON.stringify(g.modeState) === ms, g, () => `refused ${JSON.stringify(a)} changed the game`);
+    return;
+  }
+}
+
+function playGame(mode: 'normal' | 'crazy', seed: number) {
+  const rnd = seeded(seed * 7919 + (mode === 'crazy' ? 1 : 0));
+  const g = new ModeGame({ botMinThinkMs: 0 });
+  const track = tracker(g);
+  g.newGame({ mode, opponent: { type: 'local' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false, seed });
+  track.check();
+  checkState(g, mode);
+  // Some games play mostly random, others mostly by the bot's brain.
+  const searchChance = [0, 0.1, 0.3][seed % 3];
+  let steps = 0;
+  for (; steps < MAX_STEPS && !g.isOver(); steps++) {
+    const ms = g.modeState;
+    if (ms.phase === 'duel') {
+      g.answerDuel(rnd() < 0.6);
+      for (let n = 0; n < 10 && g.modeState.phase === 'duel'; n++) {
+        g.throwHand('land', HANDS[Math.floor(rnd() * 3)]);
+        g.throwHand('sea', HANDS[Math.floor(rnd() * 3)]);
+      }
+      need(g.modeState.phase !== 'duel', g, () => 'duel never settled');
+    } else if (mode === 'normal' && g.history.length && rnd() < 0.03) {
+      g.undo();
+    } else {
+      const mover = g.turn;
+      const legal = legalActions(g.state);
+      need(legal.length > 0, g, () => 'side to move has no action');
+      if (rnd() < 0.15) checkRefusal(g, rnd, legal);
+      let a: ActionInput | null = null;
+      if (rnd() < searchChance) {
+        a = decide({ kind: ms.phase === 'bonus' ? 'bonus' : 'action', state: g.state, depth: 1, timeMs: 200, seed: seed + steps });
+        const key = a && actionKey(a);
+        need(a && legal.some((x) => actionKey(x) === key), g, () => `bot action ${JSON.stringify(a)} is not legal`);
+      }
+      a ??= legal[Math.floor(rnd() * legal.length)];
+      checkTargets(g, a, legal);
+      const r = g.act(a);
+      if (!r.ok) throw new Error(`legal action refused: ${JSON.stringify(a)} → ${r.reason} ${where(g)}`);
+      if (mode === 'normal' && a.type !== 'bonus') {
+        need(!inCheck(g.state, mover), g, () => `own king attacked after ${JSON.stringify(a)}`);
+      }
+    }
+    track.check();
+    checkState(g, mode);
+  }
+  g.dispose();
+  return { steps, over: g.isOver()?.reason ?? 'none' };
+}
+
+/** Register the fuzz games for one mode (each mode has its own test file, so both run in parallel). */
+export function fuzzMode(mode: 'normal' | 'crazy'): void {
+  describe(`fuzz: ${mode}`, () => {
+    for (let start = 0; start < GAMES; start += CHUNK) {
+      it(`games ${start + 1}-${start + CHUNK}`, async () => {
+        for (let seed = start + 1; seed <= start + CHUNK; seed++) {
+          try {
+            playGame(mode, seed);
+          } catch (e) {
+            (e as Error).message = `${mode} game seed ${seed}: ${(e as Error).message}`;
+            throw e;
+          }
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }, 120_000);
+    }
+  });
+}
