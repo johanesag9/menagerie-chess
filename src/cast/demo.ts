@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import gsap from 'gsap';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import type { EmoteKind, PieceKind, Side, SkinChoice } from '../contracts/types';
+import { POWER_OF, type EmoteKind, type MoveStyle, type PieceKind, type PowerKind, type Side, type SkinChoice } from '../contracts/types';
 import { createCast, type Actor } from './index';
 
 const SQ = 1;
@@ -165,6 +165,7 @@ let current: Actor | null = null;
 const pick = (key: string) => {
   pieceSel.value = key;
   current = lineup.get(key) ?? null;
+  if (stageActor && stageKey !== key) unstage();
 };
 pieceSel.onchange = () => pick(pieceSel.value);
 
@@ -175,7 +176,7 @@ spinBtn.onclick = () => { spinning = !spinning; spinBtn.setAttribute('aria-press
 const rmBtn = $('rm');
 rmBtn.onclick = () => { cast.setReducedMotion(!cast.reducedMotion); rmBtn.setAttribute('aria-pressed', String(cast.reducedMotion)); };
 $('skip').onclick = () => cast.skipAll();
-$('reset').onclick = () => { table.rotation.y = 0; buildLineup(); pick(pieceSel.value); };
+$('reset').onclick = () => { stopShowcase = true; unstage(); table.rotation.y = 0; buildLineup(); pick(pieceSel.value); };
 const panel = $('panel');
 /** On phones the panel is a bottom sheet: shift the view up so the pieces sit above it. */
 function layout(refit = false) {
@@ -266,6 +267,184 @@ $('fightAll').onclick = () => action(async () => {
   const other: Side = as === 'land' ? 'sea' : 'land';
   for (const k of KINDS) await fight(atkSel.value, keyOf(other, k));
 });
+
+// ---------- Phase 3: powers, travel styles, statuses ----------
+
+/** The middle row is empty: pieces play their powers there, at S. Table-local units (1 = a square). */
+const S = new THREE.Vector3(0, 0, 0.5);
+const off = (x: number, z: number) => S.clone().add(new THREE.Vector3(x, 0, z));
+const POWER_NAME: Record<PowerKind, string> = { sidestep: 'Sidestep', doubleJump: 'Double jump', headbutt: 'Headbutt', stomp: 'Stomp', block: 'Block', escape: 'Escape' };
+let stageActor: Actor | null = null;
+let stageKey = '';
+function unstage() {
+  const a = stageActor;
+  stageActor = null;
+  stageKey = '';
+  if (!a) return;
+  gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)', onComplete: () => a.dispose() });
+}
+/** The copy of the picked animal in the middle row (made on first use). */
+async function staged(): Promise<Actor> {
+  const key = pieceSel.value;
+  if (stageActor && stageKey === key) return stageActor;
+  unstage();
+  const [side, kind] = key.split('-') as [Side, PieceKind];
+  stageActor = spawn(side, kind, S, 0);
+  stageKey = key;
+  await wait(0.6);
+  return stageActor;
+}
+$('unstage').onclick = () => unstage();
+
+/** A flat gold ring: the demo's stand-in for the world's vase / ink cloud on a blocked square. */
+function marker(at: THREE.Vector3) {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.035, 8, 40).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#ffcc33', emissive: '#c08000', emissiveIntensity: 0.5 }));
+  m.position.copy(at).setY(0.03);
+  m.scale.setScalar(0.001);
+  table.add(m);
+  gsap.to(m.scale, { x: 1, y: 1, z: 1, duration: 0.3, ease: 'back.out(2)' });
+  return () => gsap.to(m.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.2, onComplete: () => { m.removeFromParent(); m.geometry.dispose(); (m.material as THREE.Material).dispose(); } });
+}
+
+let powerT0 = 0;
+let powerAt = -1;
+cast.on('power', (p) => {
+  powerAt = (performance.now() - powerT0) / 1000;
+  if (p.power === 'stomp') shake = Math.max(shake, p.intensity * 0.1);
+});
+
+/** Play a piece's power the way integration will: flourish, then its travel or its effect on others. */
+async function playPower(a: Actor) {
+  const power = POWER_OF[a.kind];
+  const enemy: Side = a.side === 'land' ? 'sea' : 'land';
+  const name = `${cast.displayName(a.side, a.kind)} · ${POWER_NAME[power]}`;
+  log.textContent = name;
+  /** Start the flourish (and the "took effect" timer). */
+  const fire = (t?: THREE.Vector3) => {
+    powerAt = -1;
+    powerT0 = performance.now();
+    return a.powerUp(power, t);
+  };
+  const done = () => { log.textContent = `${name}: power took effect at ${powerAt.toFixed(2)}s`; };
+  switch (power) {
+    case 'sidestep': {
+      const t = off(1, 0);
+      await fire(world(t)); done();
+      await a.moveTo(world(t), { style: 'sidestep' });
+      await wait(0.5);
+      await a.moveTo(world(S), { style: 'sidestep' });
+      break;
+    }
+    case 'doubleJump': {
+      const mid = off(2, 1), to = off(1, -1);
+      await fire(world(mid)); done();
+      await a.moveTo(world(mid), { style: 'jump' });
+      await a.moveTo(world(to), { style: 'jump' });
+      await wait(0.5);
+      await a.moveTo(world(S));
+      break;
+    }
+    case 'headbutt': {
+      const vAt = off(1, 0);
+      const v = spawn(enemy, 'p', vAt, -Math.PI / 2);
+      await wait(0.7);
+      await fire(world(vAt)); done();
+      await a.attack(v);
+      await Promise.all([a.moveTo(world(S)), v.hit(), v.moveTo(world(off(2, 0)), { style: 'pushed' })]);
+      await wait(0.6);
+      await gsap.to(v.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+      v.dispose();
+      break;
+    }
+    case 'stomp': {
+      const vs = [spawn(enemy, 'p', off(-1, 0), Math.PI / 2), spawn(enemy, 'p', off(1, 0), -Math.PI / 2)];
+      await wait(0.7);
+      await fire(); done();
+      vs.forEach((v) => { void v.hit(); v.setStatus('stunned'); });
+      await wait(1.8);
+      vs.forEach((v) => v.setStatus(null));
+      await wait(0.3);
+      await Promise.all(vs.map((v) => gsap.to(v.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' })));
+      vs.forEach((v) => v.dispose());
+      break;
+    }
+    case 'block': {
+      const t = off(-2, 0);
+      const clear = marker(t);
+      await fire(world(t)); done();
+      await wait(1.0);
+      clear();
+      break;
+    }
+    case 'escape': {
+      const t = off(2, -1);
+      await fire(world(t)); done();
+      await a.moveTo(world(t), { style: 'teleport' });
+      await wait(0.5);
+      await a.moveTo(world(S), { style: 'teleport' });
+      break;
+    }
+  }
+}
+
+/** Where each travel style goes from the middle (then the piece walks back). Pieces face +z. */
+const STYLE_TO: Record<Exclude<MoveStyle, 'normal'>, [number, number]> = {
+  sidestep: [1, 0], jump: [2, 1], slip: [0, 1], pushed: [0, -1], teleport: [2, -1], dig: [0, -1], swept: [0, -1], quake: [1, 0], bonked: [0, -1], step: [0, 1],
+};
+document.querySelectorAll<HTMLButtonElement>('#styles button').forEach((b) => {
+  b.onclick = () => action(async () => {
+    const a = await staged();
+    const style = b.dataset.s as Exclude<MoveStyle, 'normal'>;
+    const [x, z] = STYLE_TO[style];
+    const t0 = performance.now();
+    await a.moveTo(world(off(x, z)), { style });
+    log.textContent = `${cast.displayName(a.side, a.kind)}: ${b.textContent} took ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+    await wait(0.4);
+    if (stageActor === a) await a.moveTo(world(S));
+  });
+});
+document.querySelectorAll<HTMLButtonElement>('#p3 button').forEach((b) => {
+  b.onclick = () => action(async () => {
+    const a = await staged();
+    const t0 = performance.now();
+    switch (b.dataset.p) {
+      case 'power': await playPower(a); return;
+      case 'hit': await a.hit(); break;
+      case 'appear': await a.appear(); break;
+      case 'stunned': a.setStatus('stunned'); return;
+      case 'frozen': a.setStatus('frozen'); return;
+      case 'clear': a.setStatus(null); return;
+    }
+    log.textContent = `${cast.displayName(a.side, a.kind)}: ${b.textContent} took ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+  });
+});
+
+let stopShowcase = false;
+let showcasing = false;
+const showBtn = $('showcase');
+showBtn.onclick = () => {
+  if (showcasing) { stopShowcase = true; showBtn.textContent = 'Stopping…'; return; }
+  void action(async () => {
+    showcasing = true;
+    stopShowcase = false;
+    showBtn.textContent = 'Stop showcase';
+    unstage();
+    try {
+      for (const side of SIDES) for (const kind of KINDS) {
+        if (stopShowcase) return;
+        const a = spawn(side, kind, S, 0);
+        await wait(0.6);
+        await playPower(a);
+        await wait(0.4);
+        await gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+        a.dispose();
+      }
+    } finally {
+      showcasing = false;
+      showBtn.textContent = 'Power showcase';
+    }
+  });
+};
 
 // Picking and hover.
 const ray = new THREE.Raycaster();
