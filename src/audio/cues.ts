@@ -1,4 +1,4 @@
-import type { AudioCue, EmoteKind, PieceKind, Side } from '../contracts/types';
+import type { AudioCue, EmoteKind, PieceKind, PowerKind, Side, WheelOutcome } from '../contracts/types';
 import { midi, noise, tone, voice, type Out } from './synth';
 
 /** One synthesized sound. `t` is the AudioContext start time. */
@@ -200,7 +200,188 @@ const emotes: Record<EmoteKind, CueFn> = {
   },
 };
 
-const table: Record<string, CueFn> = { ...ui, ...board, ...moments };
+// ---------- Phase 3: powers ----------
+
+const powers: Record<PowerKind, CueFn> = {
+  // Quick scrabbling: digging pup or scuttling crab.
+  sidestep: (o, t) => {
+    for (let i = 0; i < 5; i++) noise(o, { t: t + i * 0.055, dur: 0.045, f: 1800 - i * 150, q: 2, gain: 0.3 });
+    tone(o, { t: t + 0.28, dur: 0.08, f: 420, f2: 760, gain: 0.18 });
+  },
+  // Two springy hops.
+  doubleJump: (o, t) => {
+    for (const [dt, f] of [[0, 300], [0.2, 420]] as const) {
+      tone(o, { t: t + dt, dur: 0.18, f, f2: f * 2.6, gain: 0.26 });
+      tone(o, { t: t + dt, dur: 0.16, f: f * 2, f2: f * 5, gain: 0.05 });
+    }
+  },
+  // Wind-up then a hollow thunk.
+  headbutt: (o, t) => {
+    tone(o, { t, dur: 0.22, f: 180, f2: 320, gain: 0.12, attack: 0.15 });
+    tone(o, { t: t + 0.22, dur: 0.24, f: 160, f2: 55, gain: 0.6 });
+    tone(o, { t: t + 0.22, dur: 0.05, f: 900, f2: 400, type: 'triangle', gain: 0.25 });
+    noise(o, { t: t + 0.22, dur: 0.08, f: 900, type: 'lowpass', gain: 0.3 });
+  },
+  // A heavy boom with a rumble tail.
+  stomp: (o, t) => {
+    tone(o, { t, dur: 0.6, f: 90, f2: 32, gain: 0.8 });
+    noise(o, { t, dur: 0.7, f: 260, f2: 90, type: 'lowpass', gain: 0.45 });
+    noise(o, { t, dur: 0.04, f: 1800, type: 'highpass', gain: 0.15 });
+  },
+  // A soft "pomf" (vase tips / ink puffs), then a little tinkle.
+  block: (o, t) => {
+    noise(o, { t, dur: 0.3, f: 700, f2: 220, q: 0.8, gain: 0.4, attack: 0.01 });
+    tone(o, { t, dur: 0.2, f: 210, f2: 90, gain: 0.35 });
+    [2400, 3100, 2750].forEach((f, i) => tone(o, { t: t + 0.12 + i * 0.05, dur: 0.18, f, gain: 0.05 }));
+  },
+  // Zoomies: a whoosh that shoots up.
+  escape: (o, t) => {
+    noise(o, { t, dur: 0.45, f: 500, f2: 5000, q: 2.5, gain: 0.32, attack: 0.03 });
+    tone(o, { t, dur: 0.4, f: 260, f2: 1600, gain: 0.14, vib: [24, 30] });
+  },
+};
+
+// ---------- Phase 3: die, cards, duels, wheel, effects ----------
+
+/** Short hollow knock: dice on wood, wheel pegs. */
+function knock(o: Out, t: number, f: number, gain: number) {
+  tone(o, { t, dur: 0.05, f, f2: f * 0.7, type: 'triangle', gain });
+  noise(o, { t, dur: 0.02, f: f * 3, type: 'highpass', gain: gain * 0.6 });
+}
+
+const chaos: Record<string, CueFn> = {
+  // Dice rattling in a cup, then tumbling to a stop.
+  dieRoll: (o, t) => {
+    let dt = 0;
+    for (let i = 0; i < 9; i++) {
+      knock(o, t + dt, 900 + ((i * 337) % 500), 0.2 - i * 0.012);
+      dt += 0.045 + i * 0.012;
+    }
+  },
+  // A sliding "whoop" down: uh-oh.
+  dieBanana: (o, t) => {
+    tone(o, { t, dur: 0.5, f: 1300, f2: 260, gain: 0.2, vib: [9, 40] });
+    tone(o, { t: t + 0.5, dur: 0.18, f: 300, f2: 700, gain: 0.14 });
+  },
+  // A bright lucky jingle.
+  dieLucky: (o, t) => {
+    [76, 79, 84, 88, 91].forEach((n, i) => tone(o, { t: t + i * 0.07, dur: 0.45, f: midi(n), gain: 0.14 }));
+    noise(o, { t: t + 0.2, dur: 0.5, f: 8000, type: 'highpass', gain: 0.05, attack: 0.1 });
+  },
+  // Card slides off the deck.
+  cardDraw: (o, t) => {
+    noise(o, { t, dur: 0.18, f: 1500, f2: 6000, q: 1.2, gain: 0.3, attack: 0.02 });
+    knock(o, t + 0.17, 1500, 0.1);
+  },
+  // Card slapped down on the table.
+  cardPlay: (o, t) => {
+    noise(o, { t, dur: 0.12, f: 3000, f2: 900, q: 0.8, gain: 0.4 });
+    tone(o, { t, dur: 0.12, f: 220, f2: 110, gain: 0.3 });
+    noise(o, { t: t + 0.04, dur: 0.25, f: 800, f2: 3000, q: 2, gain: 0.08, attack: 0.05 });
+  },
+  // Drumroll (about 0.75s, matching the joker shake), then a cymbal and a ta-da.
+  joker: (o, t) => {
+    for (let i = 0; i < 24; i++) noise(o, { t: t + i * 0.031, dur: 0.05, f: 900, type: 'bandpass', q: 0.7, gain: 0.08 + i * 0.006 });
+    noise(o, { t: t + 0.76, dur: 0.9, f: 6000, type: 'highpass', gain: 0.18 });
+    brass(o, t + 0.76, 72, 0.12, 0.13);
+    brass(o, t + 0.9, 79, 0.45, 0.15);
+    brass(o, t + 0.9, 76, 0.45, 0.09);
+  },
+  // "En garde!": two rising stabs.
+  duelCall: (o, t) => {
+    brass(o, t, 67, 0.1, 0.15);
+    brass(o, t + 0.12, 74, 0.28, 0.16);
+    noise(o, { t: t + 0.12, dur: 0.25, f: 4000, f2: 9000, type: 'highpass', gain: 0.08 });
+  },
+  // Two hands slam down together.
+  duelThrow: (o, t) => {
+    tone(o, { t, dur: 0.16, f: 150, f2: 60, gain: 0.55 });
+    noise(o, { t, dur: 0.09, f: 1800, q: 0.7, gain: 0.4 });
+  },
+  duelWin: (o, t) => {
+    [72, 76, 84].forEach((n, i) => tone(o, { t: t + i * 0.08, dur: i === 2 ? 0.5 : 0.12, f: midi(n), type: 'triangle', gain: 0.2 }));
+  },
+  // Sad "wah-wah".
+  duelLose: (o, t) => {
+    for (const [dt, a, b] of [[0, 62, 61], [0.28, 60, 55]] as const) {
+      tone(o, { t: t + dt, dur: 0.3, f: midi(a), f2: midi(b), type: 'sawtooth', gain: 0.1, vib: [6, 4], filter: { type: 'lowpass', f: 900 } });
+    }
+  },
+  // Cartoon bonk on the head, then a dizzy boing.
+  bonk: (o, t) => {
+    knock(o, t, 1100, 0.35);
+    tone(o, { t, dur: 0.15, f: 520, f2: 260, gain: 0.35 });
+    tone(o, { t: t + 0.1, dur: 0.5, f: 380, f2: 700, gain: 0.12, vib: [14, 60] });
+  },
+  // One peg passing the pointer (the UI plays it for every peg).
+  wheelSpin: (o, t) => knock(o, t, 1700, 0.16),
+  wheelStop: (o, t) => {
+    knock(o, t, 900, 0.25);
+    tone(o, { t: t + 0.05, dur: 0.9, f: midi(88), gain: 0.12 });
+    tone(o, { t: t + 0.05, dur: 0.6, f: midi(88) * 2.76, gain: 0.03 });
+  },
+  stun: (o, t) => {
+    tone(o, { t, dur: 0.6, f: 1500, f2: 700, gain: 0.1, vib: [11, 120] });
+    [2600, 3200].forEach((f, i) => tone(o, { t: t + 0.1 + i * 0.15, dur: 0.12, f, gain: 0.05 }));
+  },
+  // Ice crackles and a cold shimmer.
+  freeze: (o, t) => {
+    for (let i = 0; i < 6; i++) noise(o, { t: t + i * 0.04 + (i % 2) * 0.012, dur: 0.03, f: 5000, type: 'highpass', gain: 0.22 });
+    [88, 95, 100].forEach((n, i) => tone(o, { t: t + 0.08 + i * 0.05, dur: 0.6, f: midi(n), gain: 0.05, vib: [7, 8] }));
+  },
+  block: (o, t) => {
+    tone(o, { t, dur: 0.2, f: 140, f2: 70, gain: 0.45 });
+    noise(o, { t, dur: 0.12, f: 500, type: 'lowpass', gain: 0.3 });
+  },
+  // A rising shimmer: an animal comes back.
+  revive: (o, t) => {
+    [60, 67, 72, 76, 79, 84].forEach((n, i) => tone(o, { t: t + i * 0.06, dur: 0.4, f: midi(n), type: 'triangle', gain: 0.08 }));
+    noise(o, { t, dur: 0.6, f: 300, f2: 4000, q: 1.5, gain: 0.12, attack: 0.2 });
+  },
+  // Banana peel: a squeaky skid.
+  slip: (o, t) => {
+    tone(o, { t, dur: 0.35, f: 500, f2: 1700, gain: 0.14, vib: [30, 60] });
+    noise(o, { t, dur: 0.35, f: 2500, f2: 1200, q: 4, gain: 0.12 });
+  },
+  // Power coming back: a charge-up sweep with a ping.
+  recharge: (o, t) => {
+    tone(o, { t, dur: 0.35, f: 200, f2: 1200, type: 'square', gain: 0.05, filter: { type: 'lowpass', f: 2500 } });
+    tone(o, { t: t + 0.33, dur: 0.4, f: midi(96), gain: 0.1 });
+  },
+};
+
+// The Wheel of Chaos results (integration plays these with the world's spectacle).
+const wheel: Record<WheelOutcome, CueFn> = {
+  // A wave rolls in and out.
+  tide: (o, t) => {
+    noise(o, { t, dur: 1.5, f: 300, f2: 1600, f3: 250, type: 'lowpass', gain: 0.5, attack: 0.5, hold: 0.2 });
+    noise(o, { t: t + 0.5, dur: 0.6, f: 4000, type: 'highpass', gain: 0.06, attack: 0.1 });
+  },
+  // Wing flaps and a "roo-coo".
+  pigeon: (o, t) => {
+    for (let i = 0; i < 5; i++) noise(o, { t: t + i * 0.08, dur: 0.06, f: 700, q: 0.9, gain: 0.25 });
+    voice(o, { t: t + 0.45, dur: 0.22, f: 300, f2: 380, formants: [500, 900], gain: 0.7 });
+    voice(o, { t: t + 0.7, dur: 0.35, f: 380, f2: 280, formants: [450, 850], gain: 0.7, vib: [8, 10] });
+  },
+  // A deep rumble.
+  earthquake: (o, t) => {
+    tone(o, { t, dur: 1.4, f: 48, f2: 38, gain: 0.5, vib: [9, 6], attack: 0.15, hold: 0.4 });
+    noise(o, { t, dur: 1.4, f: 180, type: 'lowpass', gain: 0.45, attack: 0.1, hold: 0.4 });
+    for (const dt of [0.3, 0.7]) knock(o, t + dt, 400, 0.12);
+  },
+  // A funky bar: bass, hats and a chord stab.
+  disco: (o, t) => {
+    const beat = 0.15;
+    [36, 48, 36, 48, 39, 51, 41, 53].forEach((n, i) => tone(o, { t: t + i * beat, dur: beat * 0.9, f: midi(n), type: 'square', gain: 0.07, filter: { type: 'lowpass', f: 700 } }));
+    for (let i = 0; i < 8; i++) noise(o, { t: t + i * beat + beat / 2, dur: 0.04, f: 8000, type: 'highpass', gain: 0.08 });
+    [72, 76, 79].forEach((n) => tone(o, { t: t + beat * 2, dur: 0.12, f: midi(n), type: 'sawtooth', gain: 0.05, filter: { type: 'lowpass', f: 2500 } }));
+    [72, 76, 79].forEach((n) => tone(o, { t: t + beat * 6, dur: 0.3, f: midi(n + 2), type: 'sawtooth', gain: 0.05, filter: { type: 'lowpass', f: 2500 } }));
+  },
+};
+
+const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos };
+for (const p of Object.keys(powers) as PowerKind[]) table[`power:${p}`] = powers[p];
+for (const w of Object.keys(wheel) as WheelOutcome[]) table[`chaos:${w}`] = wheel[w];
 for (const side of ['land', 'sea'] as const) {
   for (const kind of Object.keys(voices[side]) as PieceKind[]) table[`voice:${side}:${kind}`] = voices[side][kind];
 }

@@ -144,6 +144,8 @@ export class Hud {
     this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide]);
     this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide]);
     this.mode.setInfo(info);
+    this.lastTally = null;
+    this.renderTrays();
     for (const side of ['land', 'sea'] as const) {
       const c = this.cards[side];
       const isBot = bot?.botSide === side;

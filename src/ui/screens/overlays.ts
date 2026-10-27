@@ -46,6 +46,7 @@ export function pauseScreen(ctx: UiCtx, moveCount: () => number): View {
     onShow: () => {
       render();
       undo.disabled = moveCount() === 0;
+      undo.hidden = ctx.gameInfo?.mode === 'crazy'; // no undo in Crazy
     },
     focusTarget: () => resume,
   };
@@ -98,6 +99,9 @@ export class ResultView implements View {
     this.art.innerHTML = r.winner === null
       ? animalIcon('land', 'k', { disc: true }) + animalIcon('sea', 'k', { disc: true })
       : animalIcon(w, 'k', { disc: true });
+    // Crazy: the bonked king lies dizzy beside the winner.
+    if (r.reason === 'kingCaptured' && r.winner) this.art.append(h('span', { class: 'mc-result__bonked', html: animalIcon(r.winner === 'land' ? 'sea' : 'land', 'k', { disc: true }) }, h('span', { class: 'mc-result__stars', text: '💫' })));
+    this.el.dataset.reason = r.reason;
     this.confetti.replaceChildren();
     if (mood === 'win' && !this.ctx.settings.reducedMotion) {
       const colors = ['#f2b544', '#6fd6cf', '#e5604d', '#8cc152', '#fff3d6', '#9b6fc9'];
