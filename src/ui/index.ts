@@ -8,7 +8,7 @@
  */
 import './styles.css';
 import type {
-  AudioEngine, EmoteKind, GameOptions, GameOver, MoveResult, PieceKind, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent,
+  ActionRecord, AudioEngine, DieEffect, DieValue, EmoteKind, Hand, ModeState, PieceId, SelectionInfo, GameOptions, GameOver, MoveResult, PieceKind, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent,
 } from '../contracts/types';
 import type { CreateUi } from '../contracts/factories';
 import { Emitter } from '../contracts/emitter';
@@ -241,6 +241,21 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     window.clearTimeout(Number(this.errorEl.dataset.t ?? 0));
     this.errorEl.dataset.t = String(window.setTimeout(() => (this.errorEl.hidden = true), 4000));
   }
+
+  // ---------- Phase 3 stubs (orchestrator, so main typechecks). The ui session replaces these. ----------
+  setModeState(_state: ModeState | null): void {}
+  addLog(_record: ActionRecord): void {}
+  setSelection(_sel: SelectionInfo | null): void {}
+  setPrompt(_text: string | null): void {}
+  rollDie(_side: Side, _value: DieValue, _effect: DieEffect): Promise<void> { return Promise.resolve(); }
+  askLucky(): Promise<'recharge' | 'pawnStep' | 'skip'> { return Promise.resolve('skip'); }
+  showCardDrawn(): Promise<void> { return Promise.resolve(); }
+  showCardPlayed(): Promise<void> { return Promise.resolve(); }
+  askRevive(): Promise<PieceId | null> { return Promise.resolve(null); }
+  askDuel(): Promise<boolean> { return Promise.resolve(false); }
+  askThrow(): Promise<Hand> { return Promise.resolve('rock'); }
+  showDuelRound(): Promise<void> { return Promise.resolve(); }
+  spinWheel(): Promise<void> { return Promise.resolve(); }
 
   // ---------- internals ----------
 

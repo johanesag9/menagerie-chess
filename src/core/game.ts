@@ -6,7 +6,15 @@
  */
 import { Chess, DEFAULT_POSITION, type Move } from 'chess.js';
 import { Emitter } from '../contracts/emitter';
+import { POWER_OF } from '../contracts/types';
 import type {
+  ActionInput,
+  ActionRecord,
+  ActResponse,
+  GameMode,
+  ModeState,
+  PowerInfo,
+  TargetStep,
   EmoteKind,
   GameController,
   GameEventMap,
@@ -214,6 +222,24 @@ export class CoreGame implements GameController {
     this.emitClock();
     if (this.heldBotMove) this.applyBotMove(this.heldBotMove);
   }
+
+  // ---------- Phase 3 stubs (orchestrator, so main typechecks). The core session replaces these. ----------
+  readonly mode: GameMode = 'classic';
+  readonly modeState: ModeState | null = null;
+  readonly log: ActionRecord[] = [];
+  act(input: ActionInput): ActResponse {
+    if (input.type !== 'move') return { ok: false, reason: 'Powers and cards are not built yet' };
+    return this.move(input) ? { ok: true } : { ok: false, reason: 'Illegal move' };
+  }
+  powerInfo(pieceId: PieceId): PowerInfo {
+    const kind = this.pieces.find((p) => p.id === pieceId)?.kind ?? 'p';
+    return { power: POWER_OF[kind], available: false, reason: 'classic' };
+  }
+  canPlayCard(): boolean { return false; }
+  targets(): TargetStep { return { squares: [], complete: false, prompt: '' }; }
+  previewArea(): Square[] { return []; }
+  answerDuel(): void {}
+  throwHand(): void {}
 
   dispose(): void {
     this.cancelBot();

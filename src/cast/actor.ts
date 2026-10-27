@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import gsap from 'gsap';
-import type { CastEventMap, EmoteKind, PieceActor, PieceId, PieceKind, PieceState, QualityTier, Side, SkinChoice } from '../contracts/types';
+import type { CastEventMap, EmoteKind, PieceActor, PieceId, PieceKind, PieceState, PieceStatusKind, PowerKind, QualityTier, Side, SkinChoice } from '../contracts/types';
 import { applySlotTable, createSlotMaterial, type SlotUniforms } from './material';
 import { instantiate } from './kit';
 import { getTemplate, type AnimalTemplate } from './roster';
@@ -673,6 +673,12 @@ export class Actor implements PieceActor {
     this.emoTl?.progress(1);
     this.reactTl?.progress(1);
   }
+
+  // ---------- Phase 3 stubs (orchestrator, so main typechecks). The cast session replaces these. ----------
+  powerUp(_power: PowerKind, _target?: THREE.Vector3): Promise<void> { return Promise.resolve(); }
+  setStatus(_status: PieceStatusKind | null): void {}
+  hit(): Promise<void> { return Promise.resolve(); }
+  appear(): Promise<void> { return Promise.resolve(); }
 
   get selected(): boolean { return this.selT === 1; }
 

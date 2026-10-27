@@ -56,6 +56,7 @@ export const WEIRD_TEXT: Record<WeirdEventKind, { title: string; body: string; i
 
 export const REASON_TEXT: Record<GameOverReason, string> = {
   checkmate: 'by checkmate',
+  kingCaptured: 'by bonking the king',
   resign: 'by resignation',
   timeout: 'on time',
   stalemate: 'Stalemate',
