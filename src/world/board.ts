@@ -45,8 +45,8 @@ export function createBoard(bin: Bin, mats: Materials, tex: Textures): Board {
     for (let r = 0; r < 8; r++) {
       const i = f * 8 + r;
       // Tiny random lift + tilt so it feels hand-placed, like a toy.
-      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler((rnd() - 0.5) * 0.012, 0, (rnd() - 0.5) * 0.012));
-      m.compose(new THREE.Vector3((f - 3.5) * SQUARE, BOARD_TOP - TILE_H / 2 + (rnd() - 0.5) * 0.006, (3.5 - r) * SQUARE), tilt, new THREE.Vector3(1, 1, 1));
+      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler((rnd() - 0.5) * 0.004, 0, (rnd() - 0.5) * 0.004));
+      m.compose(new THREE.Vector3((f - 3.5) * SQUARE, BOARD_TOP - TILE_H / 2 - rnd() * 0.004, (3.5 - r) * SQUARE), tilt, new THREE.Vector3(1, 1, 1));
       squares.setMatrixAt(i, m);
       const c = new THREE.Color(squareColor(f, r)).offsetHSL((rnd() - 0.5) * 0.012, 0, (rnd() - 0.5) * 0.03);
       baseColors.push(c.clone());

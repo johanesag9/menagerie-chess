@@ -337,7 +337,15 @@ async function boot(quality?: ShorelineWorld['quality']) {
   }));
 }
 
-await boot();
+// URL options for quick checks: ?quality=low|high &skipIntro &sample &weird=<kind> &face=sea &select=e2
+const params = new URLSearchParams(location.search);
+await boot((params.get('quality') as ShorelineWorld['quality'] | null) ?? undefined);
+if (params.has('skipIntro')) world.skipIntro();
+if (params.has('sample')) [...document.querySelectorAll('button')].find((b) => b.textContent === 'Sample position')!.click();
+if (params.get('select')) onSquareClicked(params.get('select') as Square);
+if (params.get('face') === 'sea') void world.faceSide('sea', false);
+const autoWeird = params.get('weird') as WeirdEventKind | null;
+if (autoWeird) setTimeout(() => void world.playWeirdEvent({ kind: autoWeird, durationTurns: 1, squares: ['e1'] }), 300);
 setInterval(() => {
   const s = world.stats;
   $('stats').textContent = `${s.fps} fps · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris · pr ${s.pixelRatio} · ${s.quality}`;

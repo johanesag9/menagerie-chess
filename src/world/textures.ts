@@ -68,14 +68,14 @@ export function makeTextures(bin: Bin): Textures {
     g.shadowColor = 'rgba(255,255,255,1)';
     g.shadowBlur = s * 0.07;
     g.strokeStyle = 'rgba(255,255,255,1)';
-    g.lineWidth = s * 0.07;
-    roundRect(g, s * 0.12, s * 0.12, s * 0.76, s * 0.76, s * 0.13);
+    g.lineWidth = s * 0.08;
+    roundRect(g, s * 0.07, s * 0.07, s * 0.86, s * 0.86, s * 0.12);
     g.stroke();
     g.stroke();
     // Faint inner fill so the square reads as "lit".
     g.shadowBlur = 0;
-    g.fillStyle = 'rgba(255,255,255,0.22)';
-    roundRect(g, s * 0.12, s * 0.12, s * 0.76, s * 0.76, s * 0.13);
+    g.fillStyle = 'rgba(255,255,255,0.3)';
+    roundRect(g, s * 0.07, s * 0.07, s * 0.86, s * 0.86, s * 0.12);
     g.fill();
   });
 

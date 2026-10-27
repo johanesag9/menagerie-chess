@@ -27,7 +27,8 @@ interface Marker {
   phase: number;
 }
 
-const LIFT: Record<Kind, number> = { lastMove: 0.003, check: 0.005, selected: 0.007, legal: 0.009, capture: 0.011 };
+/** Height above the tiles. Tiles never rise above BOARD_TOP (see board.ts). */
+const LIFT: Record<Kind, number> = { lastMove: 0.008, selected: 0.011, check: 0.014, legal: 0.017, capture: 0.02 };
 
 export class Highlights {
   readonly group = new THREE.Group();
@@ -54,12 +55,12 @@ export class Highlights {
 
   private make(kind: Kind): Marker {
     const map = {
-      selected: this.tex.squareGlow, legal: this.tex.dot, capture: this.tex.ring, lastMove: this.tex.squareFill, check: this.tex.softDisc,
+      selected: this.tex.squareGlow, legal: this.tex.dot, capture: this.tex.ring, lastMove: this.tex.squareFill, check: this.tex.squareFill,
     }[kind];
     const color = { selected: PALETTE.selected, legal: PALETTE.legal, capture: PALETTE.capture, lastMove: PALETTE.lastMove, check: PALETTE.check }[kind];
     const mat = this.bin.add(new THREE.MeshBasicMaterial({
       map, color, transparent: true, depthWrite: false, opacity: 0,
-      blending: kind === 'legal' || kind === 'lastMove' ? THREE.NormalBlending : THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     }));
     const mesh = new THREE.Mesh(this.plane, mat);
@@ -155,39 +156,39 @@ export class Highlights {
     switch (m.kind) {
       case 'selected': {
         const pulse = 0.5 + 0.5 * Math.sin(t * 4.2);
-        m.mesh.scale.setScalar(SQUARE * (1.04 + pulse * 0.04) * (0.75 + 0.25 * v) * pop);
-        m.mat.opacity = v * (0.75 + pulse * 0.25);
-        m.mat.color.set(PALETTE.selected).multiplyScalar(1 + boost * 0.6);
+        m.mesh.scale.setScalar(SQUARE * (1.0 + pulse * 0.03) * (0.8 + 0.2 * v) * pop);
+        m.mat.opacity = v * (0.85 + pulse * 0.15);
+        m.mat.color.set(PALETTE.selected).multiplyScalar(1 + boost * 0.5);
         break;
       }
       case 'legal': {
-        m.mesh.scale.setScalar(SQUARE * 0.3 * v * pop);
-        m.mat.opacity = v * 0.42;
+        m.mesh.scale.setScalar(SQUARE * 0.34 * v * pop);
+        m.mat.opacity = v * 0.62;
         break;
       }
       case 'capture': {
         const pulse = 0.5 + 0.5 * Math.sin(t * 5 + m.phase);
-        m.mesh.scale.setScalar(SQUARE * (0.92 + pulse * 0.06) * (0.6 + 0.4 * v) * pop);
+        m.mesh.scale.setScalar(SQUARE * (1.16 + pulse * 0.06) * (0.6 + 0.4 * v) * pop);
         m.mesh.rotation.y = t * 0.6;
-        m.mat.opacity = v * (0.7 + pulse * 0.3);
+        m.mat.opacity = v * (0.85 + pulse * 0.15);
         m.mat.color.set(PALETTE.capture).multiplyScalar(1 + boost * 0.5);
         break;
       }
       case 'lastMove': {
         m.mesh.scale.setScalar(SQUARE * 0.98);
-        m.mat.opacity = v * 0.38;
+        m.mat.opacity = v * 0.55;
         break;
       }
       case 'check': {
         if (m === this.checkWave) {
           // Expanding ring every 1.1s.
           const w = (m.age % 1.1) / 1.1;
-          m.mesh.scale.setScalar(SQUARE * (0.6 + w * 1.4));
+          m.mesh.scale.setScalar(SQUARE * (1.0 + w * 1.2));
           m.mat.opacity = v * (1 - w) * 0.9;
         } else {
           const pulse = 0.5 + 0.5 * Math.sin(t * 6.5);
-          m.mesh.scale.setScalar(SQUARE * (1.35 + pulse * 0.25) * pop);
-          m.mat.opacity = v * (0.65 + pulse * 0.35);
+          m.mesh.scale.setScalar(SQUARE * 0.84 * pop); // inset, so a selected glow still shows around it
+          m.mat.opacity = v * (0.5 + pulse * 0.35);
         }
         m.mat.color.set(PALETTE.check).multiplyScalar(1 + boost * 0.8);
         break;

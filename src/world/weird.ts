@@ -9,7 +9,7 @@ import type { Board } from './board';
 import type { CameraRig } from './camera';
 import { BOARD_TOP, FRAME_W, PALETTE } from './constants';
 import { squareToXZ, xzToSquare } from './coords';
-import type { Diorama } from './diorama';
+import { type Diorama, WATER_Y } from './diorama';
 import type { Bin, Materials } from './kit';
 import type { Textures } from './textures';
 
@@ -146,16 +146,16 @@ export class WeirdEffects {
     return this.c.animator.process((dt, el) => {
       t += dt;
       const k = envelope(t, inT, hold, outT);
-      fog.near = lerp(this.baseFog.near, 4, k);
-      fog.far = lerp(this.baseFog.far, 23, k);
-      sky.fogMix.value = 0.8 * k;
+      fog.near = lerp(this.baseFog.near, 10, k);
+      fog.far = lerp(this.baseFog.far, 34, k);
+      sky.fogMix.value = 0.7 * k;
       for (const p of puffs) {
         const seed = p.userData.seed as number;
         // Roll in from the sea, drift across, then thin out.
         p.position.z += dt * (1.6 + Math.sin(seed) * 0.5) * (t < inT + hold ? 1.6 : 0.7);
         if (p.position.z > 10) p.position.z -= 20;
         p.position.x += Math.sin(el * 0.6 + seed) * dt * 0.4;
-        p.material.opacity = 0.5 * k * clamp01((p.position.z + 12) / 4);
+        p.material.opacity = 0.38 * k * clamp01((p.position.z + 12) / 4);
       }
       if (t >= inT + hold + outT) restore();
       return t >= inT + hold + outT;
@@ -266,7 +266,7 @@ export class WeirdEffects {
   private tideSwap(): Handle {
     const u = this.tide.material.uniforms;
     const water = this.c.diorama.water;
-    const baseY = 0.12;
+    const baseY = WATER_Y;
     const inT = 1.5, hold = 1.9, outT = 1.5;
     let t = 0;
     this.tide.visible = true;
@@ -509,7 +509,7 @@ class Pigeon {
     let t = 0;
     g.visible = true;
     g.position.copy(from);
-    g.scale.setScalar(1.1);
+    g.scale.setScalar(1.6);
     const hide = () => {
       g.visible = false;
       this.body.scale.set(1, 1, 1);

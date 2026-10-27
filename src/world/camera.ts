@@ -84,12 +84,12 @@ export class CameraRig {
       let ok = true;
       for (const p of this.corners) {
         const v = this.tmp.copy(p).project(c);
-        if (Math.abs(v.x) > 0.88 || v.y > 0.74 || v.y < -0.84) {
+        if (Math.abs(v.x) > 0.8 || v.y > 0.68 || v.y < -0.74) {
           ok = false;
           break;
         }
       }
-      if (ok) return Math.max(r, 12);
+      if (ok) return Math.max(r, 13);
     }
     return 30;
   }

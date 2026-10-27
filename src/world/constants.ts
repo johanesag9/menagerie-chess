@@ -36,10 +36,10 @@ export const PALETTE = {
   hemiGround: '#f2c79b',
   fog: '#ffdcb6',
   // Highlights
-  selected: '#ffe28a',
+  selected: '#ffc52e',
   legal: '#2f3b45',
-  capture: '#ff6b5a',
-  lastMove: '#ffc65c',
-  check: '#ff3b3b',
+  capture: '#f04a3a',
+  lastMove: '#ffb43a',
+  check: '#ff2a2a',
   label: '#5b3a20',
 } as const;

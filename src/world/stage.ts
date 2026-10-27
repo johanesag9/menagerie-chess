@@ -56,7 +56,7 @@ export class Stage {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: false });
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.98;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -113,7 +113,7 @@ export class Stage {
       this.composer = new EffectComposer(this.renderer, rt);
       this.renderPass = new RenderPass(this.scene, this.camera);
       this.composer.addPass(this.renderPass);
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.22, 0.45, 0.92);
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.4, 1.35);
       this.composer.addPass(this.bloom);
       this.hTilt = new ShaderPass(HorizontalTiltShiftShader);
       this.vTilt = new ShaderPass(VerticalTiltShiftShader);

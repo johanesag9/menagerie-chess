@@ -14,6 +14,8 @@ import type { QualityProfile } from './quality';
 
 const MEADOW_Y = 0.18;
 const SAND_Y = 0.08;
+/** Water rest height: high enough that wave troughs never dip below the sand. */
+export const WATER_Y = 0.2;
 const HALF_W = BASE_W / 2 - 0.3;
 const HALF_D = BASE_D / 2 - 0.3;
 /** Wiggly shoreline across the diorama (z of the meadow edge for a given x). */
@@ -557,7 +559,7 @@ export function createDiorama(bin: Bin, mats: Materials, profile: QualityProfile
   const water = new THREE.Mesh(bin.add(new THREE.PlaneGeometry(BASE_W - 0.5, waterDepth, 140, 40)), waterMat);
   water.name = 'water';
   water.rotation.x = -Math.PI / 2;
-  water.position.set(0, 0.12, -HALF_D + waterDepth / 2);
+  water.position.set(0, WATER_Y, -HALF_D + waterDepth / 2);
   water.receiveShadow = false;
   root.add(water);
 
@@ -572,11 +574,11 @@ export function createDiorama(bin: Bin, mats: Materials, profile: QualityProfile
     const batch = new StaticBatch(bin);
     batch.addObject(tmp);
     buoy.add(batch.build('buoy'));
-    buoy.position.set(2.8, 0.12, -6.9);
+    buoy.position.set(2.8, WATER_Y, -6.9);
     root.add(buoy);
     highOnly.push(buoy);
     animated.push((_dt, t) => {
-      buoy.position.y = 0.12 + Math.sin(t * 1.6) * 0.05;
+      buoy.position.y = WATER_Y + Math.sin(t * 1.6) * 0.05;
       buoy.rotation.z = Math.sin(t * 1.3) * 0.12;
       buoy.rotation.x = Math.sin(t * 1.1 + 1) * 0.1;
     });

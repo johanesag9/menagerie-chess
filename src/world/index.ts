@@ -35,6 +35,8 @@ export interface WorldStats {
   triangles: number;
   pixelRatio: number;
   quality: QualityTier;
+  /** Compiled shader programs (fewer = faster first load). */
+  programs: number;
 }
 
 /** Extras beyond the contract (see REPORT.md "Contract requests"). */
@@ -47,6 +49,8 @@ export interface ShorelineWorld extends World {
   playIntro(): Promise<void>;
   skipIntro(): void;
   readonly stats: WorldStats;
+  /** The scene camera, e.g. for projecting a piece position to the screen. Don't move it yourself. */
+  readonly camera: THREE.PerspectiveCamera;
 }
 
 export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
@@ -119,6 +123,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   let dirty = true;
   let elapsed = 0;
   let introStarted = false;
+  let introSkipped = false;
   let fps = 60;
   const timer = new THREE.Timer();
   timer.connect(document);
@@ -146,7 +151,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     // The intro starts on the first frame the canvas actually has a size.
     if (!introStarted && stage.hasSize) {
       introStarted = true;
-      void rig.intro();
+      if (!introSkipped) void rig.intro();
     }
     const moved = rig.endFrame(dt, elapsed);
     if (moved) picker.invalidate();
@@ -166,6 +171,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       return stage.quality;
     },
     squareSize: SQUARE,
+    camera,
     pieceLayer: board.pieceLayer,
     squareToWorld(square: Square) {
       const { x, y, z } = squareToXZ(square);
@@ -213,11 +219,12 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       return rig.intro();
     },
     skipIntro() {
+      if (!introStarted) introSkipped = true;
       rig.skipIntro();
     },
     get stats(): WorldStats {
       const i = stage.info;
-      return { fps: Math.round(fps), drawCalls: i.calls, triangles: i.triangles, pixelRatio: i.pixelRatio, quality: stage.quality };
+      return { fps: Math.round(fps), drawCalls: i.calls, triangles: i.triangles, pixelRatio: i.pixelRatio, quality: stage.quality, programs: renderer.info.programs?.length ?? 0 };
     },
     dispose() {
       if (disposed) return;
