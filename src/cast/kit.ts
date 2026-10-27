@@ -49,7 +49,8 @@ export function Taper(pts: V3[], r0: number, r1: number, seg = 20, radial = 8): 
 /** Lathe around Y from a list of [radius, y] points. */
 export const Lathe = (pts: [number, number][], seg = 20) => new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), seg);
 
-function clean(g: THREE.BufferGeometry): THREE.BufferGeometry {
+/** Keep only position and normal, make it indexed (so differently built shapes merge). */
+export function clean(g: THREE.BufferGeometry): THREE.BufferGeometry {
   for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
   g.morphAttributes = {};
   g.clearGroups();
@@ -200,6 +201,20 @@ export function instantiate(t: RigTemplate, material: THREE.Material): { mesh: T
 
 // ---------- face kit ----------
 
+/** A patch hugging a sphere of radius R around +Z: an ellipse with angular half-sizes ax, ay (radians). */
+export function Decal(R: number, ax: number, ay: number, seg = 18): THREE.BufferGeometry {
+  const g = new THREE.RingGeometry(0.0001, 1, seg, 3);
+  const pos = g.attributes.position;
+  const nrm = g.attributes.normal;
+  for (let i = 0; i < pos.count; i++) {
+    const a = pos.getX(i) * ax, b = pos.getY(i) * ay;
+    const x = Math.sin(a) * Math.cos(b), y = Math.sin(b), z = Math.cos(a) * Math.cos(b);
+    nrm.setXYZ(i, x, y, z);
+    pos.setXYZ(i, x * R, y * R, z * R);
+  }
+  return g;
+}
+
 export interface EyeOpts {
   x: number; y: number; z: number; r: number;
   /** Outward turn of each eye (radians). */
@@ -207,31 +222,37 @@ export interface EyeOpts {
   /** Small vertical tilt. */
   pitch?: number;
   pupil?: 'round' | 'slit' | 'bar';
+  /** Pupil radius as a share of the eye radius. */
   pupilSize?: number;
   iris?: boolean;
-  /** Eye shape: stretch of the white (x, y, z). */
+  /** Eye shape: stretch of the whole eye (x, y, z). Baked into the eye bone's rest scale. */
   shape?: V3;
   /** Half-closed lid in a body slot (smug Sea look). Droop 0 = open, 1 = shut. */
   lid?: { slot: Slot; droop: number };
 }
 
-/** Two eyes. Bones: eyeL/eyeR (blink = scale.y), lookL/lookR (gaze = rotation). */
+/**
+ * Two eyes. Bones: eyeL/eyeR (blink = scale.y), lookL/lookR (gaze = rotation).
+ * Iris and pupil are decals hugging the eye white, so gaze slides them over the surface.
+ */
 export function eyes(rig: Rig, head: string, o: EyeOpts) {
+  const r = o.r;
   rig.both((s) => {
     const n = s < 0 ? 'L' : 'R';
     const blink = rig.bone('eye' + n, head, [s * o.x, o.y, o.z], [o.pitch ?? 0, s * (o.yaw ?? 0.25), 0]);
-    const sh = o.shape ?? [1, 1, 1];
-    rig.add(blink, S(o.r, 18, 14), 'eyeWhite', [0, 0, 0], [0, 0, 0], sh);
-    rig.add(blink, S(o.r * 0.2, 8, 6), 'glint', [-o.r * 0.3 * sh[0], o.r * 0.38 * sh[1], o.r * 0.9 * sh[2]]);
-    rig.add(blink, S(o.r * 0.1, 6, 5), 'glint', [o.r * 0.25 * sh[0], -o.r * 0.25 * sh[1], o.r * 0.95 * sh[2]]);
+    if (o.shape) blink.scale.set(...o.shape);
+    blink.userData.r = r;
+    rig.add(blink, S(r, 18, 14), 'eyeWhite');
     const look = rig.bone('look' + n, blink);
-    const ps = o.pupilSize ?? 0.58;
-    if (o.iris) rig.add(look, S(o.r * 0.78, 14, 10), 'iris', [0, 0, o.r * 0.42 * sh[2]], [0, 0, 0], [sh[0], sh[1], 0.6]);
-    const shape: V3 = o.pupil === 'slit' ? [0.3, 1.1, 0.5] : o.pupil === 'bar' ? [1.25, 0.42, 0.5] : [1, 1, 0.5];
-    rig.add(look, S(o.r * ps, 14, 10), 'pupil', [0, 0, o.r * 0.7 * sh[2]], [0, 0, 0], [shape[0] * sh[0], shape[1] * sh[1], shape[2]]);
+    const ang = Math.asin(Math.min(0.95, o.pupilSize ?? 0.56));
+    if (o.iris) rig.add(look, Decal(r * 1.006, ang * 1.45, ang * 1.45), 'iris');
+    const [ax, ay] = o.pupil === 'slit' ? [ang * 0.34, ang * 1.15] : o.pupil === 'bar' ? [ang * 1.2, ang * 0.45] : [ang, ang];
+    rig.add(look, Decal(r * 1.013, ax, ay), 'pupil');
+    rig.add(look, S(r * 0.2, 8, 6), 'glint', [-r * 0.32, r * 0.36, r * 0.86]);
+    rig.add(look, S(r * 0.1, 6, 5), 'glint', [r * 0.26, -r * 0.24, r * 0.93]);
     if (o.lid) {
       // A cap over the top of the eye, rotated down by droop.
-      rig.add(blink, HS(o.r * 1.12, 16, 6), o.lid.slot, [0, 0, 0], [o.lid.droop * 1.2 - 0.25, 0, 0], sh);
+      rig.add(blink, HS(r * 1.1, 16, 6), o.lid.slot, [0, 0, 0], [o.lid.droop * 1.25 - 0.3, 0, 0]);
     }
   });
 }
@@ -260,10 +281,11 @@ export function mouths(rig: Rig, head: string, o: MouthOpts) {
   else if (neutral === 'smirk') rig.add(smile, T(w * 0.85, tube, Math.PI * 0.7, 5, 12), dark, [0, w * 0.5, 0], [0, 0, Math.PI * 1.3]);
   else rig.add(smile, T(w * 0.7, tube, Math.PI, 5, 12), dark, [0, w * 0.45, 0], [0, 0, Math.PI]);
   const open = rig.bone('mOpen', f);
-  rig.add(open, Cy(w, w, 0.01, 16, false, Math.PI / 2, Math.PI), dark, [0, w * 0.15, 0], [Math.PI / 2, 0, 0], [1, 1, 0.8]);
-  rig.add(open, S(w * 0.48, 10, 8), tongue, [0, -w * 0.5, w * 0.06], [0, 0, 0], [1.1, 0.6, 0.4]);
+  // A D-shape: flat edge on top, open downward, tongue inside.
+  rig.add(open, Cy(w, w, w * 0.25, 16, false, -Math.PI / 2, Math.PI), dark, [0, w * 0.15, 0], [Math.PI / 2, 0, 0], [1, 1, 0.9]);
+  rig.add(open, S(w * 0.48, 10, 8), tongue, [0, -w * 0.45, w * 0.1], [0, 0, 0], [1.1, 0.6, 0.5]);
   const oh = rig.bone('mO', f);
-  rig.add(oh, Cy(w * 0.5, w * 0.5, 0.012, 14), dark, [0, 0, 0], [Math.PI / 2, 0, 0], [1, 1, 1.3]);
+  rig.add(oh, Cy(w * 0.5, w * 0.5, w * 0.3, 14), dark, [0, 0, 0], [Math.PI / 2, 0, 0], [0.9, 1, 1.25]);
   const frown = rig.bone('mFrown', f);
   rig.add(frown, T(w * 0.65, tube, Math.PI, 5, 12), dark, [0, -w * 0.4, 0]);
   for (const n of ['mOpen', 'mO', 'mFrown']) rig.get(n).scale.setScalar(0.001);
