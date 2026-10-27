@@ -326,8 +326,8 @@ const chaos: Record<string, CueFn> = {
   },
   // Ice crackles and a cold shimmer.
   freeze: (o, t) => {
-    for (let i = 0; i < 6; i++) noise(o, { t: t + i * 0.04 + (i % 2) * 0.012, dur: 0.03, f: 5000, type: 'highpass', gain: 0.22 });
-    [88, 95, 100].forEach((n, i) => tone(o, { t: t + 0.08 + i * 0.05, dur: 0.6, f: midi(n), gain: 0.05, vib: [7, 8] }));
+    for (let i = 0; i < 6; i++) noise(o, { t: t + i * 0.04 + (i % 2) * 0.012, dur: 0.03, f: 6000, q: 1.2, gain: 0.25 }); // band-pass: a high-pass here spiked at random
+    [88, 95, 100].forEach((n, i) => tone(o, { t: t + 0.08 + i * 0.05, dur: 0.6, f: midi(n), gain: 0.06, vib: [7, 8] }));
   },
   block: (o, t) => {
     tone(o, { t, dur: 0.2, f: 140, f2: 70, gain: 0.45 });
@@ -423,6 +423,36 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   'emote:love': 0.78,
   'emote:shock': 0.6,
   'emote:sleepy': 0.87,
+  // Phase 3, measured 2026-10-27. Targets: shows and effects -18..-22, impacts -15..-17, heavy hits -13, peg tick -28.
+  dieRoll: 2.09,
+  dieBanana: 1.3,
+  dieLucky: 1.68,
+  cardDraw: 2.82,
+  cardPlay: 1.13,
+  joker: 1.2,
+  duelCall: 1.1,
+  duelThrow: 0.88,
+  duelWin: 1.53,
+  duelLose: 3.27,
+  bonk: 1.05,
+  wheelSpin: 1.3,
+  wheelStop: 1.5,
+  stun: 1.97,
+  freeze: 2.3,
+  block: 0.78,
+  revive: 2.75,
+  slip: 1.58,
+  recharge: 2.24,
+  'power:sidestep': 2.72,
+  'power:doubleJump': 1.35,
+  'power:headbutt': 0.77,
+  'power:stomp': 0.57,
+  'power:block': 1.1,
+  'power:escape': 1.9,
+  'chaos:tide': 1.41,
+  'chaos:pigeon': 0.82,
+  'chaos:earthquake': 0.54,
+  'chaos:disco': 3.16,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;

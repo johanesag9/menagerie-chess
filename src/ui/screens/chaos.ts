@@ -257,7 +257,9 @@ export class Chaos {
       };
       if (this.rm) reveal();
       else {
-        await r.anim(big.inner.animate([{ transform: 'rotateY(0)' }, { transform: 'rotateY(90deg)' }], { duration: 140, easing: 'ease-in', fill: 'forwards' })).finished.catch(() => undefined);
+        // A timer, not .finished: background tabs can stall animations.
+        r.anim(big.inner.animate([{ transform: 'rotateY(0)' }, { transform: 'rotateY(90deg)' }], { duration: 140, easing: 'ease-in', fill: 'forwards' }));
+        await r.wait(140);
         reveal();
         r.anim(big.inner.animate([{ transform: 'rotateY(-90deg) scale(1.1)' }, { transform: 'rotateY(0) scale(1)' }], { duration: 320, easing: SPRING, fill: 'forwards' }));
       }

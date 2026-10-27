@@ -208,6 +208,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   }
 
   showResult(result: GameOver): void {
+    this.chaos.reset(); // an open question gets its default answer; the game is over
+    this.hud.mode.setPrompt(null);
+    this.hud.mode.setSelection(null);
     this.result.set(result);
     this.show('result');
   }

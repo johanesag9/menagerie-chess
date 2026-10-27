@@ -827,10 +827,10 @@
 
 .mc-fan { display: flex; justify-content: center; padding: 18px 12px 4px; }
 .mc-fan__card {
-  --w: 60px;
+  --w: 64px;
   width: var(--w);
   height: calc(var(--w) * 1.4);
-  margin: 0 -6px;
+  margin: 0 -3px;
   padding: 0;
   border: 0;
   border-radius: 12px;
@@ -842,6 +842,7 @@
   transition: transform 0.2s var(--spring), filter 0.2s, opacity 0.2s;
 }
 .mc-fan__card .mc-cardface__suit { font-size: 30px; }
+.mc-fan__card .mc-cardface__name { font-size: 12px; letter-spacing: -0.01em; }
 .mc-fan__card:hover:not(:disabled), .mc-fan__card:focus-visible { transform: rotate(calc(var(--i) * 3deg)) translateY(-12px) scale(1.06); z-index: 1; }
 .mc-fan__card:active:not(:disabled) { transform: rotate(0) translateY(-4px) scale(0.98); }
 .mc-fan__card:disabled { cursor: not-allowed; filter: grayscale(0.85); opacity: 0.6; }
@@ -918,6 +919,8 @@
 
 /* ---------- Stage: shows and questions over the board ---------- */
 
+/* The HUD is its own stacking layer, so pause and result always sit above its shows and questions. */
+.mc-hud { z-index: 0; }
 .mc-stage { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: hidden; }
 
 /* Fate die */
@@ -1205,7 +1208,7 @@
   .mc-chip__item { min-height: 26px; padding: 2px 9px; font-size: 13px; }
   .mc-chip__die .mc-pips { width: 18px; height: 18px; }
   .mc-fan { padding-top: 14px; }
-  .mc-fan__card { --w: 50px; }
+  .mc-fan__card { --w: 54px; }
   .mc-fan__card .mc-cardface__suit { font-size: 24px; }
   .mc-fan__card .mc-cardface__name { font-size: 11px; }
   .mc-sel { gap: 8px; padding: 6px 6px 6px 8px; border-radius: 18px; }
