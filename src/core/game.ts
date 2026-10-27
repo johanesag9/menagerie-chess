@@ -223,12 +223,12 @@ export class CoreGame implements GameController {
     if (this.heldBotMove) this.applyBotMove(this.heldBotMove);
   }
 
-  // ---------- Phase 3 stubs (orchestrator, so main typechecks). The core session replaces these. ----------
+  // ---------- Phase 3 members, as they are in Classic (Normal and Crazy live in ./modes/game.ts) ----------
   readonly mode: GameMode = 'classic';
   readonly modeState: ModeState | null = null;
   readonly log: ActionRecord[] = [];
   act(input: ActionInput): ActResponse {
-    if (input.type !== 'move') return { ok: false, reason: 'Powers and cards are not built yet' };
+    if (input.type !== 'move') return { ok: false, reason: 'Classic has no powers or cards' };
     return this.move(input) ? { ok: true } : { ok: false, reason: 'Illegal move' };
   }
   powerInfo(pieceId: PieceId): PowerInfo {
@@ -240,6 +240,14 @@ export class CoreGame implements GameController {
   previewArea(): Square[] { return []; }
   answerDuel(): void {}
   throwHand(): void {}
+
+  /** Stop clocks and the bot without ending the game (the facade calls this when switching modes). */
+  halt(): void {
+    this.cancelBot();
+    this.clock.stop();
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = null;
+  }
 
   dispose(): void {
     this.cancelBot();
