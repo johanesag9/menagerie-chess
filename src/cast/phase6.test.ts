@@ -151,13 +151,17 @@ describe('phase 6', () => {
     const a = make(side, kind);
     const home = a.object.rotation.y;
     for (const water of [false, true]) for (const k of ['build', 'dig'] as const) for (const target of [new THREE.Vector3(SQ, LV, 0), new THREE.Vector3(-SQ, 0, -SQ)]) {
-      const before = world.children.length;
+      // Let the last effects finish (pooled particle meshes stay in the scene, hidden while idle).
+      const quiet = () => world.children.every((c) => c.name.startsWith('piece:') || (c.name.startsWith('fx:') && !c.visible));
+      await run([a], quiet, 3);
+      expect(quiet()).toBe(true);
+      const before = new Set(world.children);
       const r = await settle([a], a.work(k, target, { water }));
       expect(r.done).toBe(true);
       expect(r.t).toBeGreaterThan(0.3);
       expect(r.t).toBeLessThan(1.0);
-      // Effects are out at that moment.
-      expect(world.children.length).toBeGreaterThan(before);
+      // Effects are out at that moment: new meshes (mound, tossed sand, splash) or a pooled burst (clods, dust).
+      expect(world.children.some((c) => c !== a.object && (!before.has(c) || (c.name.startsWith('fx:') && c.visible)))).toBe(true);
       const end = await run([a], () => !a.isBusy);
       expect(r.t + end).toBeLessThan(1.4);
       expect(a.object.position.length()).toBeLessThan(1e-9);

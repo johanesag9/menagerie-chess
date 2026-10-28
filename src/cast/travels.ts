@@ -207,9 +207,9 @@ function pushedLedge(a: Actor, tl: TL, to: THREE.Vector3, dy: number): Leg {
   const lv = Math.abs(dy) / LEVEL;
   const down = dy < 0;
   const dur = rm ? 0.36 : down ? 0.46 + lv * 0.04 : 0.42;
-  const t = ledge(a, tl, 0.05, to, dur, rm ? 0.03 : down ? 0.05 : 0.08, rm ? undefined : (k) => {
-    for (const n of LIMBS) a.b(n).rx = Math.sin(k * PI * 6) * 0.9 * k;
-  });
+  // The limbs already flail (see `pushed`); this adds the speed lines and the path over the edge.
+  tl.call(() => vfx.speedLines(a.fxParent, a.object.position.clone(), to, a.sq, { n: 5, dur: dur * 0.6, lo: 0.2, hi: a.height * 0.9 }), [], 0.05);
+  const t = ledge(a, tl, 0.05, to, dur, rm ? 0.03 : down ? 0.05 : 0.08);
   const sq = rm ? 0.08 : down ? Math.min(0.35, 0.18 + lv * 0.06) : 0.18;
   tl.call(() => {
     landed(a, Math.min(1, 0.3 + (down ? lv * 0.15 : 0)));
