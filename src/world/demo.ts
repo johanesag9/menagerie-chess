@@ -4,9 +4,9 @@
  */
 import * as THREE from 'three';
 import { Chess, type Square as CSquare } from 'chess.js';
-import type { PieceKind, Side, Square, SquareEffect, WeirdEventKind, WheelOutcome } from '../contracts/types';
+import type { PieceKind, Side, Square, SquareEffect, TreasureState, WeirdEventKind, WheelOutcome } from '../contracts/types';
 import { ALL_SQUARES, squareIndex } from './coords';
-import { createWorld, TIDE_TIMING, type ShorelineWorld } from './index';
+import { createWorld, ringOf, sinkDropTimes, TIDE_TIMING, type ShorelineWorld } from './index';
 
 const SAMPLE_FEN = 'r1bqkb1r/pppp1Bpp/2n2n2/4p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 4'; // Black king in check, captures available
 const $ = (id: string) => document.getElementById(id)!;
@@ -379,6 +379,169 @@ async function playChaosDemo(kind: WheelOutcome | 'earthquakeRight') {
 }
 for (const [kind, label] of CHAOS) button('chaos', label, () => void playChaosDemo(kind));
 
+// ---------- Phase 4: Sumo sinking island, Raid treasures, splashes ----------
+let sunk: Square[] = [];
+let warned: Square[] = [];
+const ringSquares = (k: number) => ALL_SQUARES.filter((sq) => ringOf(sq) === k);
+const nextRing = () => (sunk.length ? Math.max(...sunk.map(ringOf)) + 1 : 0);
+/** The water surface on a sunk square (board-local; the board sits at the origin, so also world). */
+const waterPoint = (sq: Square) => world.squareToWorld(sq).setY(0.352);
+
+/** What integration does: an animal on a sinking square tips outward and drops in at its square's drop time. */
+function fallIn(tok: THREE.Object3D, sq: Square, delay: number, big: boolean) {
+  const { file, rank } = squareIndex(sq);
+  const dir = new THREE.Vector3(file - 3.5, 0, 3.5 - rank).normalize();
+  const from = tok.position.clone();
+  let t = -delay, splashed = false;
+  const off = world.onFrame((dt) => {
+    t += dt;
+    if (t < 0) return;
+    const k = Math.min(1, t / 0.55);
+    tok.position.copy(from).addScaledVector(dir, 0.25 * k);
+    tok.position.y = from.y + Math.sin(Math.PI * Math.min(1, k * 1.6)) * 0.15 - k * k * 0.9;
+    tok.rotation.set(dir.z * k * 1.2, 0, -dir.x * k * 1.2);
+    if (!splashed && k > 0.35) {
+      splashed = true;
+      world.splash(waterPoint(sq), big);
+    }
+    if (k >= 1) {
+      off();
+      tok.removeFromParent();
+    }
+  });
+}
+
+button('sumo', 'Sink next ring', () => {
+  const k = nextRing();
+  if (k > 2) return log('The middle 2x2 never sinks. Try "Restore board".');
+  const ring = ringSquares(k);
+  sunk = [...sunk, ...ring];
+  warned = k + 1 <= 2 ? ringSquares(k + 1) : [];
+  const times = sinkDropTimes(ring, world.reducedMotion);
+  let fell = 0;
+  for (const sq of ring) {
+    const tok = tokens.get(sq);
+    if (!tok) continue;
+    const kind = chess.get(sq as CSquare)?.type;
+    tokens.delete(sq);
+    chess.remove(sq as CSquare);
+    fallIn(tok, sq, times.get(sq)!, kind === 'k');
+    fell++;
+  }
+  if (selected && ring.includes(selected)) selected = null;
+  world.setSunk(sunk, warned);
+  const ts = [...times.values()];
+  log(`Ring ${k} sinks (${ring.length} squares, drops ${Math.min(...ts).toFixed(2)}–${Math.max(...ts).toFixed(2)}s), ${fell} stand-ins fall in`);
+});
+button('sumo', 'Warn next ring', () => {
+  const k = nextRing();
+  if (k > 2) return log('Nothing left to warn.');
+  warned = ringSquares(k);
+  world.setSunk(sunk, warned);
+  log(`Ring ${k} wobbles: it sinks next`);
+});
+button('sumo', 'Sink 1 square', () => {
+  const dry = ALL_SQUARES.filter((sq) => !sunk.includes(sq) && ringOf(sq) < 3 && !tokens.has(sq));
+  if (!dry.length) return log('No empty dry square to sink.');
+  const sq = dry[Math.floor(Math.random() * dry.length)];
+  sunk = [...sunk, sq];
+  warned = warned.filter((w) => w !== sq);
+  world.setSunk(sunk, warned);
+  log(`${sq} sinks on its own (no wave)`);
+});
+let islandOn = false;
+button('sumo', 'Island mode', (b) => {
+  islandOn = !islandOn;
+  world.setIslandMode(islandOn);
+  b.classList.toggle('on', islandOn);
+  log(islandOn ? 'Island mode: the sea rises round the board' : 'Island mode off: the meadow and beach come back');
+});
+button('sumo', 'Restore board', () => {
+  sunk = [];
+  warned = [];
+  world.setSunk([], []);
+  chess = new Chess();
+  selected = null;
+  lastMove = null;
+  placeAll();
+  refreshHighlights();
+  log('Board restored (new game)');
+});
+
+const treasures: Record<Side, TreasureState> = {
+  land: { owner: 'land', home: 'e1', square: 'e1', carrier: null },
+  sea: { owner: 'sea', home: 'd8', square: 'd8', carrier: null },
+};
+let treasuresOn = false;
+function showTreasures(msg: string) {
+  if (!treasuresOn) {
+    treasuresOn = true;
+    // Raid: nobody stands on their own treasure. Hide the stand-ins on the home squares.
+    for (const sq of ['e1', 'd8'] as Square[]) tokens.get(sq)?.removeFromParent();
+  }
+  world.setTreasures([treasures.land, treasures.sea]);
+  log(msg);
+}
+const setT = (side: Side, square: Square | null, carrier: string | null = null) => {
+  treasures[side] = { ...treasures[side], square, carrier };
+};
+button('raid', 'Treasures at home', () => {
+  setT('land', 'e1');
+  setT('sea', 'd8');
+  showTreasures('Bone in the bowl at e1, pearl in the shell at d8');
+});
+button('raid', 'Steal pearl', () => {
+  setT('sea', null, 'stand-in');
+  showTreasures('Pearl picked up (the cast draws it while carried)');
+});
+button('raid', 'Drop pearl', () => {
+  setT('sea', 'd4');
+  showTreasures('Pearl dropped on d4');
+});
+button('raid', 'Pearl flies home', () => {
+  const was = treasures.sea.square;
+  setT('sea', 'd8');
+  showTreasures(was === 'd8' ? 'Pearl is already home' : 'Pearl flies home to d8');
+});
+button('raid', 'Drop bone', () => {
+  setT('land', 'e5');
+  showTreasures('Bone dropped on e5');
+});
+button('raid', 'Bone flies home', () => {
+  setT('land', 'e1');
+  showTreasures('Bone flies home to e1');
+});
+function pigeonSnatch() {
+  const owner: Side = Math.random() < 0.5 ? 'land' : 'sea';
+  const t = treasures[owner];
+  const from = t.square ?? (owner === 'land' ? 'e5' : 'd4');
+  // The spec: a random empty square in the owner's half, never a back rank or a home square.
+  const half = (owner === 'land' ? ['2', '3', '4'] : ['5', '6', '7']);
+  const pool = ALL_SQUARES.filter((sq) => half.includes(sq[1]) && !tokens.has(sq) && sq !== from);
+  const to = pool[Math.floor(Math.random() * pool.length)];
+  if (!t.square) setT(owner, from);
+  showTreasures(`Pigeon snatches the ${owner === 'land' ? 'bone' : 'pearl'} at ${from} and drops it on ${to}`);
+  void world.playChaos('pigeon', { treasure: { owner, from, to } }).then(() => {
+    setT(owner, to);
+    world.setTreasures([treasures.land, treasures.sea]);
+  });
+}
+button('raid', 'Pigeon snatch', pigeonSnatch);
+button('raid', 'Hide treasures', () => {
+  treasuresOn = false;
+  world.setTreasures([]);
+  placeAll();
+  log('Treasures hidden');
+});
+
+/** On a sunk square if there is one, else in the sea past the beach. */
+function splashPoint(): THREE.Vector3 {
+  if (sunk.length) return waterPoint(sunk[Math.floor(Math.random() * sunk.length)]);
+  return new THREE.Vector3((Math.random() - 0.5) * 4, 0.2, -5.6);
+}
+button('splash', 'Splash', () => world.splash(splashPoint(), false));
+button('splash', 'Big splash (king)', () => world.splash(splashPoint(), true));
+
 const near = (a: Square, b: Square, n: number) => {
   const p = squareIndex(a), q = squareIndex(b);
   return Math.max(Math.abs(p.file - q.file), Math.abs(p.rank - q.rank)) <= n && a !== b;
@@ -477,6 +640,11 @@ if (params.has('blocks')) {
 }
 if (params.get('aim') === 'targets') [...document.querySelectorAll('button')].find((b) => b.textContent === 'Targets: escape')!.click();
 if (params.get('aim') === 'area') [...document.querySelectorAll('button')].find((b) => b.textContent === 'Targets + area')!.click();
+const clickBtn = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === label)!.click();
+for (let i = 0; i < Number(params.get('sink') ?? 0); i++) setTimeout(() => clickBtn('Sink next ring'), 300 + i * 1500);
+if (params.has('warn')) setTimeout(() => clickBtn('Warn next ring'), 300);
+if (params.has('treasures')) clickBtn('Treasures at home');
+if (params.has('island')) clickBtn('Island mode');
 const autoChaos = params.get('chaos') as WheelOutcome | 'earthquakeRight' | null;
 if (autoChaos) setTimeout(() => void playChaosDemo(autoChaos), 300);
 const autoWeird = params.get('weird') as WeirdEventKind | null;
