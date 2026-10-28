@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Online play test · Menagerie Chess</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Online play test</h1>
+      <p class="note">
+        Dev tool. Two players on one page, each with its own connection to the room. Flat 2D boards with emoji
+        stand-ins, not the real game look.
+      </p>
+    </header>
+
+    <section class="controls" aria-label="Room controls">
+      <div class="row">
+        <div class="seg" role="radiogroup" aria-label="Server">
+          <button type="button" data-server="fake" aria-pressed="true">Fake server</button>
+          <button type="button" data-server="real" aria-pressed="false">Real server</button>
+        </div>
+        <label>Mode
+          <select id="mode">
+            <option value="classic">Classic</option>
+            <option value="normal">Normal</option>
+            <option value="crazy">Crazy</option>
+            <option value="sumo" selected>Sumo</option>
+            <option value="raid">Raid</option>
+          </select>
+        </label>
+        <label>You play
+          <select id="side">
+            <option value="land">Land</option>
+            <option value="sea">Sea</option>
+          </select>
+        </label>
+        <button type="button" class="primary" id="new-room">New room</button>
+      </div>
+      <div class="row">
+        <span class="room" id="room">No room yet</span>
+        <div class="seg" role="radiogroup" aria-label="Timer speed" id="speed">
+          <button type="button" data-speed="1" aria-pressed="true">Timers ×1</button>
+          <button type="button" data-speed="10" aria-pressed="false">×10</button>
+          <button type="button" data-speed="60" aria-pressed="false">×60</button>
+        </div>
+        <button type="button" id="force-timeout">Force timeout</button>
+      </div>
+      <p class="hint" id="server-hint" hidden></p>
+    </section>
+
+    <main class="seats" id="seats"></main>
+
+    <section class="log-wrap" aria-label="Event log">
+      <div class="log-head">
+        <h2>Event log</h2>
+        <button type="button" class="ghost" id="clear-log">Clear</button>
+      </div>
+      <ol class="log" id="log"></ol>
+    </section>
+
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

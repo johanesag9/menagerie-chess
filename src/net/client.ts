@@ -107,7 +107,7 @@ export class OnlineClientImpl implements OnlineClient {
   }
 
   async createRoom(options: GameOptions): Promise<{ room: string; link: string; you: Side }> {
-    const res = await this.deps.transport.request('POST', '/rooms', { options });
+    const res = await this.request('POST', '/rooms', { options });
     if (res.status !== 200) throw new Error(errorText(res.body) ?? `Could not create a room (${res.status})`);
     const { room, token, you } = res.body as CreateRoomResponse;
     this.saveToken(room, token);
@@ -116,10 +116,18 @@ export class OnlineClientImpl implements OnlineClient {
   }
 
   async roomInfo(room: string): Promise<RoomInfo | null> {
-    const res = await this.deps.transport.request('GET', `/rooms/${encodeURIComponent(room)}`);
+    const res = await this.request('GET', `/rooms/${encodeURIComponent(room)}`);
     if (res.status === 404) return null;
     if (res.status !== 200) throw new Error(errorText(res.body) ?? `Could not look up the room (${res.status})`);
     return res.body as RoomInfo;
+  }
+
+  private async request(method: 'GET' | 'POST', path: string, body?: unknown) {
+    try {
+      return await this.deps.transport.request(method, path, body);
+    } catch {
+      throw new Error('Could not reach the game server');
+    }
   }
 
   join(room: string): Promise<{ you: Side; info: RoomInfo }> {
