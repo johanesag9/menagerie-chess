@@ -288,7 +288,7 @@ export class ArenaGame implements ArenaController {
   /** Can the defender duel this? A shove (or Headbutt) that would make one of its animals fall in; a tag on its carrier. */
   private duelFor(a: ArenaAction): DuelInfo | null {
     const s = this.s;
-    if (a.type === 'endTurn' || a.type === 'step') return null;
+    if (a.type === 'endTurn' || a.type === 'step' || a.type === 'pick' || a.type === 'shape') return null; // Phase 6 stub: no duels in castle/stones
     const i = findA(s, a.pieceId);
     const attacker = s.board[i]!;
     const defender = opposite(attacker.side);

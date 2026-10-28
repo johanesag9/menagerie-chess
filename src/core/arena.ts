@@ -38,6 +38,23 @@ const POWER_TEXT: Record<ArenaMode, Record<PieceKind, [string, string]>> = {
     q: ['Block', 'Blocks an empty square for 4 plies.'],
     k: ['Escape', 'Teleport to an empty square up to 2 away.'],
   },
+  // Phase 6 stub (orchestrator): castle traits and stones powers, from GAME_SPEC "Board-game modes". Core owns these now.
+  castle: {
+    p: ['Digger', 'Can dig twice in one turn.'],
+    n: ['Leaper', 'Can make a knight hop instead of a step.'],
+    b: ['Climber', 'Can go up 2 levels in one step.'],
+    r: ['Builder', 'Builds 2 levels at once.'],
+    q: ['Shover', 'Can push a neighbouring enemy instead of moving.'],
+    k: ['Zoomer', 'Can move 2 steps.'],
+  },
+  stones: {
+    p: ['Bridge', 'Raise two sunk squares in a row.'],
+    n: ['Double jump', 'Two knight hops onto dry squares, over water.'],
+    b: ['Headbutt', 'Push a neighbouring enemy one square; into the water sends it home.'],
+    r: ['Stomp', 'Sink every empty stone around the rook.'],
+    q: ['Block', "A stone nobody can sink or stand on, for 4 plies."],
+    k: ['Escape', 'Teleport to a dry square up to 2 away.'],
+  },
 };
 const REASON: Record<string, string> = {
   used: 'Used', stunned: 'Stunned', frozen: 'Frozen', noTarget: 'No target', notYourTurn: 'Not your turn',

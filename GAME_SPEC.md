@@ -335,6 +335,97 @@ Johanes may want to change any of these after playtesting:
 - Duel tokens: 2.
 - Raid has no chaos cards, to keep the first version lean.
 
+## Board-game modes: abstract strategy (Johanes picked these on 2026-10-28)
+Two modes in the spirit of abstract board games, after 10 ideas in `docs/boardgame-ideas.md`. They are our own designs: they borrow the feeling of the genre, not another game's rules.
+
+| Mode | In one line |
+|---|---|
+| **Sandcastle King** (`castle`) | Move, then build or dig. Stand on a castle and still be there at the start of your next turn to win. |
+| **Stepping Stones** (`stones`) | The middle is sea. Raise stones, sink theirs, and be first across. |
+
+Core runs both with its `ArenaController`, next to Sumo and Raid, with its own bot. The setup screen lists them. Both work online by invite link, like every other mode.
+
+### What both modes share
+- **No luck:** no die, no AP, no duels, no cards, no wheel. Everything is visible.
+- **A turn has fixed stages.** A stage with nothing legal is skipped. A side with nothing legal at all passes its turn.
+- **Clocks, Weird Mode and FEN** don't apply.
+- **Steps** go one square in any of the 8 directions, onto an empty square. "Empty" means no animal and no block.
+
+### Sandcastle King
+**The board.** Every square has a level from 0 (flat) to 3 (a castle). The game starts flat.
+
+**The draft.**
+- Each side picks **2 of its 6 animals**.
+- Picks alternate: Land, Sea, Land, Sea. Each side sees the other's picks.
+- Land's animals start on c2 and f2 (first pick on c2); Sea's on c7 and f7.
+
+**A turn.**
+1. **Move** one of your animals 1 step. It may go **up at most 1 level** and down any number.
+2. **Shape** one square next to where that animal now stands:
+   - **Build:** +1 level, up to 3. Not on a square with an animal on it.
+   - **Dig:** −1 level, down to 0. You **may** dig under an enemy (it rides down with the square), but not under your own animal.
+
+**Win.**
+- **Hold the castle:** if one of your animals stands on a level-3 square at the **start of your turn**, you win. So when you step up, your opponent gets one turn to dig under you or push you off.
+- If neither side can do anything for a whole round, it's a draw.
+- After round 30, it's a draw.
+
+**The tide.** At the end of every 5th round, every beach square (ranks 5–8) with no animal on it loses one level. The meadow (ranks 1–4) never wears down.
+
+**Traits.** Each animal has one trait. It is always on (it isn't a once-per-game power). The same trait for both sides; only the animation differs.
+
+| Animals | Trait | Rule |
+|---|---|---|
+| Pup / Crab | **Digger** | After a dig, it may dig once more (the same square or another next to it). |
+| Horse / Seahorse | **Leaper** | Its move may be a knight hop instead of a step (still up at most 1 level). |
+| Goat / Pufferfish | **Climber** | It may go up 2 levels in one step. |
+| Elephant / Turtle | **Builder** | A build adds 2 levels (capped at 3). |
+| Cat / Octopus | **Shover** | Instead of moving, it may push a neighbouring enemy 1 square straight away. The pushed animal may drop any number of levels but go up at most 1, and only onto an empty square on the board. The shover then shapes next to itself. |
+| Pug / Blobfish | **Zoomer** | Its move may be 2 steps (each step follows the climbing rule). |
+
+**Fine print**
+- The animal that moved is the one that shapes. With the Shover's push, the shover shapes.
+- Building is never allowed on a square with an animal on it; digging under an enemy is.
+- A Zoomer's 2 steps can't pass through an occupied square.
+- The Builder's build on a level-2 square adds only 1.
+- The Digger's second dig is optional (End turn skips it).
+- Holding the castle is checked only at the start of the holder's own turn. If the castle was dug, or the animal was pushed off, there's no win.
+
+### Stepping Stones
+**Setup.**
+- Ranks 3–6 start under water. Ranks 1–2 and 7–8 are dry.
+- 6 animals each, one of each kind: Land on b2–g2, Sea on b7–g7 (as in the party modes).
+
+**A turn.**
+1. **Shape the sea** (do one):
+   - **Raise** one sunk square that touches dry land (8 directions).
+   - **Sink** one empty dry square in ranks 3–6.
+   - **Or use a power** instead: it's your whole turn (no move after it).
+2. **Move** one animal 1 step onto an empty dry square.
+
+**Fresh squares.** A square raised or sunk on the last turn can't be raised or sunk this turn, so nobody can undo the other player's move straight away.
+
+**Win.** The first animal to stand on the enemy's back rank (Land on rank 8, Sea on rank 1). After round 25, it's a draw.
+
+**Powers (once per game each; a power is the whole turn).**
+
+| Animal | Power | Rule |
+|---|---|---|
+| Pup / Crab | **Bridge** | Raise two sunk squares in a straight line; the first must touch dry land. |
+| Horse / Seahorse | **Double jump** | Two knight hops onto empty dry squares; water in between doesn't matter. |
+| Goat / Pufferfish | **Headbutt** | Push a neighbouring enemy 1 square straight away. Into the water: it's sent home (nearest empty square on its back rank). Off the board or into an animal or block: not allowed. |
+| Elephant / Turtle | **Stomp** | Sink every empty dry square around the rook in ranks 3–6 (fresh squares too). |
+| Cat / Octopus | **Block** | A vase or ink cloud on an empty dry square: it can't be sunk or stepped on for 4 plies. |
+| Pug / Blobfish | **Escape** | Teleport to an empty dry square up to 2 squares away. |
+
+### Defaults in the board-game modes (picked by the orchestrator, easy to change)
+Johanes may want to change any of these after playtesting:
+- Castle: 2 animals per side (3 is the alternative), and Land picks first.
+- Castle: traits are always on, not once per game.
+- Castle: only the beach wears down; the tide comes every 5 rounds; the round cap is 30.
+- Castle: you may dig under an enemy, but never build on an occupied square.
+- Stones: the fresh rule lasts one turn; the round cap is 25. Land moving first may be an edge (a fix could be: Land's first turn has no move).
+
 ## Online play (Johanes picked invite links on Cloudflare, free plan, 2026-10-28)
 Play a friend over the internet by sharing a link. No accounts, no strangers, no chat (emotes only).
 
@@ -416,4 +507,5 @@ Each stream works only in its own folder, builds a standalone demo page for itse
 3. Game modes (Normal and Crazy): four parallel sessions again, against the mode contracts (`docs/phase3-briefs.md`). Core's 2D demo is the first playtest. Started 2026-10-27.
 4. Party modes (Sumo, Raid): four parallel sessions against the arena contracts (`docs/phase4-briefs.md`), on top of the `phase3` branch. Started 2026-10-28.
 5. Online play with a friend by invite link: three parallel sessions (server, net, ui) against `src/contracts/net.ts` (`docs/phase5-briefs.md`), on the `phase3` branch. Started 2026-10-28.
-6. Later: public matchmaking, campaign, achievements.
+6. Board-game modes (Sandcastle King, Stepping Stones): four parallel sessions (core, world, cast, ui) against the Phase 6 contracts (`docs/phase6-briefs.md`), on the `phase6` branch cut from `phase3`. Online once Phase 5 is merged. Started 2026-10-28.
+7. Later: public matchmaking, campaign, achievements.

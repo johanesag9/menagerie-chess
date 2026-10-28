@@ -523,6 +523,9 @@ export function actionKey(a: ArenaAction): string {
     case 'power': return `p:${a.pieceId}:${a.targets.join(',')}`;
     case 'throw': return `t:${a.pieceId}:${a.to}`;
     case 'endTurn': return 'e';
+    // Phase 6 stub (orchestrator): core builds castle/stones.
+    case 'pick': return `k:${a.kind}`;
+    case 'shape': return `sh:${a.pieceId ?? ''}:${a.square}:${a.dir}`;
   }
 }
 
@@ -560,6 +563,7 @@ function extras(changes: BoardChange[], ids: Map<PieceId, APiece>): string {
  */
 export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
   if (a.type === 'endTurn') return { changes: [], label: `Ended the turn${s.ap ? ` (${s.ap} AP unused)` : ''}` };
+  if (a.type === 'pick' || a.type === 'shape') throw new Error('Phase 6 stub (orchestrator): castle/stones are not built yet');
   const i = findA(s, a.pieceId);
   const p = s.board[i]!;
   const ids = new Map<PieceId, APiece>();

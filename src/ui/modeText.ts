@@ -11,6 +11,9 @@ export const MODE_TEXT: Record<PlayMode, { name: string; pitch: string; icon: st
   // Phase 4: party modes (not chess).
   sumo: { name: 'Sumo', pitch: 'Shove the enemy king into the sea while the island sinks.', icon: '🏝️' },
   raid: { name: 'Raid', pitch: "Steal their treasure and carry it home. First to 3 wins.", icon: '🦴' },
+  // Phase 6 stub (orchestrator): board-game modes. ui owns the final words and where they show on setup.
+  castle: { name: 'Sandcastle King', pitch: 'Move, then build or dig. Hold a castle top for a full turn to win.', icon: '🏰' },
+  stones: { name: 'Stepping Stones', pitch: 'Raise stones, sink theirs, and be first across the sea.', icon: '🪨' },
 };
 
 export const MODES: GameMode[] = ['classic', 'normal', 'crazy'];
@@ -217,6 +220,9 @@ export const HOW_TO: Record<PlayMode, { title: string; items: string[] }[]> = {
       '🪩 Disco: every power recharges.',
     ] },
   ],
+  // Phase 6 stub (orchestrator): ui writes the real "How it works" from GAME_SPEC "Board-game modes".
+  castle: [],
+  stones: [],
 };
 
 // ---------- Phase 4: party modes ----------
@@ -235,6 +241,16 @@ export const ARENA_POWER_TEXT: Record<ArenaMode, Partial<Record<PowerKind, { nam
     headbutt: { name: 'Headbutt', line: 'Push a neighbouring enemy one square. A carrier drops the treasure.' },
     stomp: { name: 'Stomp', line: 'Stun every neighbouring enemy (not the king) for its next turn.' },
     block: { name: 'Block', line: 'Block an empty square for 4 turns.' },
+  },
+  // Phase 6 stub (orchestrator): castle shows traits from core's PowerInfo name/line; stones powers below.
+  castle: {},
+  stones: {
+    sidestep: { name: 'Bridge', line: 'Raise two sunk squares in a row.' },
+    doubleJump: { name: 'Double jump', line: 'Two knight hops onto dry squares, over water.' },
+    headbutt: { name: 'Headbutt', line: 'Push a neighbouring enemy one square; into the water sends it home.' },
+    stomp: { name: 'Stomp', line: 'Sink every empty stone around the rook.' },
+    block: { name: 'Block', line: 'A stone nobody can sink or stand on, for 4 turns.' },
+    escape: { name: 'Escape', line: 'Teleport to a dry square up to 2 away.' },
   },
 };
 

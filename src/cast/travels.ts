@@ -208,6 +208,8 @@ function styleOf(a: Actor, style: MoveStyle): (a: Actor, tl: TL, to: THREE.Vecto
         const t = a.kind === 'n' ? a.travel(tl, 0, to, a.style.gait, { faceAfter: true, durScale: 0.85 }) : a.travel(tl, 0, to, HOP, { faceAfter: true });
         return { arrive: t, end: t + 0.1 };
       };
+    // Phase 6 stub (orchestrator): 'climb' plays as a step until cast builds the real hop up/down.
+    case 'climb':
     case 'step':
       return (a, tl, to) => {
         const t = a.travel(tl, 0, to, STEP, { faceAfter: true });

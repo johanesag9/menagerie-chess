@@ -6,6 +6,8 @@
  * Phase 2 (2026-10-27): added the extras the streams asked for in their reports.
  * Phase 3 (2026-10-27): game modes (Classic, Normal, Crazy). See GAME_SPEC.md "Game modes" for the rules.
  * Phase 4 (2026-10-28): party modes that aren't chess (Sumo, Raid). See GAME_SPEC.md "Party modes" and the `ArenaController` section.
+ * Phase 6 (2026-10-28): board-game modes (Sandcastle King 'castle', Stepping Stones 'stones'), run by the `ArenaController`.
+ *   See GAME_SPEC.md "Board-game modes" and docs/phase6-briefs.md. Every Phase 6 member is marked "Phase 6"; most are optional so older code still compiles.
  */
 import type { OnlineHud } from './net';
 import type { Camera, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
@@ -71,8 +73,12 @@ export type GameOverReason =
   | 'kingOverboard'
   /** Raid: reached the points target. */
   | 'treasure'
-  /** Sumo/Raid: the round cap was reached (more animals left / more points wins, else a draw). */
-  | 'rounds';
+  /** Sumo/Raid: the round cap was reached (more animals left / more points wins, else a draw). Castle/Stones: a draw. */
+  | 'rounds'
+  /** Phase 6, Sandcastle King: an animal still stood on a level-3 castle at the start of its owner's turn. */
+  | 'castle'
+  /** Phase 6, Stepping Stones: an animal reached the enemy's back rank. */
+  | 'crossed';
 
 export interface GameOver {
   winner: Side | null; // null = draw
@@ -111,11 +117,17 @@ export interface GameOptions {
 // ---------- Game modes (Phase 3) ----------
 
 export type GameMode = 'classic' | 'normal' | 'crazy';
-/** Phase 4: the party modes (not chess). */
-export type ArenaMode = 'sumo' | 'raid';
+/** Phase 4: the party modes (not chess). Phase 6 adds the board-game modes 'castle' (Sandcastle King) and 'stones' (Stepping Stones). */
+export type ArenaMode = 'sumo' | 'raid' | 'castle' | 'stones';
 /** Every mode the setup screen offers. */
 export type PlayMode = GameMode | ArenaMode;
-export const isArenaMode = (m: PlayMode | undefined): m is ArenaMode => m === 'sumo' || m === 'raid';
+export const isArenaMode = (m: PlayMode | undefined): m is ArenaMode =>
+  m === 'sumo' || m === 'raid' || m === 'castle' || m === 'stones';
+/** Phase 6: the board-game modes: no die, no AP, no duels. A turn has fixed stages instead (`ArenaState.stage`). */
+export type BoardMode = 'castle' | 'stones';
+export const isBoardMode = (m: PlayMode | undefined): m is BoardMode => m === 'castle' || m === 'stones';
+/** Phase 6, Sandcastle King: a square's height. 0 = flat board, 3 = a castle. */
+export type Level = 0 | 1 | 2 | 3;
 
 /** One power per piece kind, the same for both sides. */
 export type PowerKind = 'sidestep' | 'doubleJump' | 'headbutt' | 'stomp' | 'block' | 'escape';
@@ -254,7 +266,7 @@ export type ChangeHow =
   | 'swept'     // tide
   | 'quake'     // earthquake
   // Phase 4 (party modes)
-  | 'sentHome'; // Raid: a tagged carrier, back to its own back rank (a tagged non-carrier is stunned in place: a `status` change)
+  | 'sentHome'; // Raid / Phase 6 Stepping Stones (headbutted into the water). Raid: a tagged carrier, back to its own back rank (a tagged non-carrier is stunned in place: a `status` change)
 
 /**
  * One piece-level change. `step` orders them: integration plays every change with the same step together
@@ -290,6 +302,16 @@ export type BoardChange = { step: number } & (
       square: Square | null; carrier: PieceId | null;
       from?: Square; by?: PieceId; points?: number;
     }
+  // Phase 6 (board-game modes)
+  /**
+   * Sandcastle King: a square's level changed. `by` = the animal that built or dug (none for the tide).
+   * An animal standing on a dug square rides down with it: it gets no `move`; integration lowers it with the ground.
+   */
+  | { type: 'level'; square: Square; from: Level; to: Level; cause: 'build' | 'dig' | 'tide'; by?: PieceId }
+  /** Stepping Stones: a square rose out of the water (`sunk` false) or went under (`sunk` true). */
+  | { type: 'water'; square: Square; sunk: boolean; cause: 'raise' | 'sink' | 'stomp' | 'bridge' }
+  /** Sandcastle King: a drafted animal is placed at its start square (after the draft, all in one step). */
+  | { type: 'enter'; piece: PieceState }
 );
 
 /** One line of the game log, for the move list (moves, powers, cards, bonuses, bonks, wheel, passes). */
@@ -480,8 +502,8 @@ export interface ArenaState {
   /** 1-based; a round is a Land turn plus a Sea turn. */
   round: number;
   turn: Side;
-  /** 'action' = the side to move spends AP; 'duel' = a duel is being decided; 'over' = finished. */
-  phase: 'action' | 'duel' | 'over';
+  /** 'action' = the side to move spends AP; 'duel' = a duel is being decided; 'over' = finished. Phase 6: 'draft' = castle animal picks. */
+  phase: 'action' | 'duel' | 'over' | 'draft';
   /** This turn's roll. */
   die: DieValue | null;
   /** Action points left this turn. */
@@ -507,17 +529,50 @@ export interface ArenaState {
   score: Record<Side, number>;
   /** Raid: points to win (Sumo: 0). */
   target: number;
-  /** Raid: rounds until the Wheel of Chaos (null in Sumo). */
+  /** Raid: rounds until the Wheel of Chaos (null in the other modes). */
   nextWheelIn: number | null;
-  /** The round cap (Sumo 15, Raid 20). */
+  /** The round cap (Sumo 15, Raid 20, Castle 30, Stones 25). */
   maxRounds: number;
+
+  // ----- Phase 6: board-game modes (absent in Sumo and Raid). `die` is null, `ap` 0 and `duelTokens` 0 in these modes. -----
+  /**
+   * What the side to move does next ('action' phase only):
+   * - 'pick'  (castle, 'draft' phase): pick an animal kind
+   * - 'move'  (castle): move one animal (or the Shover pushes); (stones): move one animal, after shaping
+   * - 'shape' (castle): build or dig next to the animal that just moved; (stones): raise or sink one square, or use a power
+   * - 'more'  (castle): an optional extra (Digger's second dig): `shape` again, or `endTurn`
+   */
+  stage?: 'pick' | 'move' | 'shape' | 'more';
+  /** Castle: the animal that moved this turn (it is the one that builds or digs), else null. */
+  mover?: PieceId | null;
+  /** Castle: every square's level. Missing squares are 0. */
+  levels?: Partial<Record<Square, Level>>;
+  /** Castle: an animal on a castle that wins if it is still there at the start of its owner's next turn. */
+  crowned?: { pieceId: PieceId; side: Side; square: Square } | null;
+  /** Castle: rounds until the tide wears the beach down (null = no more). */
+  nextTideIn?: number | null;
+  /** Castle: the draft. `picks` in pick order; the side to pick is `turn`. Present from the start (also after the draft). */
+  draft?: { size: number; picks: Record<Side, PieceKind[]> };
+  /** Stones: squares changed on the last turn; they can't be raised or sunk this turn. */
+  fresh?: Square[];
+  /** Stones: each side's shortest path (in steps) from its nearest animal to the enemy back rank over dry land, or null if none. For the HUD and the bot. */
+  pathLength?: Record<Side, number | null>;
+}
+
+/** Phase 6: one square the side to move can raise/build (`up`) or sink/dig (`down`) right now. */
+export interface ShapeOption {
+  square: Square;
+  up: boolean;
+  down: boolean;
+  /** Castle Builder: how many levels one build adds here (2, or 1 when only one fits under 3). Default 1. */
+  upBy?: number;
 }
 
 /** What one animal can do right now (all empty when it isn't this side's action phase). */
 export interface ArenaPieceOptions {
-  /** Squares it can step to. */
+  /** Squares it can step to. Phase 6 castle: every legal destination, traits included (Leaper hops, Climber +2, Zoomer 2 steps). */
   steps: Square[];
-  /** Enemies it can shove (Sumo) or tag (Raid), by square. */
+  /** Enemies it can shove (Sumo) or tag (Raid), by square. Phase 6 castle: enemies the Shover can push instead of moving. */
   hits: Square[];
   /** AP a step costs this animal now (2 for a Raid carrier). */
   stepCost: number;
@@ -542,10 +597,17 @@ export type ArenaAction =
   | { type: 'power'; pieceId: PieceId; targets: Square[] }
   /** Raid "pass and run": the carrier throws the treasure to a teammate in a straight line up to 2 squares away. */
   | { type: 'throw'; pieceId: PieceId; to: Square }
-  | { type: 'endTurn' };
+  | { type: 'endTurn' }
+  /** Phase 6, castle draft: pick one of your 6 animal kinds (not one you already picked). */
+  | { type: 'pick'; kind: PieceKind }
+  /**
+   * Phase 6: change one square's height. Castle: build (`up`) or dig (`down`) next to `ArenaState.mover`
+   * (`pieceId` = the mover). Stones: raise (`up`) a sunk square or sink (`down`) a dry one (`pieceId` null).
+   */
+  | { type: 'shape'; pieceId: PieceId | null; square: Square; dir: 'up' | 'down' };
 
 export interface ArenaEventMap {
-  /** Inside `newGame`, then `state`, `turnChanged`, `rolled`, `state`. */
+  /** Inside `newGame`, then `state`, `turnChanged`, `rolled`, `state`. Phase 6 board-game modes never emit `rolled`. */
   started: { options: GameOptions; state: ArenaState };
   /** After every change (the source of truth for the HUD and for diffing statuses, blocks, sunk squares and treasures). */
   state: ArenaState;
@@ -557,6 +619,10 @@ export interface ArenaEventMap {
   sank: { squares: Square[]; sunk: Square[]; sinkingNext: Square[]; changes: BoardChange[] };
   /** Raid, every 5 rounds at the start of Land's turn. */
   wheelSpun: { outcome: WheelOutcome; direction?: 'left' | 'right'; changes: BoardChange[] };
+  /** Phase 6, castle: at the end of every 5th round the tide wears empty beach squares down one level. `changes` = `level` changes, all in step 0. Then `logged` (kind 'wheel'). */
+  tide: { changes: BoardChange[] };
+  /** Phase 6, castle: an animal stepped onto a castle (or the crown was lost: `crowned` null). Follows the `acted`/`state` that caused it. */
+  crowned: { crowned: { pieceId: PieceId; side: Side; square: Square } | null };
   /** As in Crazy (`via` 'shove' or 'tag'). Nothing has moved yet. Core waits for `answerDuel`, then `throwHand`; a `state` with phase 'duel' starts each throw round. */
   duelOffered: DuelInfo;
   duelRound: GameEventMap['duelRound'];
@@ -579,6 +645,16 @@ export interface ArenaEventMap {
  * when AP hits 0 or on endTurn: (Sumo, end of a round: sank, logged) -> state -> gameOver? -> turnChanged ->
  * (Raid: wheelSpun, logged) -> rolled -> state.
  * The bot plays its turn one action at a time and holds each next action while paused (like Phase 3).
+ *
+ * Phase 6 board-game modes ('castle', 'stones'): no die, AP or duels. A turn is fixed stages (`ArenaState.stage`):
+ * - castle: (draft first: phase 'draft', `pick` actions alternate Land, Sea, Land, Sea; then `acted` with `enter` changes)
+ *   · move (a `step`, or a Shover's `hit`) · shape (`shape`) · Digger only: 'more' (a second dig, or `endTurn`).
+ *   Traits are always on and shown through `pieceOptions().power` (name/line); there is no `power` action in castle.
+ * - stones: shape (`shape`, or a `power` that is the whole turn) · move (`step`).
+ * - The turn ends by itself after its last stage. A stage with nothing legal is skipped; a side with nothing legal passes.
+ * - Log kinds: step/hit 'move', shape and pick 'move', power 'power', tide 'wheel', pass 'pass'.
+ * - End of turn: (castle, end of every 5th round: tide, logged) -> state -> gameOver? -> turnChanged -> (castle: crowned
+ *   win check at the start of the turn, may end the game) -> state.
  */
 export interface ArenaController extends EventSource<ArenaEventMap> {
   /** `options.mode` must be 'sumo' or 'raid'; `time`, `weirdMode` and `fen` are ignored. */
@@ -589,6 +665,11 @@ export interface ArenaController extends EventSource<ArenaEventMap> {
   pieceOptions(pieceId: PieceId): ArenaPieceOptions;
   /** Next squares for a half-built power (same shape as Phase 3). */
   targets(pending: { pieceId: PieceId; targets: Square[] }): TargetStep;
+  /**
+   * Phase 6: the squares the side to move can shape right now (stage 'shape' or 'more'; else []).
+   * Castle: around `ArenaState.mover`. Stones: anywhere legal. Optional so older controllers still compile; core implements it.
+   */
+  shapeOptions?(): ShapeOption[];
   /** Squares the power or a hit would affect, for a preview (the shove line, the stomp ring, where a pushed animal lands). */
   previewArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): { area: Square[]; falls: Square[] };
   act(action: ArenaAction): ActResponse;
@@ -688,6 +769,22 @@ export interface World extends EventSource<WorldEventMap> {
   splash(point: Vector3, big?: boolean): void;
   /** Phase 4 (Sumo), optional: make the island read as surrounded by sea (water all round the frame, the meadow props tucked away). false restores. */
   setIslandMode?(on: boolean): void;
+  /**
+   * Phase 6 (castle): show exactly these square heights (missing = 0): stacked sand tiers, level 3 a little castle with
+   * turrets. Animates each change (a tier pats on with a sand puff, or scoops off). Picking must still hit the square
+   * when clicking a tier's top or side. `{}` restores the flat board instantly (new games).
+   */
+  setLevels?(levels: Partial<Record<Square, Level>>): void;
+  /** Phase 6 (castle): world-space centre of the walkable top of a square at its current level (= `squareToWorld` at level 0). */
+  squareTop?(square: Square): Vector3;
+  /** Phase 6 (castle): a team flag pops up on the castle an animal holds (null lowers it). */
+  setFlag?(flag: { square: Square; side: Side } | null): void;
+  /**
+   * Phase 6 (stones): squares changed last turn, which can't be changed now: bubbles and ripples on water, wet dark
+   * edges on a fresh stone. [] clears. Rising stones use `setSunk`: a square leaving the sunk list rises out of the
+   * water with a splash; one joining it sinks (as in Sumo, one square at a time, quickly).
+   */
+  setFresh?(squares: Square[]): void;
   skipIntro(): void;
   /** Read-only access for shader warm-up (`cast.preload`) and screen projection. Don't move the camera yourself. */
   readonly renderer: WebGLRenderer;
@@ -742,6 +839,12 @@ export interface PieceActor {
    * Resolves when it's gone (it leaves the board but isn't freed; integration disposes it, like `defeat`). Emits `poof`-like `splash`.
    */
   fall(dir: Vector3): Promise<void>;
+  /**
+   * Phase 6: build (pat a sand tier onto `target`) or dig (scoop sand off it), in this animal's style: pup paws, crab claws,
+   * elephant trunk, turtle flipper, octopus tentacles, cat swats, etc. Resolves when the sand lands or leaves (the moment
+   * integration calls `world.setLevels`). Stones reuses it: 'build' to raise a stone, 'dig' to sink one. Optional until cast ships it.
+   */
+  work?(kind: 'build' | 'dig', target: Vector3): Promise<void>;
   /** Phase 4 (Raid): hold the other side's treasure in its mouth, claw or tentacle (`owner` = whose treasure: 'land' bone, 'sea' pearl). null = nothing. */
   setCarrying(owner: Side | null): void;
   /** Phase 4 (Raid), optional: a throwing pose toward `at` (the treasure itself flies with `world.flyTreasure`). Resolves at release. */
@@ -765,7 +868,9 @@ export interface PieceActor {
  * pushed (knocked back, tumbling), teleport (pug zoomies blur / blobfish blorp, also swaps), dig (pawn burrows backward),
  * swept (carried by a wave), quake (stumbles sideways), bonked (dizzy walk back after losing a duel), step (a quick hop forward).
  */
-export type MoveStyle = 'normal' | 'sidestep' | 'jump' | 'slip' | 'pushed' | 'teleport' | 'dig' | 'swept' | 'quake' | 'bonked' | 'step';
+export type MoveStyle = 'normal' | 'sidestep' | 'jump' | 'slip' | 'pushed' | 'teleport' | 'dig' | 'swept' | 'quake' | 'bonked' | 'step'
+  /** Phase 6: hop up (or drop down) onto a square at another height; `target` carries the new height. Goat/pufferfish climb 2 with flair. */
+  | 'climb';
 
 export interface SkinCatalog {
   palettes: { id: string; name: string; swatch: string }[];
@@ -849,6 +954,10 @@ export interface UiEventMap {
   cancelInvite: Record<string, never>;
   /** Phase 5: the player asked for a rematch in an online game (the result screen's Rematch, online). */
   rematchOnline: Record<string, never>;
+  /** Phase 6: the player switched the Build/Dig (castle) or Raise/Sink (stones) toggle. */
+  shapeMode: { dir: 'up' | 'down' };
+  /** Phase 6: the player picked an animal in the castle draft. */
+  draftPicked: { kind: PieceKind };
 }
 
 /** Phase 3: what the HUD shows about the selected piece (null = nothing selected). */
@@ -920,6 +1029,18 @@ export interface Ui extends EventSource<UiEventMap> {
   /** A big short banner over the board ("The island sinks!", "Bone stolen!", "+1 Sea!"). Resolves when it has shown (about 1.2s, skippable). */
   announce(text: string, tone?: 'info' | 'good' | 'bad'): Promise<void>;
 
+  // ----- Phase 6: board-game modes. Setup also offers 'castle' and 'stones'; `setArenaState` renders them too (no AP, no die). -----
+  /**
+   * The Build/Dig (castle) or Raise/Sink (stones) toggle beside the board, shown while shaping. Emits `shapeMode`.
+   * `upBy` 2 shows "Build ×2" (Builder). null hides it.
+   */
+  setShapeMode?(state: { dir: 'up' | 'down'; canUp: boolean; canDown: boolean; mode: BoardMode; upBy?: number } | null): void;
+  /**
+   * Castle draft: show your 6 animals with their trait name and line (from `traits`), the picks so far on both sides,
+   * and let the player pick one (also emits `draftPicked`). `hotSeat`: a local game, so say whose pick it is.
+   */
+  askDraft?(side: Side, opts: { picks: Record<Side, PieceKind[]>; size: number; traits: Record<PieceKind, { name: string; line: string }>; hotSeat: boolean }): Promise<PieceKind>;
+
   // ----- Phase 5: online with a friend. The setup screen's opponent row adds "Friend online" (`{ type: 'online', you }`). -----
   /** Waiting for the friend: the invite link with Copy and Share, the mode and your side. Emits `cancelInvite`. Hidden by `show()` or `hideInvite()`. */
   showInvite(info: { link: string; mode: PlayMode; you: Side }): void;
@@ -949,6 +1070,8 @@ export type AudioCue =
   | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn' | 'toss' | 'catch' | 'intercept'
   // Phase 5
   | 'friendJoined' | 'friendLeft' | 'timeLow'
+  // Phase 6
+  | 'build' | 'dig' | 'raise' | 'sinkStone' | 'climb' | 'flag' | 'tideWear' | 'draftPick'
   | `voice:${Side}:${PieceKind}`
   | `emote:${EmoteKind}`;
 

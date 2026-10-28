@@ -391,6 +391,7 @@ async function playPower(a: Actor) {
 /** Where each travel style goes from the middle (then the piece walks back). Pieces face +z. */
 const STYLE_TO: Record<Exclude<MoveStyle, 'normal'>, [number, number]> = {
   sidestep: [1, 0], jump: [2, 1], slip: [0, 1], pushed: [0, -1], teleport: [2, -1], dig: [0, -1], swept: [0, -1], quake: [1, 0], bonked: [0, -1], step: [0, 1],
+  climb: [0, 1], // Phase 6 stub (orchestrator): cast adds a real climb demo.
 };
 document.querySelectorAll<HTMLButtonElement>('#styles button').forEach((b) => {
   b.onclick = () => action(async () => {
