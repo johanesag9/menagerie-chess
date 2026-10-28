@@ -56,8 +56,38 @@ export class ArenaMatch {
   private get state(): ArenaState { return this.d.arena.state; }
 
   start(options: GameOptions): void {
-    this.firstTurn = true;
+    this.prepare();
     this.arena.newGame(options); // `started` sets this.options
+  }
+
+  /** Before a game whose `started` comes from elsewhere (online). */
+  prepare(): void {
+    this.firstTurn = true;
+  }
+
+  /** Online rejoin: the controller jumped ahead silently; redraw everything from its state. */
+  resync(): void {
+    const s = this.state;
+    const { ui, world, board, director } = this.d;
+    director.cancel();
+    this.clearSelection();
+    this.duel = null;
+    this.firstTurn = false;
+    this.statuses.clear();
+    this.carrying.clear();
+    board.sync(s.pieces, true);
+    for (const a of board.all()) {
+      a.setStatus(null);
+      a.setCarrying(null);
+    }
+    world.setIslandMode?.(s.mode === 'sumo');
+    ui.setModeState(null);
+    ui.resetMoves();
+    for (const r of this.arena.log) ui.addLog(r);
+    ui.setTurn(s.turn);
+    const home = this.remote ? other(this.remote) : 'land';
+    void world.faceSide(home, false);
+    director.push(() => this.applyState(s));
   }
 
   /** Leaving the party modes (a chess game starts): put the island back the way chess expects it. */
@@ -77,14 +107,19 @@ export class ArenaMatch {
 
   // ---------- who plays ----------
 
-  get vsBot(): Side | null {
+  /** The side this screen doesn't play: the bot's, or the friend's online. Null in local games. */
+  get remote(): Side | null {
     const o = this.options?.opponent;
-    return o?.type === 'bot' ? o.botSide : null;
+    return o?.type === 'bot' ? o.botSide : o?.type === 'online' ? other(o.you) : null;
+  }
+
+  get isBot(): boolean {
+    return this.options?.opponent.type === 'bot';
   }
 
   private canPlay(): boolean {
     const s = this.state;
-    return this.d.isActive() && s.phase === 'action' && s.turn !== this.vsBot && !this.d.director.busy && !this.asking;
+    return this.d.isActive() && s.phase === 'action' && s.turn !== this.remote && !this.d.director.busy && !this.asking;
   }
 
   private pieceAt(sq: Square): PieceState | undefined {
@@ -162,7 +197,7 @@ export class ArenaMatch {
       push(async () => {
         ui.setTurn(turn);
         // Local games: swing the camera round to whoever plays next.
-        if (!this.vsBot && !first && this.state.phase !== 'over') await world.faceSide(turn);
+        if (!this.remote && !first && this.state.phase !== 'over') await world.faceSide(turn);
       });
     });
     a.on('gameOver', (over) => {
@@ -247,7 +282,7 @@ export class ArenaMatch {
 
   private async offerDuel(info: DuelInfo): Promise<void> {
     this.d.show.faceOff(info);
-    if (info.defender === this.vsBot) return; // the bot answers by itself once core resumes
+    if (info.defender === this.remote) return; // the bot answers by itself once core resumes
     this.asking = true;
     try {
       this.arena.answerDuel(await this.d.ui.askDuel(info));
@@ -257,7 +292,7 @@ export class ArenaMatch {
   }
 
   private async askThrows(info: DuelInfo): Promise<void> {
-    const bot = this.vsBot;
+    const bot = this.remote;
     if (bot === info.defender) this.d.audio.play('duelCall');
     for (const side of [info.attacker, info.defender]) {
       if (side === bot) continue;
@@ -410,7 +445,7 @@ export class ArenaMatch {
   }
 
   resign(): void {
-    this.arena.resign(this.vsBot ? other(this.vsBot) : this.state.turn);
+    this.arena.resign(this.remote ? other(this.remote) : this.state.turn);
   }
 
   /** Party modes have no emote channel in core: show it here. */

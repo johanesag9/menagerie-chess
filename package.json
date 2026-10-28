@@ -9,7 +9,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "proto:build": "vite build -c vite.prototypes.config.ts"
+    "proto:build": "vite build -c vite.prototypes.config.ts",
+    "server:dev": "wrangler dev --config server/wrangler.jsonc --port 8787",
+    "server:test": "vitest run server",
+    "server:typecheck": "tsc -p server",
+    "server:smoke": "NODE_OPTIONS=--experimental-websocket vite-node server/smoke.ts",
+    "server:deploy": "wrangler deploy --config server/wrangler.jsonc"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

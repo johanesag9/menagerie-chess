@@ -928,6 +928,11 @@ export interface Ui extends EventSource<UiEventMap> {
   askJoin(info: { mode: PlayMode; you: Side } | null): Promise<boolean>;
   /** Connection, the friend's presence (with the forfeit countdown), the turn timer and rematch state. null hides it (offline games). */
   setOnline(state: OnlineHud | null): void;
+  /**
+   * Close any open question (duel, throw, lucky 6, promotion) without the player answering: its promise resolves with
+   * the safe default and the overlay goes away. Online, the room answers for you when your timer runs out.
+   */
+  closeQuestion?(): void;
   dispose(): void;
 }
 

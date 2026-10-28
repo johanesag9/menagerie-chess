@@ -3,6 +3,7 @@ import './app/app.css';
 import { createAudio } from './audio';
 import { createCast } from './cast';
 import { createArena, createGame } from './core';
+import { createOnline } from './net';
 import { createUi } from './ui';
 import { createWorld } from './world';
 import { Match } from './app/match';
@@ -29,8 +30,9 @@ async function boot(): Promise<void> {
   const cast = createCast({ squareSize: world.squareSize, quality: world.quality });
   await cast.preload(world.renderer, world.scene, world.camera);
 
-  match = new Match({ game: createGame(), arena: createArena(), world, cast, ui, audio, autoQuality });
+  match = new Match({ game: createGame(), arena: createArena(), online: createOnline(), world, cast, ui, audio, autoQuality });
   if (pending) match.start(pending);
+  void match.joinFromUrl();
 
   if (import.meta.env.DEV) Object.assign(window, { __mc: { match, world, cast, ui } });
   if (new URLSearchParams(location.search).has('stats')) showStats(world);

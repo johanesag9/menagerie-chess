@@ -16,7 +16,7 @@
  * - WS   `${base}/rooms/:room/ws` -> `ClientMsg` up, `ServerMsg` down
  */
 import type {
-  ActionInput, ArenaAction, ArenaController, EmoteKind, EventSource, GameController, GameOptions, Hand, PlayMode, Side,
+  ActionInput, ArenaAction, ArenaController, EmoteKind, EventSource, GameController, GameOptions, GameOver, Hand, PlayMode, Side,
 } from './types';
 
 // ---------- inputs: everything that changes the game ----------
@@ -107,9 +107,9 @@ export interface OnlineEventMap {
   started: { game: number; options: GameOptions; you: Side };
   /**
    * The mirror jumped ahead without its usual events (a rejoin caught up silently). Integration redraws everything
-   * from the controller's current state.
+   * from the controller's current state. `over`: the game had already ended (its `gameOver` was muted), so show the result.
    */
-  resync: { game: number };
+  resync: { game: number; over?: GameOver | null };
   /** `endsAt` is local time (performance.now() based) when the turn timer runs out, or null. */
   timer: { side: Side | null; endsAt: number | null };
   emote: { side: Side; emote: EmoteKind };

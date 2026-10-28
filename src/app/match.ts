@@ -8,12 +8,15 @@
  */
 import gsap from 'gsap';
 import { isArenaMode } from '../contracts/types';
+import type { OnlineClient } from '../contracts/net';
 import type {
   ActionInput, ArenaController, AudioEngine, Cast, DuelInfo, EmoteKind, GameController, GameOptions, GameOver, ModeState, MoveResult, PendingAction,
   PieceId, PieceState, PieceStatusKind, Settings, Side, Square, Ui, World,
 } from '../contracts/types';
 import { ArenaMatch } from './arena';
 import { Director } from './director';
+import { OnlineFlow } from './online';
+import { switchable, type Switchable } from './switch';
 import { ModeShow } from './modes';
 import { PieceBoard } from './pieces';
 
@@ -27,6 +30,8 @@ export interface MatchDeps {
   game: GameController;
   /** Sumo and Raid. */
   arena: ArenaController;
+  /** Online with a friend (Phase 5): its `game` and `arena` proxies stand in for the local controllers. */
+  online: OnlineClient;
   world: World;
   cast: Cast;
   ui: Ui;
@@ -37,7 +42,9 @@ export interface MatchDeps {
 
 export class Match {
   readonly board: PieceBoard;
-  private game: GameController;
+  private game: Switchable<GameController>;
+  private arenaCtl: Switchable<ArenaController>;
+  private onlineFlow: OnlineFlow;
   private world: World;
   private cast: Cast;
   private ui: Ui;
@@ -64,7 +71,10 @@ export class Match {
   private party = false;
 
   constructor(private deps: MatchDeps) {
-    ({ game: this.game, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio } = deps);
+    ({ world: this.world, cast: this.cast, ui: this.ui, audio: this.audio } = deps);
+    // Local controllers by default; an online game swaps both to the online proxies.
+    this.game = switchable([deps.game, deps.online.game]);
+    this.arenaCtl = switchable([deps.arena, deps.online.arena]);
     this.appliedQuality = deps.world.quality;
     const s = this.ui.settings;
     this.board = new PieceBoard(this.world, this.cast, { land: s.landSkin, sea: s.seaSkin });
@@ -81,10 +91,10 @@ export class Match {
     });
     this.show = new ModeShow({
       board: this.board, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio, reducedMotion: () => this.reduced,
-      squareOf: (id) => deps.arena.state.pieces.find((p) => p.id === id)?.square,
+      squareOf: (id) => this.arenaCtl.state.pieces.find((p) => p.id === id)?.square,
     });
     this.arena = new ArenaMatch({
-      arena: deps.arena, board: this.board, director: this.director, show: this.show,
+      arena: this.arenaCtl, board: this.board, director: this.director, show: this.show,
       world: this.world, cast: this.cast, ui: this.ui, audio: this.audio,
       isActive: () => this.active, reducedMotion: () => this.reduced,
       playStart: (pieces) => this.playStart(pieces),
@@ -99,6 +109,15 @@ export class Match {
     this.board.sync(this.game.pieces, false);
     this.world.onFrame((dt, t) => this.board.update(dt, t));
 
+    this.onlineFlow = new OnlineFlow({
+      online: deps.online, ui: this.ui,
+      begin: (o) => this.beginOnline(o),
+      end: () => this.useLocal(),
+      resync: (over) => this.resync(over),
+      emote: (side, emote) => this.arena.emote(side, emote),
+      isParty: () => this.party,
+    });
+
     this.listenGame();
     this.listenWorld();
     this.listenCast();
@@ -107,6 +126,12 @@ export class Match {
 
   /** Start (or restart) a game. Shows the error and goes back to setup when core rejects the options. */
   start(options: GameOptions): void {
+    if (options.opponent.type === 'online') {
+      void this.onlineFlow.create(options);
+      return;
+    }
+    this.onlineFlow.leave();
+    this.useLocal();
     try {
       if (isArenaMode(options.mode)) {
         this.party = true;
@@ -126,16 +151,56 @@ export class Match {
     }
   }
 
+  /** On load: join from a `?room=` invite link, if there is one. */
+  joinFromUrl(): Promise<void> {
+    return this.onlineFlow.joinFromUrl();
+  }
+
+  private useLocal(): void {
+    this.game.use(this.deps.game);
+    this.arenaCtl.use(this.deps.arena);
+    this.applyHolds();
+  }
+
+  /** An online game starts (or a rejoin): run it on the online proxies, before the mirror's first events. */
+  private beginOnline(options: GameOptions): void {
+    this.director.cancel();
+    this.clearSelection();
+    this.game.use(this.deps.online.game);
+    this.arenaCtl.use(this.deps.online.arena);
+    const party = isArenaMode(options.mode);
+    if (this.party && !party) this.arena.stop();
+    this.party = party;
+    this.options = options;
+    if (party) this.arena.prepare();
+    this.applyHolds();
+  }
+
+  /** Online rejoin: the game jumped ahead with no events; redraw it all. */
+  private resync(over: GameOver | null): void {
+    if (this.party) this.arena.resync();
+    else {
+      this.ui.setModeState(this.modes ? this.game.modeState : null);
+      this.ui.setTurn(this.game.turn);
+      this.redraw(this.game.pieces);
+      void this.world.faceSide(this.homeSide, false);
+      over ??= this.game.isOver();
+    }
+    // A rejoin into a finished game: its gameOver went by unseen, so go straight to the result (and Rematch).
+    if (over) this.director.push(async () => this.ui.showResult(over));
+  }
+
   // ---------- who plays ----------
 
-  private get vsBot(): Side | null {
+  /** The side this screen doesn't play: the bot's, or the friend's online. Null in local games. */
+  private get remote(): Side | null {
     const o = this.options?.opponent;
-    return o?.type === 'bot' ? o.botSide : null;
+    return o?.type === 'bot' ? o.botSide : o?.type === 'online' ? other(o.you) : null;
   }
 
   /** The side at the bottom of the screen: you vs the bot, Land in local games. */
   private get homeSide(): Side {
-    const bot = this.vsBot;
+    const bot = this.remote;
     return bot ? other(bot) : 'land';
   }
 
@@ -144,7 +209,7 @@ export class Match {
   }
 
   private canPlay(): boolean {
-    if (!(this.active && !this.game.isOver() && this.game.turn !== this.vsBot && !this.director.busy && !this.promoting)) return false;
+    if (!(this.active && !this.game.isOver() && this.game.turn !== this.remote && !this.director.busy && !this.promoting)) return false;
     if (!this.modes) return true;
     // A lucky 6 waits for the bonus; everything else waits for an action.
     return this.game.modeState?.phase === (this.aim?.type === 'bonus' ? 'bonus' : 'action');
@@ -164,7 +229,7 @@ export class Match {
 
   /** The controller not in use stays paused; the one in use follows the holds. */
   private applyHolds(): void {
-    const [live, idle] = this.party ? [this.deps.arena, this.game] : [this.game, this.deps.arena];
+    const [live, idle] = this.party ? [this.arenaCtl, this.game] : [this.game, this.arenaCtl];
     idle.pause();
     if (this.holds.size) live.pause();
     else live.resume();
@@ -206,7 +271,7 @@ export class Match {
       this.director.push(async () => {
         this.ui.setTurn(turn);
         // Local games: swing the camera round to whoever moves next.
-        if (!this.vsBot && this.game.history.length && !this.game.isOver()) await this.world.faceSide(turn);
+        if (!this.remote && this.game.history.length && !this.game.isOver()) await this.world.faceSide(turn);
       });
     });
     g.on('gameOver', (over) => this.director.push(() => this.playGameOver(over)));
@@ -218,33 +283,36 @@ export class Match {
     });
     g.on('clock', ({ landMs, seaMs, running }) => this.ui.setClocks(landMs, seaMs, running));
     g.on('botThinking', ({ thinking }) => this.ui.setBotThinking(thinking));
-    g.on('undone', ({ pieces }) => {
-      this.director.cancel();
-      this.cast.skipAll();
-      this.clearSelection();
-      this.board.sync(pieces, true);
-      const history = this.game.history;
-      this.ui.resetMoves();
-      if (this.modes) {
-        // The log has every line in order; moves come from history.
-        let i = 0;
-        for (const r of this.game.log) {
-          if (r.kind === 'move') {
-            const m = history[i++];
-            if (m) this.ui.addMove(m);
-          } else this.ui.addLog(r);
-        }
-        if (this.game.modeState) this.director.push(() => this.applyModeState(this.game.modeState!));
-      } else for (const m of history) this.ui.addMove(m);
-      const last = history[history.length - 1];
-      this.world.setHighlights({ selected: null, legal: [], captures: [], check: null, lastMove: last ? [last.from, last.to] : null });
-    });
+    g.on('undone', ({ pieces }) => this.redraw(pieces));
     this.listenModes();
     g.on('emote', ({ side, emote }) => {
       this.ui.showEmote(side, emote);
       const king = this.game.pieces.find((p) => p.side === side && p.kind === 'k');
       if (king) this.board.get(king.id)?.emote(emote);
     });
+  }
+
+  /** Board, move list and mode HUD straight from core's state (after an undo or an online rejoin). */
+  private redraw(pieces: PieceState[]): void {
+    this.director.cancel();
+    this.cast.skipAll();
+    this.clearSelection();
+    this.board.sync(pieces, true);
+    const history = this.game.history;
+    this.ui.resetMoves();
+    if (this.modes) {
+      // The log has every line in order; moves come from history.
+      let i = 0;
+      for (const r of this.game.log) {
+        if (r.kind === 'move') {
+          const m = history[i++];
+          if (m) this.ui.addMove(m);
+        } else this.ui.addLog(r);
+      }
+      if (this.game.modeState) this.director.push(() => this.applyModeState(this.game.modeState!));
+    } else for (const m of history) this.ui.addMove(m);
+    const last = history[history.length - 1];
+    this.world.setHighlights({ selected: null, legal: [], captures: [], check: null, lastMove: last ? [last.from, last.to] : null });
   }
 
   // ---------- Normal and Crazy ----------
@@ -306,12 +374,12 @@ export class Match {
 
   private async offerDuel(info: DuelInfo): Promise<void> {
     this.show.faceOff(info);
-    if (info.defender === this.vsBot) return; // the bot answers by itself once core resumes
+    if (info.defender === this.remote) return; // the bot answers by itself once core resumes
     this.game.answerDuel(await this.ui.askDuel(info));
   }
 
   private async askThrows(info: DuelInfo): Promise<void> {
-    const bot = this.vsBot;
+    const bot = this.remote;
     if (bot === info.defender) this.audio.play('duelCall');
     for (const side of [info.attacker, info.defender]) {
       if (side === bot) continue;
@@ -322,7 +390,7 @@ export class Match {
   /** A lucky 6 for a human side: pick a bonus (then aim it on the board) or skip. */
   private async askLucky(): Promise<void> {
     const g = this.game;
-    if (g.modeState?.phase !== 'bonus' || g.turn === this.vsBot || g.isOver()) return;
+    if (g.modeState?.phase !== 'bonus' || g.turn === this.remote || g.isOver()) return;
     const can = (choice: 'recharge' | 'pawnStep') => g.targets({ type: 'bonus', choice, targets: [] }).squares.length > 0;
     const choice = await this.ui.askLucky(g.turn, { canRecharge: can('recharge'), canStep: can('pawnStep') });
     if (choice === 'skip') g.act({ type: 'bonus', choice: 'skip' });
@@ -607,22 +675,24 @@ export class Match {
     const ui = this.ui;
     ui.on('rematch', () => this.options && this.start(this.options));
     ui.on('undo', () => !this.party && this.game.undo());
-    ui.on('resign', () => (this.party ? this.arena.resign() : this.game.resign(this.vsBot ? other(this.vsBot) : this.game.turn)));
+    ui.on('resign', () => (this.party ? this.arena.resign() : this.game.resign(this.remote ? other(this.remote) : this.game.turn)));
     ui.on('endTurn', () => this.party && this.arena.endTurn());
     ui.on('emote', ({ emote }) => {
+      // Online: the room sends it back to both screens.
+      if (this.onlineFlow.active) return this.deps.online.sendEmote(emote);
       if (this.party) {
-        const bot = this.arena.vsBot;
-        this.arena.emote(bot ? other(bot) : this.deps.arena.state.turn, emote);
+        const bot = this.arena.isBot ? this.arena.remote : null;
+        this.arena.emote(bot ? other(bot) : this.arenaCtl.state.turn, emote);
         if (bot && Math.random() < 0.4) {
           const reply = EMOTES[Math.floor(Math.random() * EMOTES.length)];
           setTimeout(() => this.active && this.party && this.arena.emote(bot, reply), 800 + Math.random() * 700);
         }
         return;
       }
-      const side = this.vsBot ? other(this.vsBot) : this.game.turn;
+      const side = this.remote ? other(this.remote) : this.game.turn;
       this.game.sendEmote(side, emote);
       // The bot sometimes answers.
-      const bot = this.vsBot;
+      const bot = this.options?.opponent.type === 'bot' ? this.remote : null;
       if (bot && Math.random() < 0.4) {
         const reply = EMOTES[Math.floor(Math.random() * EMOTES.length)];
         setTimeout(() => this.active && this.game.sendEmote(bot, reply), 800 + Math.random() * 700);
@@ -646,7 +716,11 @@ export class Match {
     ui.on('cardRequested', ({ cardId }) => !this.party && void this.playCard(cardId));
     ui.on('cancelAction', () => (this.party ? this.arena.clearSelection() : this.cancelAim()));
     ui.on('screenChanged', ({ screen }) => {
-      if (screen === 'title' || screen === 'setup') this.active = false;
+      if (screen === 'title' || screen === 'setup') {
+        this.active = false;
+        // Leaving an online game on purpose resigns it (the invite overlay sits on setup, so only a real change counts).
+        if (this.onlineFlow.active && this.options?.opponent.type === 'online') this.onlineFlow.leave();
+      }
       if (screen === 'game') this.active = true;
       this.hold('menu', screen !== 'game');
       // The pause menu freezes the diorama and every animal mid-move.
