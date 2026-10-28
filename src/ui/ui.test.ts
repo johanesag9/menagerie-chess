@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionRecord, AudioCue, MoveResult, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
+import type { ActionRecord, ArenaState, AudioCue, DuelInfo, MoveResult, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
 import { cueFn } from '../audio/cues';
 import { formatClock, listRows, moveRows, powerCounts, tallyCaptures, tallyFromCaptured } from './format';
-import { kindFromId, sideFromId } from './modeText';
+import { ALL_MODES, HOW_TO, MODE_TEXT, apFromDie, kindFromId, sideFromId } from './modeText';
+import { partyLine } from './screens/overlays';
+import { duelWords } from './screens/chaos';
 import {
   SETTINGS_KEY,
   checkFen,
@@ -183,6 +185,63 @@ describe('Phase 3: modes', () => {
       'wheelSpin', 'wheelStop', 'chaos:tide', 'chaos:pigeon', 'chaos:earthquake', 'chaos:disco',
       'stun', 'freeze', 'block', 'revive', 'slip', 'recharge',
     ] as AudioCue[];
+    for (const c of want) expect(cueFn(c), c).toBeTypeOf('function');
+  });
+});
+
+describe('Phase 4: party modes', () => {
+  const arena = (o: Partial<ArenaState> = {}): ArenaState => ({
+    mode: 'sumo', round: 15, turn: 'sea', phase: 'over', die: null, ap: 0,
+    pieces: [
+      { id: 'land-k-e2', side: 'land', kind: 'k', square: 'd4' }, { id: 'land-n-b2', side: 'land', kind: 'n', square: 'c4' },
+      { id: 'land-r-f2', side: 'land', kind: 'r', square: 'e4' }, { id: 'sea-k-e7', side: 'sea', kind: 'k', square: 'e5' },
+    ],
+    out: [], powersUsed: [], statuses: [], squares: [], duelTokens: { land: 2, sea: 2 },
+    sunk: [], sinkingNext: [], nextSinkIn: null, treasures: [], score: { land: 0, sea: 0 }, target: 0, nextWheelIn: null, maxRounds: 15,
+    ...o,
+  });
+
+  it('remembers a party mode and drops clock, Weird Mode and FEN for it', () => {
+    const store = memStore();
+    const c = { ...defaultSetup(), mode: 'raid' as const, weirdMode: true, timeId: '5+0' };
+    saveSetup(store, c);
+    expect(loadSetup(store, ['none', '5+0']).mode).toBe('raid');
+    const o = toGameOptions(c, { initialMs: 300_000, incrementMs: 0 }, '8/8/8/8/8/8/8/K6k w - - 0 1');
+    expect(o).toMatchObject({ mode: 'raid', weirdMode: false, time: { initialMs: null, incrementMs: 0 } });
+    expect(o.fen).toBeUndefined();
+  });
+
+  it('has a name, pitch and rules for every mode', () => {
+    for (const m of ALL_MODES) {
+      expect(MODE_TEXT[m].pitch.length, m).toBeGreaterThan(10);
+      expect(HOW_TO[m].length, m).toBeGreaterThan(0);
+    }
+  });
+
+  it('turns the die into AP like the spec', () => {
+    expect([1, 2, 3, 4, 5, 6].map((v) => apFromDie(v as 1))).toEqual([2, 2, 3, 3, 4, 4]);
+  });
+
+  it('words shove and tag duels', () => {
+    const info: DuelInfo = { attackerId: 'sea-r-f7', victimId: 'land-k-e2', via: 'shove', from: 'e5', to: 'e4', attacker: 'sea', defender: 'land', tokensLeft: 2 };
+    expect(duelWords(info, 'Sea Turtle', 'Pug', 'your').line).toBe("Sea's Sea Turtle wants to shove your Pug into the sea!");
+    const tag = duelWords({ ...info, via: 'tag', attacker: 'land', defender: 'sea' }, 'Cat', 'Seahorse', 'your');
+    expect(tag.line).toContain('drop the bone');
+    expect(tag.lose).toContain('goes home');
+  });
+
+  it('words the party endings', () => {
+    expect(partyLine({ winner: 'sea', reason: 'kingOverboard' }, arena(), 'sumo')).toBe("Sea wins: Land's Pug fell into the sea!");
+    expect(partyLine({ winner: null, reason: 'kingOverboard' }, arena(), 'sumo')).toContain('Both kings');
+    expect(partyLine({ winner: 'land', reason: 'rounds' }, arena(), 'sumo')).toBe('Round 15 is over. Land wins with more animals left (3 to 1).');
+    const raid = arena({ mode: 'raid', maxRounds: 20, score: { land: 3, sea: 1 }, target: 3 });
+    expect(partyLine({ winner: 'land', reason: 'treasure' }, raid, 'raid')).toBe('Land wins 3–1 by raiding the pearl!');
+    expect(partyLine({ winner: null, reason: 'rounds' }, { ...raid, score: { land: 1, sea: 1 } }, 'raid')).toBe('Round 20 is over, level on points (1–1).');
+    expect(partyLine({ winner: 'land', reason: 'checkmate' }, null, 'classic')).toBeNull();
+  });
+
+  it('has a sound for every Phase 4 cue', () => {
+    const want = ['step', 'shove', 'tag', 'splash', 'sinkWarn', 'sink', 'anchor', 'pickup', 'drop', 'treasureHome', 'score', 'endTurn'] as AudioCue[];
     for (const c of want) expect(cueFn(c), c).toBeTypeOf('function');
   });
 });
