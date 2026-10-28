@@ -9,6 +9,7 @@ import type { PieceKind, Side } from '../contracts/types';
 import type { Actor } from './actor';
 import type { V3 } from './kit';
 import * as fx from './fx';
+import * as vfx from './vfx';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -302,9 +303,13 @@ export function fall(a: Actor, tl: TL, dir: THREE.Vector3): { splash: number; en
   }
 
   if (!sea) {
-    // Land: panic at the edge.
+    // Land: panic at the edge (sweat flying, feet scrabbling at the edge).
     tl.to(f, { eyeScale: 1.45, blink: 0, brows: 0, duration: 0.07 }, 0);
     a.mouth('o', tl, 0);
+    const sweat = () => vfx.droplets(a.fxParent, a.bonePoint('head').add(new THREE.Vector3(0, sq * 0.2, 0)), sq, 3, { up: 0.3, radius: 0.3, size: 0.5 });
+    tl.call(sweat, [], 0.04);
+    tl.call(sweat, [], 0.3);
+    for (const t of [0.1, 0.24, 0.38]) tl.call(() => vfx.kick(a.fxParent, a.above(0), dir.clone().negate(), sq), [], t);
     // Windmill wobble: lean out, catch, lean further, catch...
     tl.to(base, { ...tip(0.32), duration: 0.12, ease: 'power2.out' }, 0);
     tl.to(base, { ...tip(-0.1), duration: 0.14, ease: 'sine.inOut' }, 0.12);
@@ -345,6 +350,8 @@ export function fall(a: Actor, tl: TL, dir: THREE.Vector3): { splash: number; en
   tl.to(base, { ...tip(-0.14), duration: 0.22, ease: 'sine.inOut' }, t0);
   tl.to(body, { sy: 0.9, sx: 1.06, sz: 1.06, duration: 0.18, ease: 'power2.out' }, t0 + 0.12);
   tl.to(f, { blink: 0.7, duration: 0.1 }, t0 + 0.2);
+  // A smug little twinkle by the eye before it goes.
+  tl.call(() => vfx.sparkles(a.fxParent, a.bonePoint('head').add(new THREE.Vector3(0, sq * 0.12, 0)).addScaledVector(a.forward(), sq * 0.2), sq, 1, { radius: 0.05, size: 0.32, life: 0.3, rise: 0.05 }), [], t0 + 0.18);
   // The dive: a stretch, a hop up and out, head first into the water.
   const dv = t0 + 0.3;
   tl.to(body, { sy: 1.18, sx: 0.88, sz: 0.88, duration: 0.14, ease: 'power2.out' }, dv);

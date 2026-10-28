@@ -6,6 +6,7 @@
  * - `setReducedMotion(on)`: shorter moves, no spins or flips, shake intensity 0.
  * - `preload(renderer, scene, camera)`: builds every animal and compiles shaders up front (no hitch on first reveal).
  * - `skipAll()`: jump every running animation to its end (for "click to skip").
+ * - `setLook('clean' | 'cartoon')`: how loud the impact frames are (waiting on Johanes's pick).
  *
  * Expected capture flow for integration:
  *   await attacker.attack(victim); victim.defeat(attacker); await attacker.moveTo(square);
@@ -23,15 +24,20 @@ import { instantiate } from './kit';
 import { paletteTable } from './palettes';
 import { fxMaterials } from './fx';
 import { partyMaterials } from './party';
-import { motion, setReducedMotion } from './motion';
+import { motion, setLook, setReducedMotion, type Look } from './motion';
+import { vfxWarmup } from './vfx';
 
 export type { CastEventMap } from './actor';
+export type { Look } from './motion';
 export { Actor } from './actor';
 
 export interface CastExtras {
   on<K extends keyof CastEventMap>(name: K, fn: (payload: CastEventMap[K]) => void): () => void;
   setReducedMotion(on: boolean): void;
   readonly reducedMotion: boolean;
+  /** Impact look: 'clean' or 'cartoon' (default, provisional). */
+  setLook(look: Look): void;
+  readonly look: Look;
   preload(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): Promise<void>;
   skipAll(): void;
   /** Every live actor this cast created. */
@@ -65,6 +71,8 @@ export function createCast(opts: CastOptions): CastWithExtras {
     on: (name, fn) => events.on(name, fn),
     setReducedMotion,
     get reducedMotion() { return motion.reduced; },
+    setLook,
+    get look() { return motion.look; },
     async preload(renderer, scene, camera) {
       const lite = opts.quality === 'low';
       const tmp = new THREE.Group();
@@ -82,6 +90,8 @@ export function createCast(opts: CastOptions): CastWithExtras {
       for (const m of [...fxMaterials(), ...partyMaterials()]) {
         tmp.add(m instanceof THREE.SpriteMaterial ? new THREE.Sprite(m) : new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), m));
       }
+      // Pooled effects draw instanced, which compiles its own shader variants.
+      for (const m of vfxWarmup()) tmp.add(m);
       scene.add(tmp);
       try {
         await renderer.compileAsync(scene, camera);

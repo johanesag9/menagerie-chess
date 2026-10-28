@@ -16,10 +16,11 @@ import { instantiate } from './kit';
 import { getTemplate, type AnimalTemplate } from './roster';
 import { DEFAULT_PALETTE, paletteTable } from './palettes';
 import { ACCESSORIES, accessoryGeometry } from './accessories';
-import { motion } from './motion';
+import { freeze, frozenLeft, hitStop, motion } from './motion';
 import * as fx from './fx';
+import * as vfx from './vfx';
 import { STYLES, type Gait, type Style } from './styles';
-import { FLOURISH, genericFlourish, POWER_INTENSITY } from './powers';
+import { charge, FLOURISH, genericFlourish, POWER_INTENSITY } from './powers';
 import { travelStyle } from './travels';
 import * as party from './party';
 
@@ -123,6 +124,10 @@ export class Actor implements PieceActor {
   private temps = new Set<THREE.Object3D>();
   // Phase 4
   private carry: party.Carry | null = null;
+  // Animation polish
+  /** Set by a headbutt wind-up: the next attack skips its own wind-up and charges straight in. */
+  private primed: PowerKind | null = null;
+  private lastLandAt = -1;
 
   constructor(state: PieceState, skin: SkinChoice | undefined, private emitFn: Emit, squareSize: number, quality: QualityTier = 'high') {
     this.id = state.id;
@@ -206,8 +211,13 @@ export class Actor implements PieceActor {
 
   // ---------- action plumbing ----------
 
-  private begin(relax = true): TL {
+  /**
+   * Start a new action. `relax`: ease the act layer back to rest (true), snap it (false), or keep the pose ('keep',
+   * when the action carries on from the last one). `hold`: seconds to hold still first (a hit-stop).
+   */
+  private begin(relax: boolean | 'keep' = true, hold = 0): TL {
     this.cut();
+    if (relax !== 'keep') this.primed = null;
     if (this.home === null) this.home = this.object.rotation.y;
     // Bake a leftover lunge (from an attack) into the board position, so the next move starts from there.
     const bo = this.act.m.get('base');
@@ -216,10 +226,10 @@ export class Actor implements PieceActor {
       this.object.position.add(v);
       bo.px = bo.pz = 0;
     }
-    const tl = gsap.timeline();
+    const tl = gsap.timeline({ delay: hold });
     this.own(tl);
-    if (relax) this.relaxNow(0.15);
-    else this.act.reset();
+    if (relax === true) this.relaxNow(0.15, hold);
+    else if (!relax) this.act.reset();
     return tl;
   }
   /** Kill the running action and resolve its promises (the action is over). */
@@ -246,12 +256,15 @@ export class Actor implements PieceActor {
     });
   }
   /** Tween every act offset back to rest. */
-  relaxNow(dur = 0.3) {
+  relaxNow(dur = 0.3, delay = 0) {
     for (const o of this.act.m.values()) {
       if (Object.keys(ZERO).every((k) => o[k as keyof Off] === ZERO[k as keyof Off])) continue;
-      this.own(gsap.to(o, { ...ZERO, duration: dur, ease: 'power2.out' }));
+      this.own(gsap.to(o, { ...ZERO, duration: dur, delay, ease: 'power2.out' }));
     }
   }
+  /** Seconds since this piece last landed (a double jump's second hop springs straight out of the first landing). */
+  sinceLand(): number { return this.lastLandAt < 0 ? Infinity : gsap.globalTimeline.time() - this.lastLandAt; }
+  markLanded() { this.lastLandAt = gsap.globalTimeline.time(); }
   private relaxFace(tl: TL, at: number, dur = 0.25) {
     tl.to(this.face, { blink: 0, eyeScale: 1, brows: 0, duration: dur, ease: 'power2.out' }, at);
     this.mouth('smile', tl, at);
@@ -310,6 +323,7 @@ export class Actor implements PieceActor {
       this.object.position.copy(to);
       const at = this.worldPos();
       this.emit('land', { id: this.id, at, intensity: rm ? 0 : g.landIntensity ?? 0.2 });
+      this.markLanded();
       g.land?.(this);
     }, [], t);
     const sq = rm ? (g.squash ?? 0) * 0.4 : g.squash ?? 0;
@@ -472,7 +486,8 @@ export class Actor implements PieceActor {
 
   moveTo(target: THREE.Vector3, opts?: { duration?: number; style?: MoveStyle }): Promise<void> {
     if (this.disposed || this.gone) return Promise.resolve();
-    const tl = this.begin();
+    // A hit-stop still running (this piece just struck or was struck): hold the pose until it ends.
+    const tl = this.begin(true, frozenLeft());
     const to = this.toParent(target);
     const style = opts?.style ?? 'normal';
     if (style !== 'normal') {
@@ -506,6 +521,8 @@ export class Actor implements PieceActor {
   attack(victim: PieceActor): Promise<void> {
     if (this.disposed || this.gone) return Promise.resolve();
     const v = victim as Actor;
+    // Straight after its headbutt wind-up: charge in from the wound-up pose instead of winding up again.
+    if (this.primed === 'headbutt') return this.chargeAt(v);
     const tl = this.begin();
     const vp = v.object.parent ? this.toParent(v.worldPos()) : v.object.position.clone();
     const from = this.object.position.clone();
@@ -524,14 +541,35 @@ export class Actor implements PieceActor {
     tl.add(this.turnTween(yaw, 0.12), at);
     at += 0.08;
     const impact = this.style.attack(this, tl, at, v);
-    tl.call(() => {
-      this.struck = true;
-      const hit = v.object.parent ? v.bonePoint('head') : this.above(this.height * 0.6);
-      fx.stars(this.fxParent, hit, this.sq, this.rm ? 5 : 9);
-      v.flash();
-      this.emit('impact', { id: this.id, victimId: v.id, at: this.fxParent.localToWorld(hit.clone()), intensity: this.rm ? 0 : this.style.impact });
-    }, [], impact);
+    tl.call(() => this.connect(v, this.style.impact), [], impact);
+    // Impact squash: the body gives on contact and holds through the hit-stop.
+    if (!this.rm) tl.to(this.b('body'), { sy: '*=0.9', sx: '*=1.06', sz: '*=1.06', duration: 0.04, ease: 'power3.out' }, impact);
     this.relaxFaceAndPose(tl, impact + 0.25);
+    return this.promiseAt(tl, impact);
+  }
+
+  /** The moment an attack connects: impact frame, flash, hit-stop and the `impact` event. */
+  connect(v: Actor, strength: number, k = 1) {
+    this.struck = true;
+    const hit = v.object.parent ? v.bonePoint('head') : this.above(this.height * 0.6);
+    // The flash sits between the two, a little toward the attacker, so the victim doesn't hide it.
+    const mine = this.bonePoint('head');
+    const at = hit.clone().lerp(mine, 0.3);
+    vfx.impact(this.fxParent, at, this.sq, k);
+    if (motion.look === 'clean' || this.rm) fx.stars(this.fxParent, hit, this.sq, this.rm ? 4 : 6, 0.55);
+    v.flash();
+    freeze(hitStop(k));
+    this.emit('impact', { id: this.id, victimId: v.id, at: this.fxParent.localToWorld(hit.clone()), intensity: this.rm ? 0 : strength });
+  }
+
+  /** The primed headbutt: one straight charge from the wind-up pose into the victim. */
+  private chargeAt(v: Actor): Promise<void> {
+    const tl = this.begin('keep');
+    this.primed = null;
+    if (this.rm) tl.timeScale(RM_SPEED);
+    const impact = charge(this, tl, v);
+    tl.call(() => this.connect(v, Math.min(1, this.style.impact + 0.2), 1.25), [], impact);
+    this.relaxFaceAndPose(tl, impact + 0.3);
     return this.promiseAt(tl, impact);
   }
 
@@ -539,8 +577,17 @@ export class Actor implements PieceActor {
     if (this.disposed || this.gone) return Promise.resolve();
     const a = by as Actor;
     this.setStatus(null);
-    const tl = this.begin();
+    const outer = this.begin();
     const rm = this.rm;
+    // Hit-stop: the shocked face snaps on at once and trembles; the knock-out plays after it.
+    const hold = frozenLeft();
+    const tl = gsap.timeline();
+    outer.add(tl, hold);
+    if (hold > 0) {
+      outer.to(this.face, { eyeScale: 1.35, blink: 0, duration: 0.03 }, 0);
+      this.mouth('o', outer, 0, 0.03);
+      outer.to(this.b('base'), { px: 0.025, duration: hold / 4, yoyo: true, repeat: 3, ease: 'none' }, 0);
+    }
     const sq = this.sq;
     const away = this.object.position.clone().sub(a.object.parent === this.object.parent ? a.object.position : this.toParent(a.worldPos())).setY(0);
     if (away.lengthSq() < 1e-6) away.set(0, 0, 1);
@@ -610,7 +657,7 @@ export class Actor implements PieceActor {
       this.gone = true;
       this.object.removeFromParent();
     }, [], end);
-    return this.promiseAt(tl, end);
+    return this.promiseAt(outer, hold + end);
   }
 
   celebrate(): Promise<void> {
@@ -739,12 +786,16 @@ export class Actor implements PieceActor {
     if (this.rm) tl.timeScale(RM_SPEED);
     const aim = target ? this.toParent(target) : null;
     const flourish = POWER_OF[this.kind] === power ? FLOURISH[this.side][power] : genericFlourish;
+    const own = POWER_OF[this.kind] === power;
     const effect = flourish(this, tl, 0, aim);
     tl.call(() => {
       const at = target && (power === 'block' || power === 'headbutt') ? target.clone() : this.worldPos();
       this.emit('power', { id: this.id, power, at, intensity: this.rm ? 0 : POWER_INTENSITY[power] });
+      // The wind-up pose is held; integration calls attack() next, which charges straight out of it.
+      if (own && power === 'headbutt') this.primed = 'headbutt';
     }, [], effect);
-    this.relaxFaceAndPose(tl, Math.max(effect + 0.15, tl.duration()));
+    // A held wind-up waits a little longer before relaxing (only seen when no attack follows).
+    this.relaxFaceAndPose(tl, Math.max(effect + (own && power === 'headbutt' ? 0.45 : 0.15), tl.duration()));
     return this.promiseAt(tl, effect);
   }
 
@@ -811,20 +862,25 @@ export class Actor implements PieceActor {
     // Plays on the emote layer so it never cuts a running action (a push, a wave).
     const tl = (this.hitTl = gsap.timeline());
     if (rm) tl.timeScale(RM_SPEED);
-    tl.to(body, { sy: 1 - 0.22 * k, sx: 1 + 0.12 * k, sz: 1 + 0.12 * k, duration: 0.06, ease: 'power3.out' }, 0)
-      .to(body, { sy: 1, sx: 1, sz: 1, duration: 0.45, ease: 'elastic.out(1.1, 0.35)' }, 0.08)
-      .to(head, { rx: 0.3 * k, duration: 0.06 }, 0)
-      .to(head, { rx: 0, duration: 0.35, ease: 'back.out(2)' }, 0.1)
-      .to(base, { rz: 0.12 * k, duration: 0.06 }, 0)
-      .to(base, { rz: 0, duration: 0.4, ease: 'elastic.out(1.2, 0.3)' }, 0.06)
-      .to(f, { blink: 1, duration: 0.05 }, 0)
-      .to(f, { blink: 0, eyeScale: 1, duration: 0.15 }, 0.3);
+    // Hit-stop: squashed and trembling, eyes shut, for as long as the freeze lasts; then it springs back.
+    const h = frozenLeft();
+    tl.to(body, { sy: 1 - 0.24 * k, sx: 1 + 0.13 * k, sz: 1 + 0.13 * k, duration: 0.05, ease: 'power3.out' }, 0)
+      .to(head, { rx: 0.32 * k, duration: 0.05 }, 0)
+      .to(base, { rz: 0.13 * k, duration: 0.05 }, 0)
+      .to(f, { blink: 1, duration: 0.04 }, 0);
+    if (h > 0.02) tl.to(base, { px: 0.03, duration: h / 4, yoyo: true, repeat: 3, ease: 'none' }, 0.02);
+    const go = Math.max(0.08, h + 0.02);
+    tl.to(body, { sy: 1, sx: 1, sz: 1, duration: 0.45, ease: 'elastic.out(1.1, 0.35)' }, go)
+      .to(head, { rx: 0, duration: 0.35, ease: 'back.out(2)' }, go + 0.02)
+      .to(base, { rz: 0, px: 0, duration: 0.4, ease: 'elastic.out(1.2, 0.3)' }, go)
+      .to(f, { blink: 0, eyeScale: 1.2, duration: 0.1 }, go + 0.12)
+      .to(f, { eyeScale: 1, duration: 0.2 }, go + 0.3);
     this.mouth('o', tl, 0);
-    this.mouth('smile', tl, 0.45);
+    this.mouth('smile', tl, go + 0.37);
     tl.call(() => {
       const p = this.bonePoint('head').add(new THREE.Vector3(0, this.sq * 0.25, 0));
       fx.bonkStar(this.fxParent, p, this.sq);
-      if (!rm) fx.stars(this.fxParent, p, this.sq, 4, 0.35);
+      if (!rm) vfx.sparkles(this.fxParent, p, this.sq, 4, { radius: 0.35, size: 0.22, color: vfx.COLORS.gold, life: 0.35 });
       this.flash(0.6);
     }, [], 0.02);
     return new Promise<void>((resolve) => {
