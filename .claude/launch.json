@@ -142,6 +142,17 @@
         "8787"
       ],
       "port": 8787
+    },
+    {
+      "name": "boardgame-ideas",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "/Users/johanesantonius/.claude/skills/local-preview/serve.mjs",
+        "docs/boardgame-ideas",
+        "4406",
+        "index.html"
+      ],
+      "port": 4406
     }
   ]
 }
