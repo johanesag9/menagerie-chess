@@ -367,6 +367,16 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.result.setOnline(state);
   }
 
+  /**
+   * Close any open question (duel, throw, lucky 6, revive, promotion) without the player answering: its promise
+   * resolves with the safe default and the overlay goes away. Running shows keep playing. Harmless when nothing is open.
+   * Online, the room answers for you when your timer runs out.
+   */
+  closeQuestion(): void {
+    this.chaos.closeQuestion();
+    this.promo.cancel();
+  }
+
   /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */
   setPieces(pieces: PieceState[]): void {
     this.hud.mode.setPieces(pieces);
