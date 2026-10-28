@@ -70,10 +70,11 @@ export function saveSettings(store: KeyValueStore | null, s: Settings): void {
 
 // ---------- Setup screen memory ----------
 
-/** What the setup screen remembers between visits. `side` is the human's side vs the bot. */
+/** What the setup screen remembers between visits. `side` is your side vs the bot or a friend online. */
 export interface SetupChoice {
   mode: PlayMode;
-  opponent: 'local' | 'bot';
+  /** Phase 5: 'online' = a friend by invite link. */
+  opponent: 'local' | 'bot' | 'online';
   level: BotLevel;
   side: Side | 'random';
   timeId: string;
@@ -92,7 +93,7 @@ export function loadSetup(store: KeyValueStore | null, timeIds: string[]): Setup
     const o = JSON.parse(s) as Record<string, unknown>;
     return {
       mode: PLAY_MODES.includes(o.mode as PlayMode) ? (o.mode as PlayMode) : d.mode,
-      opponent: o.opponent === 'local' || o.opponent === 'bot' ? o.opponent : d.opponent,
+      opponent: o.opponent === 'local' || o.opponent === 'bot' || o.opponent === 'online' ? o.opponent : d.opponent,
       level: typeof o.level === 'number' && o.level >= 1 && o.level <= 8 ? (Math.round(o.level) as BotLevel) : d.level,
       side: o.side === 'land' || o.side === 'sea' || o.side === 'random' ? o.side : d.side,
       timeId: typeof o.timeId === 'string' && timeIds.includes(o.timeId) ? o.timeId : d.timeId,
@@ -119,16 +120,18 @@ export function toGameOptions(
   rand: () => number = Math.random,
 ): GameOptions {
   const human: Side = c.side === 'random' ? (rand() < 0.5 ? 'land' : 'sea') : c.side;
-  // Party modes have no clock, no Weird Mode and no FEN.
+  // Party modes have no clock, no Weird Mode and no FEN. Online games neither (the room's turn timer replaces the clock).
   const party = isArenaMode(c.mode);
+  const online = c.opponent === 'online';
   const opts: GameOptions = {
     mode: c.mode,
-    opponent: c.opponent === 'bot' ? { type: 'bot', level: c.level, botSide: human === 'land' ? 'sea' : 'land' } : { type: 'local' },
-    time: party ? { initialMs: null, incrementMs: 0 } : { ...time },
+    opponent: c.opponent === 'bot' ? { type: 'bot', level: c.level, botSide: human === 'land' ? 'sea' : 'land' }
+      : online ? { type: 'online', you: human } : { type: 'local' },
+    time: party || online ? { initialMs: null, incrementMs: 0 } : { ...time },
     // Crazy has the Wheel of Chaos instead of Weird Mode.
-    weirdMode: c.mode === 'crazy' || party ? false : c.weirdMode,
+    weirdMode: c.mode === 'crazy' || party || online ? false : c.weirdMode,
   };
-  if (fen && !party) opts.fen = fen;
+  if (fen && !party && !online) opts.fen = fen;
   return opts;
 }
 

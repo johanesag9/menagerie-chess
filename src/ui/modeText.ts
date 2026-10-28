@@ -219,6 +219,29 @@ export const HOW_TO: Record<PlayMode, { title: string; items: string[] }[]> = {
   ],
 };
 
+// ---------- Phase 5: online with a friend ----------
+
+/** "How it works": its own tab after the modes. Follows GAME_SPEC.md "Online play". */
+export const HOW_TO_ONLINE: { pitch: string; sections: { title: string; items: string[] }[] } = {
+  pitch: 'Play a friend on another device. Send a link, no accounts.',
+  sections: [
+    { title: 'Play a friend online', items: [
+      'Pick a mode, Friend online and your side, then press Invite a friend.',
+      'Send the link. When your friend opens it and presses Join, the game starts on both screens.',
+      'Each of you sees the board from your own side. Your friend gets the other side.',
+      'All five modes work online. Classic has no clock and Weird Mode is off.',
+    ] },
+    { title: 'Turns and leaving', items: [
+      '⏱ Each turn has a 60-second timer. It starts when the last move has finished playing.',
+      'If time runs out, your turn is played for you: a random move in the chess modes, your turn just ends in Sumo and Raid.',
+      'If your friend drops out, they have 2 minutes to come back. After that they lose.',
+      'Going back to the title counts as resigning.',
+      'Rematch: you both press it, and you swap sides.',
+      'No chat, just emotes.',
+    ] },
+  ],
+};
+
 // ---------- Phase 4: party modes ----------
 
 /** Power names and lines that differ from Normal mode (the selected-animal panel uses these). */

@@ -1,7 +1,7 @@
 /**
  * Every name and label the UI shows lives here, so wording is easy to change in one place.
  */
-import type { BotLevel, EmoteKind, GameOverReason, PieceKind, Side, TimeControl, WeirdEventKind } from '../contracts/types';
+import type { BotLevel, EmoteKind, GameOptions, GameOverReason, PieceKind, Side, TimeControl, WeirdEventKind } from '../contracts/types';
 
 /** Working title. Change it here and the wordmark, page and result screens follow. */
 export const GAME_NAME = 'Menagerie Chess';
@@ -27,6 +27,17 @@ export const BOT_LEVELS: { level: BotLevel; name: string }[] = [
 ];
 
 export const botName = (level: BotLevel): string => BOT_LEVELS.find((b) => b.level === level)?.name ?? `Bot ${level}`;
+
+/** Phase 5: no accounts online, so the two players are just "You" and "Friend". */
+export const FRIEND_NAME = 'Friend';
+
+/** A player's name: "You" and the bot's name vs the bot, "You" and "Friend" online, the side's name in a local game. */
+export function playerName(info: GameOptions | null | undefined, side: Side): string {
+  const o = info?.opponent;
+  if (o?.type === 'bot') return o.botSide === side ? botName(o.level) : 'You';
+  if (o?.type === 'online') return o.you === side ? 'You' : FRIEND_NAME;
+  return SIDE_NAME[side];
+}
 
 export const TIME_CONTROLS: { id: string; label: string; time: TimeControl }[] = [
   { id: 'none', label: 'Untimed', time: { initialMs: null, incrementMs: 0 } },

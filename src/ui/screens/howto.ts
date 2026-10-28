@@ -1,12 +1,13 @@
 /** "How it works": the mode rules in plain words, as a sheet over the setup screen. */
 import type { PlayMode } from '../../contracts/types';
 import { button, h, radioGroup } from '../dom';
-import { ALL_MODES, HOW_TO, MODE_TEXT } from '../modeText';
+import { ALL_MODES, HOW_TO, HOW_TO_ONLINE, MODE_TEXT } from '../modeText';
 import { ICON } from './hud';
 
 export interface HowToSheet {
   el: HTMLElement;
-  open(mode: PlayMode, behind: HTMLElement, returnFocus: HTMLElement): void;
+  /** `tab`: a mode, or 'online' for "Play a friend online". */
+  open(tab: PlayMode | 'online', behind: HTMLElement, returnFocus: HTMLElement): void;
   close(): void;
   readonly isOpen: boolean;
 }
@@ -16,15 +17,19 @@ export function howToSheet(): HowToSheet {
   let behind: HTMLElement | null = null;
   let returnFocus: HTMLElement | null = null;
 
-  const render = (mode: PlayMode) => {
+  /** A mode, or Phase 5's "Online" tab. */
+  type Tab = PlayMode | 'online';
+  const render = (tab: Tab) => {
+    const pitch = tab === 'online' ? HOW_TO_ONLINE.pitch : MODE_TEXT[tab].pitch;
+    const sections = tab === 'online' ? HOW_TO_ONLINE.sections : HOW_TO[tab];
     body.replaceChildren(
-      h('p', { class: 'mc-howto__pitch', text: MODE_TEXT[mode].pitch }),
-      ...HOW_TO[mode].map((s) => h('section', { class: 'mc-howto__sec' },
+      h('p', { class: 'mc-howto__pitch', text: pitch }),
+      ...sections.map((s) => h('section', { class: 'mc-howto__sec' },
         h('h3', { text: s.title }),
         h('ul', {}, ...s.items.map((t) => h('li', { text: t }))))));
     body.scrollTop = 0;
   };
-  const tabs = radioGroup<PlayMode>('Mode', ALL_MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name })), 'normal', render, 'mc-seg mc-seg--tabs');
+  const tabs = radioGroup<Tab>('Topic', [...ALL_MODES.map((m) => ({ value: m as Tab, label: MODE_TEXT[m].name })), { value: 'online', label: 'Online' }], 'normal', render, 'mc-seg mc-seg--tabs');
   const closeBtn = button('', { variant: 'icon', sfx: 'back', label: 'Close', icon: ICON.close, onClick: () => close() });
 
   const el = h('div', { class: 'mc-howto', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mc-howto-h', hidden: true },
@@ -52,11 +57,11 @@ export function howToSheet(): HowToSheet {
 
   return {
     el,
-    open(mode, b, r) {
+    open(tab, b, r) {
       behind = b;
       returnFocus = r;
-      tabs.set(mode);
-      render(mode);
+      tabs.set(tab);
+      render(tab);
       el.hidden = false;
       b.setAttribute('inert', '');
       requestAnimationFrame(() => closeBtn.focus({ preventScroll: true }));

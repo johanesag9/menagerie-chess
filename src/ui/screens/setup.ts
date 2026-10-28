@@ -8,7 +8,8 @@ import { ALL_MODES, ARENA_MODES, MODE_TEXT } from '../modeText';
 import { howToSheet } from './howto';
 import { checkFen, loadSetup, saveSetup, toGameOptions, type SetupChoice } from '../settings';
 
-export function setupScreen(ctx: UiCtx): View {
+/** The setup screen. `setBusy` is the online Start button's wait (Phase 5). */
+export function setupScreen(ctx: UiCtx): View & { setBusy(on: boolean): void } {
   const choice: SetupChoice = loadSetup(ctx.store, TIME_CONTROLS.map((t) => t.id));
   const save = () => saveSetup(ctx.store, choice);
 
@@ -25,13 +26,15 @@ export function setupScreen(ctx: UiCtx): View {
   const howTo = howToSheet();
   const howBtn = button('How it works', { variant: 'ghost', class: 'mc-btn--sm', onClick: () => howTo.open(choice.mode, panel, howBtn) });
 
-  const opponent = radioGroup<'bot' | 'local'>('Opponent', [
+  const opponent = radioGroup<SetupChoice['opponent']>('Opponent', [
     { value: 'bot', label: 'Bot', sub: 'Play the computer', html: '🤖' },
     { value: 'local', label: 'Friend', sub: 'Same device, take turns', html: '🧑‍🤝‍🧑' },
+    { value: 'online', label: 'Friend online', sub: 'Send them a link', html: '🔗' },
   ], choice.opponent, (v) => {
     choice.opponent = v;
     save();
     syncBot();
+    syncMode();
   });
 
   const level = radioGroup<BotLevel>('Bot level',
@@ -59,24 +62,34 @@ export function setupScreen(ctx: UiCtx): View {
     h('label', { class: 'mc-row__hint', text: 'Paste a FEN to set up a custom position.' }),
     fenInput, fenErr);
 
-  const botBlock = h('div', { class: 'mc-setup__bot' },
-    h('h3', { class: 'mc-label', text: 'Bot level' }), level.el,
-    h('h3', { class: 'mc-label', text: 'Play as' }), side.el);
+  // Bot level only vs the bot; "Play as" vs the bot and online (Phase 5).
+  const levelBlock = h('div', { class: 'mc-setup__bot' }, h('h3', { class: 'mc-label', text: 'Bot level' }), level.el);
+  const sideBlock = h('div', { class: 'mc-setup__side' }, h('h3', { class: 'mc-label', text: 'Play as' }), side.el);
+  const onlineHow = h('button', { type: 'button', class: 'mc-linkbtn', 'data-sfx': 'click', text: 'How online works' });
+  onlineHow.addEventListener('click', () => howTo.open('online', panel, onlineHow));
+  const onlineNote = h('p', { class: 'mc-row__hint mc-setup__note' }, "You'll get a link to send. No clock: each turn has a 60-second timer. ", onlineHow);
   function syncBot() {
-    botBlock.hidden = choice.opponent !== 'bot';
+    levelBlock.hidden = choice.opponent !== 'bot';
+    sideBlock.hidden = choice.opponent === 'local';
+    onlineNote.hidden = choice.opponent !== 'online';
+    const label = start.querySelector('.mc-btn__text');
+    if (label && !busy) label.textContent = choice.opponent === 'online' ? 'Invite a friend' : 'Start game';
   }
-  syncBot();
-  // Crazy has the Wheel of Chaos instead of Weird Mode. Party modes have no clock, Weird Mode or FEN.
+  // Crazy has the Wheel of Chaos instead of Weird Mode. Party modes have no clock, Weird Mode or FEN; online games neither.
   const timeLabel = h('h3', { class: 'mc-label', text: 'Time' });
   function syncMode() {
     const party = isArenaMode(choice.mode);
-    weird.el.hidden = choice.mode === 'crazy' || party;
-    timeLabel.hidden = time.el.hidden = fen.hidden = party;
+    const online = choice.opponent === 'online';
+    weird.el.hidden = choice.mode === 'crazy' || party || online;
+    timeLabel.hidden = time.el.hidden = fen.hidden = party || online;
   }
   syncMode();
 
+  let busy = false;
+  let busyTimer = 0;
   const start = button('Start game', { variant: 'primary', onClick: () => {
-    const raw = isArenaMode(choice.mode) ? '' : fenInput.value.trim();
+    if (busy) return;
+    const raw = isArenaMode(choice.mode) || choice.opponent === 'online' ? '' : fenInput.value.trim();
     if (raw) {
       const err = checkFen(raw);
       if (err) {
@@ -89,8 +102,22 @@ export function setupScreen(ctx: UiCtx): View {
       }
     }
     const t = TIME_CONTROLS.find((x) => x.id === choice.timeId) ?? TIME_CONTROLS[0];
-    ctx.startGame(toGameOptions(choice, t.time, raw || undefined));
+    const opts = toGameOptions(choice, t.time, raw || undefined);
+    // Online: the room is being made; the invite overlay (showInvite) or an error ends the wait.
+    if (opts.opponent.type === 'online') setBusy(true);
+    ctx.startGame(opts);
   } });
+  /** Phase 5: "Making your link…" while integration creates the room. A timer frees the button if nothing answers. */
+  function setBusy(on: boolean) {
+    busy = on;
+    window.clearTimeout(busyTimer);
+    start.classList.toggle('is-busy', on);
+    start.setAttribute('aria-busy', String(on));
+    const label = start.querySelector('.mc-btn__text');
+    if (label) label.textContent = on ? 'Making your link…' : choice.opponent === 'online' ? 'Invite a friend' : 'Start game';
+    if (on) busyTimer = window.setTimeout(() => setBusy(false), 15_000);
+  }
+  syncBot();
 
   const panel = h('div', { class: 'mc-panel mc-panel--wide' },
     h('header', { class: 'mc-panel__head' },
@@ -99,12 +126,14 @@ export function setupScreen(ctx: UiCtx): View {
     h('div', { class: 'mc-panel__body' },
       h('div', { class: 'mc-label-row' }, h('h3', { class: 'mc-label', text: 'Mode' }), howBtn), mode.el,
       h('h3', { class: 'mc-label', text: 'Opponent' }), opponent.el,
-      botBlock,
+      onlineNote,
+      levelBlock,
+      sideBlock,
       timeLabel, time.el,
       weird.el,
       fen),
     h('footer', { class: 'mc-panel__foot' }, start));
   const el = h('section', { class: 'mc-screen mc-menu', 'aria-labelledby': 'mc-setup-h' }, panel, howTo.el);
 
-  return { el, focusTarget: () => start, onShow: () => howTo.close() };
+  return { el, focusTarget: () => start, onShow: () => { howTo.close(); setBusy(false); }, setBusy };
 }

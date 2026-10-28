@@ -1,4 +1,4 @@
-import type { ActionRecord, MoveResult, PieceId, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
+import type { ActionRecord, GameOptions, MoveResult, PieceId, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
 
 /** Clock text: "10:00", "0:42", and tenths under 10 seconds ("7.3"). */
 export function formatClock(ms: number | null): string {
@@ -61,6 +61,16 @@ export function moveRows(moves: MoveResult[]): { n: number; land?: string; sea?:
 }
 
 export const otherSide = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
+
+/** The side this screen plays: yours vs the bot, `opponent.you` online (Phase 5), null in a local game. */
+export function youSide(info: GameOptions | null | undefined): Side | null {
+  const o = info?.opponent;
+  if (o?.type === 'bot') return otherSide(o.botSide);
+  if (o?.type === 'online') return o.you;
+  return null;
+}
+
+export const isOnline = (info: GameOptions | null | undefined): boolean => info?.opponent.type === 'online';
 
 // ---------- Phase 3: game modes ----------
 
