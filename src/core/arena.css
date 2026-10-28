@@ -1,0 +1,37 @@
+/* Party modes playtest: extras on top of demo.css. */
+:root {
+  --water: #3c8fd0;
+  --water-deep: #1f5f9a;
+  --hit: #d23b2f;
+}
+
+.sq.water { background: repeating-linear-gradient(135deg, var(--water) 0 8px, var(--water-deep) 8px 14px) !important; }
+.sq.water .coord { color: rgba(255, 255, 255, 0.6); }
+.sq.warn { outline: 3px dashed #1f5f9a; outline-offset: -4px; animation: wobble 1.1s ease-in-out infinite; }
+@keyframes wobble { 25% { transform: rotate(-2deg); } 75% { transform: rotate(2deg); } }
+@media (prefers-reduced-motion: reduce) { .sq.warn { animation: none; } }
+
+.sq.hit::before { content: ''; position: absolute; inset: 6%; border-radius: 50%; border: 4px solid var(--hit); pointer-events: none; z-index: 2; }
+.sq .cost { position: absolute; right: 2px; bottom: 2px; z-index: 3; font: 700 11px/1 system-ui, sans-serif; padding: 2px 4px; border-radius: 6px; background: var(--hit); color: #fff; pointer-events: none; }
+
+.sq .home { position: absolute; left: 2px; top: 2px; font-size: 38%; opacity: 0.85; pointer-events: none; }
+.sq .loot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 70%; pointer-events: none; filter: drop-shadow(0 0 4px #fff7c2); }
+.sq .loot.dropped { animation: bob 1.6s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(-8%); } }
+.piece .carry { position: absolute; right: -10%; top: -12%; font-size: 52%; background: #fff7c2; border-radius: 50%; padding: 1px; box-shadow: 0 0 0 2px #e0a800; }
+.piece .status.anchored { background: #e8dccb; }
+.piece.out { opacity: 0.35; }
+
+.turnbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ap { display: flex; gap: 6px; align-items: center; font-weight: 700; min-height: 44px; }
+.ap .pip { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--ink); }
+.ap .pip.on { background: #f2b705; }
+.endturn { min-width: 140px; font-size: 17px; }
+
+.modebar .out { text-decoration: line-through; opacity: 0.5; }
+.modebar .urgent { background: #ffe1dc; border-color: var(--hit); font-weight: 700; }
+
+.selection .sel-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.rules { font-size: 14px; }
+.rules h3 { margin: 10px 0 4px; font-size: 15px; }
+.rules ul { margin: 0; padding-left: 20px; }

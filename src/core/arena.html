@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Party playtest · Menagerie Chess</title>
+    <link rel="stylesheet" href="./demo.css" />
+    <link rel="stylesheet" href="./arena.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Party modes playtest</h1>
+      <p class="note">Dev tool for Sumo and Raid. Flat 2D board with emoji stand-ins, not the real game look.</p>
+    </header>
+
+    <main class="layout">
+      <section class="play" aria-label="Board">
+        <div class="modebar" id="bar-top"></div>
+        <p class="status" id="status" aria-live="polite"></p>
+        <div class="board-wrap">
+          <div class="board" id="board" role="grid" aria-label="Board"></div>
+          <div class="overlay" id="overlay" hidden></div>
+          <div class="banner" id="banner" hidden></div>
+          <div class="toast" id="toast" hidden></div>
+        </div>
+        <div class="modebar" id="bar-bottom"></div>
+        <div class="turnbar">
+          <span class="ap" id="ap" aria-label="Action points"></span>
+          <button type="button" class="primary endturn" id="end-turn">End turn</button>
+        </div>
+        <div class="prompt" id="prompt" hidden>
+          <span id="prompt-text"></span>
+          <span class="prompt-buttons">
+            <button type="button" class="primary" id="prompt-go" hidden>Go</button>
+            <button type="button" id="prompt-cancel">Cancel</button>
+          </span>
+        </div>
+        <div class="selection" id="selection" hidden></div>
+        <ol class="story" id="story" aria-label="What happened, newest first" aria-live="polite"></ol>
+      </section>
+
+      <section class="panel" aria-label="Controls">
+        <form id="setup" class="setup">
+          <fieldset class="modes wide">
+            <legend>Mode</legend>
+            <label><input type="radio" name="mode" value="sumo" checked /> Sumo</label>
+            <label><input type="radio" name="mode" value="raid" /> Raid</label>
+          </fieldset>
+          <label>Opponent
+            <select id="opponent">
+              <option value="local">Local 2-player</option>
+              <option value="bot" selected>Bot</option>
+            </select>
+          </label>
+          <label>Bot level
+            <select id="level"></select>
+          </label>
+          <label>Bot plays
+            <select id="botSide">
+              <option value="sea" selected>Sea</option>
+              <option value="land">Land</option>
+            </select>
+          </label>
+          <label>Seed (optional)
+            <input id="seed" type="text" inputmode="numeric" autocomplete="off" placeholder="Random" />
+          </label>
+          <button type="submit" class="primary wide">New game</button>
+        </form>
+
+        <div class="actions">
+          <button type="button" id="resign">Resign</button>
+          <button type="button" id="pause">Pause</button>
+          <button type="button" id="flip">Flip board</button>
+          <label class="check"><input type="checkbox" id="show-ids" /> Show ids</label>
+          <label class="check"><input type="checkbox" id="sim-anim" /> Fake 0.6s animations (pause/resume)</label>
+        </div>
+
+        <details>
+          <summary>Tuning (Sumo and Raid, applies to new games)</summary>
+          <div class="tuning" id="tuning"></div>
+          <div class="actions">
+            <button type="button" class="primary" id="tuning-apply">Apply and start a new game</button>
+            <button type="button" id="tuning-reset">Back to defaults</button>
+          </div>
+        </details>
+        <details>
+          <summary>How to play</summary>
+          <div class="rules" id="rules"></div>
+        </details>
+        <details>
+          <summary>Raw events (newest first)</summary>
+          <ul class="log" id="log"></ul>
+        </details>
+        <p class="legend">
+          Dots = steps. Red rings = shoves (Sumo) or tags (Raid), with their AP cost. Violet = power targets.
+          Blue = water. Dashed wobbling squares sink at the end of this round. 🦴 Land's bone, 🦪 Sea's pearl; a small
+          badge on an animal means it carries one. 🥣 / 🐚 = home squares. ⚓ dug in, 💫 stunned. 🏺 / ⚫ = blocks.
+          A gold dot = power still ready.
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="./arena.ts"></script>
+  </body>
+</html>
