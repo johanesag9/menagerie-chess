@@ -29,7 +29,7 @@ interface Marker {
   phase: number;
 }
 
-/** Height above the tiles. Tiles never rise above BOARD_TOP (see board.ts). */
+/** Height above the tiles. Flat tiles never rise above BOARD_TOP (see board.ts); Phase 6 raised squares add `setHeights`. */
 const LIFT: Record<Kind, number> = { lastMove: 0.008, selected: 0.011, check: 0.014, legal: 0.017, capture: 0.02 };
 
 export class Highlights {
@@ -43,6 +43,8 @@ export class Highlights {
   private checkWave: Marker;
   private targets: SquareField;
   private area: SquareField;
+  /** Phase 6: how far a square's top stands above the board now (sand levels), index file * 8 + rank. */
+  private heights: ArrayLike<number> | null = null;
 
   constructor(private bin: Bin, private tex: Textures, private bloomBoost: () => number) {
     this.group.name = 'highlights';
@@ -59,6 +61,11 @@ export class Highlights {
     this.area = new SquareField(bin, 'area', LIFT.lastMove + 0.0015);
     this.targets = new SquareField(bin, 'target', LIFT.capture + 0.003);
     this.group.add(this.area.mesh, this.targets.mesh);
+  }
+
+  /** Phase 6: markers ride on top of raised squares (live heights, read every frame). */
+  setHeights(heights: ArrayLike<number> | null): void {
+    this.heights = heights;
   }
 
   private make(kind: Kind): Marker {
@@ -145,8 +152,9 @@ export class Highlights {
 
   update(dt: number, t: number): void {
     const boost = this.bloomBoost();
-    this.targets.update(dt, t, boost);
-    this.area.update(dt, t, boost);
+    const hs = this.heights;
+    this.targets.update(dt, t, boost, hs);
+    this.area.update(dt, t, boost, hs);
     for (const m of this.markers) {
       if (m.target === 1 && m.delay > 0) {
         m.delay -= dt;
@@ -159,6 +167,10 @@ export class Highlights {
       if (m.target === 1 && m.v > 0.995) m.v = 1;
       m.mesh.visible = m.v > 0;
       if (!m.mesh.visible) continue;
+      if (hs && m.square) {
+        const { file, rank } = squareIndex(m.square);
+        m.mesh.position.y = BOARD_TOP + hs[file * 8 + rank] + LIFT[m.kind];
+      }
       this.style(m, t, boost);
     }
   }
@@ -292,9 +304,13 @@ class SquareField {
   private age = new Float32Array(64);
   private state: THREE.InstancedBufferAttribute;
   private mat: THREE.ShaderMaterial;
+  /** Heights last written into the instance matrices (Phase 6 raised squares). */
+  private lastH = new Float32Array(64);
+  private size: number;
+  private tmp = new THREE.Matrix4();
   active = false;
 
-  constructor(bin: Bin, kind: 'target' | 'area', lift: number) {
+  constructor(bin: Bin, kind: 'target' | 'area', private lift: number) {
     const geo = bin.add(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
     this.mat = bin.add(new THREE.ShaderMaterial({
       uniforms: {
@@ -314,7 +330,7 @@ class SquareField {
     this.mesh.visible = false;
     const m = new THREE.Matrix4();
     const phase = new Float32Array(64);
-    const size = kind === 'target' ? SQUARE * 1.0 : SQUARE * 0.98;
+    const size = (this.size = kind === 'target' ? SQUARE * 1.0 : SQUARE * 0.98);
     for (let i = 0; i < 64; i++) {
       const file = Math.floor(i / 8), rank = i % 8;
       m.makeScale(size, 1, size).setPosition((file - 3.5) * SQUARE, BOARD_TOP + lift, (3.5 - rank) * SQUARE);
@@ -343,8 +359,22 @@ class SquareField {
     }
   }
 
-  update(dt: number, t: number, boost: number): void {
+  update(dt: number, t: number, boost: number, heights: ArrayLike<number> | null): void {
     let any = false;
+    if (heights) {
+      let moved = false;
+      const m = this.tmp;
+      for (let i = 0; i < 64; i++) {
+        const h = heights[i];
+        if (h === this.lastH[i]) continue;
+        this.lastH[i] = h;
+        const file = Math.floor(i / 8), rank = i % 8;
+        m.makeScale(this.size, 1, this.size).setPosition((file - 3.5) * SQUARE, BOARD_TOP + this.lift + h, (3.5 - rank) * SQUARE);
+        this.mesh.setMatrixAt(i, m);
+        moved = true;
+      }
+      if (moved) this.mesh.instanceMatrix.needsUpdate = true;
+    }
     for (let i = 0; i < 64; i++) {
       if (this.want[i] && this.delay[i] > 0) {
         this.delay[i] -= dt;
