@@ -4,10 +4,11 @@
  */
 import type { ActionRecord, ArenaState, EmoteKind, GameOptions, ModeState, MoveResult, PieceKind, Side, WeirdEvent } from '../../contracts/types';
 import { isArenaMode } from '../../contracts/types';
-import { ANIMAL_NAME, EMOTES, SIDE_NAME, WEIRD_TEXT, botName } from '../config';
+import type { OnlineHud } from '../../contracts/net';
+import { ANIMAL_NAME, EMOTES, SIDE_NAME, WEIRD_TEXT, playerName } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
-import { formatClock, listRows, otherSide, spokenClock, tallyCaptures, tallyFromCaptured, type CapturedTally, type ListEntry } from '../format';
+import { formatClock, formatSeconds, isOnline, listRows, otherSide, spokenClock, spokenSeconds, tallyCaptures, tallyFromCaptured, youSide, type CapturedTally, type ListEntry } from '../format';
 import { animalIcon } from '../icons';
 import { ArenaHud } from './arenaHud';
 import { ModeHud } from './modeHud';
@@ -23,6 +24,9 @@ export const ICON = {
 /** Below this the clock turns red; below 10s it ticks every second. */
 const LOW_MS = 20_000;
 const TICK_MS = 10_000;
+/** Phase 5: the online turn timer (GAME_SPEC "Online play": 60s), urgent in the last 10s. */
+const TURN_MS = 60_000;
+const URGENT_MS = 10_000;
 
 interface Card {
   el: HTMLElement;
@@ -33,6 +37,9 @@ interface Card {
   clock: HTMLElement;
   clockText: HTMLElement;
   bubble: HTMLElement;
+  /** Phase 5: the online turn timer by the side to move. */
+  timer: HTMLElement;
+  timerText: HTMLElement;
 }
 
 export class Hud {
@@ -63,12 +70,20 @@ export class Hud {
   private tense = false;
   private emoteCooldown = 0;
   private timers = new Set<number>();
+  /** Phase 5: the online state (null offline), the pills under the friend's card and the countdown ticker. */
+  private online: OnlineHud | null = null;
+  private onlineEl: HTMLElement;
+  private onlineTicker = 0;
+  private turnTotal = TURN_MS;
+  private turnSide: Side | null = null;
+  private lowPlayed = false;
   /** Music the HUD wants while the game screen shows. */
   track: 'game' | 'tense' = 'game';
   onTrack: (t: 'game' | 'tense') => void = () => {};
 
   constructor(private ctx: UiCtx) {
     this.cards = { land: this.card('land'), sea: this.card('sea') };
+    this.onlineEl = h('div', { class: 'mc-online', hidden: true });
     this.mode = new ModeHud(ctx);
     this.arena = new ArenaHud(ctx);
     this.mode.setArena(this.arena.bar, false);
@@ -132,22 +147,25 @@ export class Hud {
     const clockText = h('span', { class: 'mc-card__clocktext', 'aria-hidden': 'true' });
     const clock = h('span', { class: 'mc-card__clock', role: 'timer' }, clockText);
     const bubble = h('span', { class: 'mc-bubble', 'aria-hidden': 'true' });
+    const timerText = h('span', { class: 'mc-card__timertext', 'aria-hidden': 'true' });
+    const timer = h('span', { class: 'mc-card__timer', role: 'timer', hidden: true },
+      h('span', { class: 'mc-card__timericon', 'aria-hidden': 'true', html: TIMER_ICON }), timerText);
     const el = h('div', { class: 'mc-card', 'data-side': side },
       h('span', { class: 'mc-card__avatar', html: animalIcon(side, 'k', { disc: true }) }),
       h('div', { class: 'mc-card__main' },
         h('div', { class: 'mc-card__line' }, name, status),
         h('div', { class: 'mc-card__line mc-card__line--tray' }, tray, adv)),
-      clock, bubble);
-    return { el, name, status, tray, adv, clock, clockText, bubble };
+      clock, timer, bubble);
+    return { el, name, status, tray, adv, clock, clockText, bubble, timer, timerText };
   }
 
-  /** Who is who. Bot games put the human at the bottom; local games put Land at the bottom. */
+  /** Who is who. Bot and online games put you at the bottom; local games put Land at the bottom. */
   setInfo(info: GameOptions | null): void {
     this.info = info;
     const bot = info?.opponent.type === 'bot' ? info.opponent : null;
-    const bottomSide: Side = bot ? otherSide(bot.botSide) : 'land';
+    const bottomSide: Side = youSide(info) ?? 'land';
     const topSide = otherSide(bottomSide);
-    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide], this.arena.strips[topSide]);
+    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide], this.arena.strips[topSide], this.onlineEl);
     this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide], this.arena.strips[bottomSide]);
     this.mode.setInfo(info);
     this.arena.setInfo(info);
@@ -157,14 +175,15 @@ export class Hud {
     for (const side of ['land', 'sea'] as const) {
       const c = this.cards[side];
       const isBot = bot?.botSide === side;
-      c.name.textContent = bot ? (isBot ? botName(bot.level) : 'You') : SIDE_NAME[side];
+      c.name.textContent = playerName(info, side);
       c.el.dataset.bot = String(isBot);
+      c.el.dataset.friend = String(isOnline(info) && youSide(info) !== side);
       c.el.setAttribute('aria-label', `${c.name.textContent}, ${SIDE_NAME[side]}`);
     }
     const timed = info && !isArenaMode(info.mode) ? info.time.initialMs !== null : false;
     this.el.classList.toggle('is-untimed', !timed);
-    // No undo in Crazy (luck is luck) or in the party modes.
-    this.undoBtn.hidden = info?.mode === 'crazy' || isArenaMode(info?.mode);
+    // No undo in Crazy (luck is luck), in the party modes or online.
+    this.undoBtn.hidden = info?.mode === 'crazy' || isArenaMode(info?.mode) || isOnline(info);
     this.el.classList.toggle('is-party', isArenaMode(info?.mode));
     this.refresh();
   }
@@ -176,6 +195,8 @@ export class Hud {
     this.lastTick = -1;
     this.setTense(false);
     for (const s of ['land', 'sea'] as const) this.cards[s].el.classList.remove('in-check', 'is-low');
+    // An offline game drops any online state; an online one keeps it (integration may send it first).
+    if (!isOnline(info)) this.setOnline(null);
     this.setInfo(info);
     // Party modes have no clock.
     const ms = isArenaMode(info?.mode) ? null : info?.time.initialMs ?? null;
@@ -197,6 +218,7 @@ export class Hud {
 
   private refresh(): void {
     const bot = this.info?.opponent.type === 'bot' ? this.info.opponent : null;
+    const you = youSide(this.info);
     for (const side of ['land', 'sea'] as const) {
       const c = this.cards[side];
       const isTurn = side === this.turn;
@@ -205,7 +227,7 @@ export class Hud {
       c.el.classList.toggle('is-thinking', thinking);
       c.status.innerHTML = '';
       if (thinking) c.status.append(h('span', { class: 'mc-dots', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')));
-      else if (isTurn) c.status.textContent = bot && bot.botSide !== side ? 'Your move' : 'To move';
+      else if (isTurn) c.status.textContent = you === side ? 'Your move' : 'To move';
     }
     // Undo needs a move to take back (and, vs the bot, one of yours).
     this.undoBtn.disabled = this.entries.length === 0 || this.thinking;
@@ -408,6 +430,92 @@ export class Hud {
     this.live.textContent = text;
   }
 
+  // ---------- Phase 5: online ----------
+
+  /**
+   * Connection pill, the friend's presence (with the forfeit countdown) and the turn timer by the side to move.
+   * Plays `friendLeft` when the friend goes away or leaves, `friendJoined` when they come back, and `timeLow` once
+   * when your own turn timer reaches 10s. null hides it all.
+   */
+  setOnline(st: OnlineHud | null): void {
+    const prev = this.online;
+    this.online = st;
+    if (st && prev && st.opponent !== prev.opponent) {
+      if ((st.opponent === 'away' || st.opponent === 'left') && prev.opponent !== 'left') {
+        this.ctx.audio.play('friendLeft');
+        this.announce(st.opponent === 'left' ? 'Your friend left.' : 'Your friend is away. They have a little while to come back.');
+      } else if (st.opponent === 'here' && (prev.opponent === 'away' || prev.opponent === 'left')) {
+        this.ctx.audio.play('friendJoined');
+        this.announce('Your friend is back.');
+      }
+    }
+    if (st && prev && st.connection !== prev.connection && st.connection === 'online' && prev.connection !== 'connecting') this.announce('Connected again.');
+    const ticking = !!st && (!!st.timer || (st.opponent === 'away' && st.graceEndsAt !== null));
+    if (ticking && !this.onlineTicker) this.onlineTicker = window.setInterval(() => this.renderOnline(), 200);
+    if (!ticking && this.onlineTicker) {
+      window.clearInterval(this.onlineTicker);
+      this.onlineTicker = 0;
+    }
+    this.renderOnline();
+  }
+
+  private renderOnline(now = performance.now()): void {
+    const st = this.online;
+    const you = youSide(this.info);
+    // Pills under the friend's card: your connection, then the friend. Waiting never shows in game.
+    const pills: HTMLElement[] = [];
+    if (st && st.connection !== 'online') {
+      const text = st.connection === 'offline' ? 'Offline' : st.connection === 'connecting' ? 'Connecting…' : 'Reconnecting…';
+      pills.push(h('span', { class: 'mc-pill', 'data-kind': st.connection }, h('span', { class: 'mc-pill__spin', 'aria-hidden': 'true' }), text));
+    }
+    if (st?.opponent === 'away') {
+      const left = st.graceEndsAt === null ? null : Math.max(0, st.graceEndsAt - now);
+      pills.push(h('span', { class: 'mc-pill', 'data-kind': 'away' }, h('span', { class: 'mc-pill__icon', 'aria-hidden': 'true', text: '💤' }),
+        left === null ? 'Friend is away' : `Friend is away · ${formatSeconds(left)}`));
+    } else if (st?.opponent === 'left') {
+      pills.push(h('span', { class: 'mc-pill', 'data-kind': 'left' }, h('span', { class: 'mc-pill__icon', 'aria-hidden': 'true', text: '👋' }), 'Friend left'));
+    }
+    this.onlineEl.hidden = !pills.length;
+    // Only rebuild when the text changes, so the spinner doesn't restart every tick.
+    const sig = pills.map((p) => `${p.dataset.kind}:${p.textContent}`).join('|');
+    if (this.onlineEl.dataset.sig !== sig) {
+      this.onlineEl.dataset.sig = sig;
+      this.onlineEl.replaceChildren(...pills);
+    }
+    if (you) this.cards[otherSide(you)].el.dataset.presence = st?.opponent === 'away' || st?.opponent === 'left' ? st.opponent : 'here';
+
+    // The turn timer: a ring around the avatar and a countdown, urgent in the last 10s.
+    const t = st?.timer ?? null;
+    if (!t || t.side !== this.turnSide) {
+      this.turnSide = t?.side ?? null;
+      this.turnTotal = TURN_MS;
+      this.lowPlayed = false;
+    }
+    for (const side of ['land', 'sea'] as const) {
+      const c = this.cards[side];
+      const on = !!t && t.side === side;
+      c.timer.hidden = !on;
+      c.el.classList.toggle('has-timer', on);
+      if (!on) {
+        c.el.classList.remove('is-urgent');
+        continue;
+      }
+      const left = Math.max(0, t!.endsAt - now);
+      this.turnTotal = Math.max(this.turnTotal, left);
+      const urgent = left <= URGENT_MS;
+      if (left > URGENT_MS) this.lowPlayed = false;
+      c.timerText.textContent = formatSeconds(left);
+      c.timer.setAttribute('aria-label', `${playerName(this.info, side)}: ${spokenSeconds(left)} left this turn`);
+      c.el.style.setProperty('--turn', (left / this.turnTotal).toFixed(4));
+      c.el.classList.toggle('is-urgent', urgent);
+      if (urgent && left > 0 && side === you && !this.lowPlayed) {
+        this.lowPlayed = true;
+        this.ctx.audio.play('timeLow');
+        this.announce('10 seconds left.');
+      }
+    }
+  }
+
   get moveCount(): number {
     return this.entries.length;
   }
@@ -417,11 +525,15 @@ export class Hud {
   }
 
   dispose(): void {
+    window.clearInterval(this.onlineTicker);
     this.arena.dispose();
     document.removeEventListener('pointerdown', this.onOutside, true);
     this.timers.forEach((t) => window.clearTimeout(t));
   }
 }
+
+/** A stopwatch, for the online turn timer. */
+const TIMER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M12 13.5 V9.5 M10 3.5 H14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
 
 /** Index in `now` of the piece that wasn't in `before` (both sorted the same way). */
 function freshIndex(before: PieceKind[], now: PieceKind[]): number {

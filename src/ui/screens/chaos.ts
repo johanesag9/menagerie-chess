@@ -10,7 +10,7 @@ import type { Card, DieEffect, DieValue, DuelInfo, GameEventMap, Hand, JokerOutc
 import { ANIMAL_NAME, SIDE_NAME } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
-import { otherSide } from '../format';
+import { isOnline, otherSide, youSide } from '../format';
 import { animalIcon } from '../icons';
 import { isArenaMode } from '../../contracts/types';
 import { DIE_TEXT, HAND, HANDS, JOKER_TEXT, LUCKY_TEXT, RAID_WHEEL_LINE, SUIT, TREASURE, WHEEL_ORDER, WHEEL_TEXT, apFromDie } from '../modeText';
@@ -116,10 +116,9 @@ export class Chaos {
     return this.ctx.settings.reducedMotion;
   }
 
-  /** The human side vs the bot; null in a local game. */
+  /** Your side vs the bot or a friend online; null in a local game. */
   private you(): Side | null {
-    const o = this.ctx.gameInfo?.opponent;
-    return o?.type === 'bot' ? otherSide(o.botSide) : null;
+    return youSide(this.ctx.gameInfo);
   }
 
   private startRun(): Run {
@@ -207,8 +206,13 @@ export class Chaos {
     const r = this.startRun();
     const s = SUIT[card.suit];
     const big = this.bigCard(card);
-    const cap = h('p', { class: 'mc-cardshow__cap' }, h('strong', { text: `${SIDE_NAME[side]} draws` }), h('span', { text: ` ${s.symbol} ${s.name}` }));
-    const el = h('div', { class: 'mc-cardshow mc-cardshow--draw', 'data-side': side, role: 'status', 'aria-label': `${SIDE_NAME[side]} draws a card: ${s.name}` }, big.el, cap);
+    // Online, the friend's card stays face down: you only see that they drew one.
+    const secret = isOnline(this.ctx.gameInfo) && side !== this.you();
+    const cap = secret
+      ? h('p', { class: 'mc-cardshow__cap' }, h('strong', { text: 'Friend draws a card' }))
+      : h('p', { class: 'mc-cardshow__cap' }, h('strong', { text: `${SIDE_NAME[side]} draws` }), h('span', { text: ` ${s.symbol} ${s.name}` }));
+    if (secret) big.front.replaceChildren(h('span', { class: 'mc-cardback' }));
+    const el = h('div', { class: 'mc-cardshow mc-cardshow--draw', 'data-side': side, role: 'status', 'aria-label': secret ? 'Your friend draws a card' : `${SIDE_NAME[side]} draws a card: ${s.name}` }, big.el, cap);
     this.el.append(el);
     this.ctx.audio.play('cardDraw');
     if (this.rm) {
@@ -414,6 +418,8 @@ export class Chaos {
   }
 
   askThrow(side: Side, opts: { hotSeat: boolean }): Promise<Hand> {
+    // Online, each player throws on their own screen: never the hot-seat cover.
+    if (isOnline(this.ctx.gameInfo)) opts = { hotSeat: false };
     return new Promise((res) => {
       window.clearTimeout(this.coverTimer);
       const host = opts.hotSeat ? this.cover : this.sheet;

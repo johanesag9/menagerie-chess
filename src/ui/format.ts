@@ -11,6 +11,15 @@ export function formatClock(ms: number | null): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+/** Phase 5: whole seconds as "1:42" or "0:07" (online turn timer, away countdown). Rounds up, so 0:00 means done. */
+export function formatSeconds(ms: number): string {
+  const total = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** Phase 5: "42 seconds", "1 minute 5 seconds". */
+export const spokenSeconds = (ms: number): string => spokenClock(Math.max(0, ms));
+
 /** Spoken clock for screen readers: "4 minutes 2 seconds". */
 export function spokenClock(ms: number | null): string {
   if (ms === null) return 'untimed';

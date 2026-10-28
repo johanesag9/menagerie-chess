@@ -5,10 +5,10 @@
  * End turn button). `setState(null)` hides all of it.
  */
 import type { ArenaState, GameOptions, PieceId, PieceState, Side, TreasureState } from '../../contracts/types';
-import { ANIMAL_NAME, SIDE_NAME, botName } from '../config';
+import { ANIMAL_NAME, SIDE_NAME, playerName } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
-import { otherSide } from '../format';
+import { otherSide, youSide } from '../format';
 import { animalIcon } from '../icons';
 import { TREASURE } from '../modeText';
 import { dieFace } from './modeHud';
@@ -122,15 +122,13 @@ export class ArenaHud {
     return this.state;
   }
 
-  /** The human side in a bot game, else null. */
+  /** Your side vs the bot or a friend online, else null. */
   private you(): Side | null {
-    return this.info?.opponent.type === 'bot' ? otherSide(this.info.opponent.botSide) : null;
+    return youSide(this.info);
   }
 
   private nameOf(side: Side): string {
-    const bot = this.info?.opponent.type === 'bot' ? this.info.opponent : null;
-    if (!bot) return SIDE_NAME[side];
-    return bot.botSide === side ? botName(bot.level) : 'You';
+    return playerName(this.info, side);
   }
 
   // ---------- render ----------
