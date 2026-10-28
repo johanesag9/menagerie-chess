@@ -17,7 +17,8 @@ New code is in `party.ts`, with small hooks in `actor.ts`.
 - **`setStatus('anchored')`** (Dig in). A lumpy ring of dirt (Land) or sand (Sea) heaps up round the feet, with dirt flying. The animal sinks a little and braces itself: legs out front and back, head down, brows set. The crab digs its claws into the sand and splays its legs. The pawns get the tallest ring, so they look half-buried. Clearing it throws dirt as it climbs out. Like the other statuses, it's one extra mesh.
 - **Skip and reduced motion.** A fall resolves on `skip()`, still fires its splash and leaves the board. Under reduced motion, the fall is a small lean, a slide and a drop (0.7s, no spins, splash intensity 0). The carry and dig-in pops are shorter, and the balance wobble is smaller.
 - **Existing animations are unchanged.** The only shared change is the heavier walk while carrying.
-- **Tests:** 28 new (101 in the cast): a fall for all 12 animals, carrying both treasures for all 12, plus skip, reduced motion, the heavy walk and anchored. `npm run typecheck` passes.
+- **Anchored** stays on until integration calls `setStatus(null)`, at the start of the owner's next turn.
+- **Tests:** 28 new (101 in the cast, all passing): a fall for all 12 animals, carrying both treasures for all 12, plus skip, reduced motion, the heavy walk and anchored. `npm run typecheck` passes.
 
 ## How to run the demo
 Start `cast-demo` (port 4413), then open http://localhost:4413/src/cast/demo.html. Look under **Party modes**. The buttons work on a copy of the picked animal in the middle row.
@@ -28,7 +29,7 @@ Start `cast-demo` (port 4413), then open http://localhost:4413/src/cast/demo.htm
 
 ## Contract requests
 None needed. Notes for integration:
-- **Start a fall from the last dry square.** `fall` moves the animal one square toward `dir` and splashes there. For a shove, play the push (`attack`, then `hit`) and then `fall(dir)`, without moving it onto the water square first. For a sinking ring, call `fall` where it stands, with `dir` pointing out to sea.
+- **Fall order** matches the clarified contract (b0547e8, cherry-picked here). `fall` starts from the centre of the pre-shove square, totters, travels one square toward `dir` and splashes there. The pusher's shove can play at the same time.
 - Hook `world.splash(at, big)` and the sound to the cast `splash` event. Use `big` when intensity ≥ 0.9 (kings). Dispose the actor when `fall` resolves.
 - Treasure handover: on `pickup`, call `carrier.setCarrying(owner)` and `world.setTreasures` in the same frame. On `drop`, `score` or `snatch`, call `setCarrying(null)`. The cast pops it in and out over 0.2–0.35s.
 
@@ -39,7 +40,6 @@ None needed. Notes for integration:
 4. **Only the octopus waves goodbye.** Should other Sea animals get a small wave too?
 
 ## Known issues
-- The fall's horizontal distance is fixed at about one square. If integration has already moved the animal onto the water square, it ends up a square too far.
 - The world's water level isn't known to the cast, so `splash.at.y` is just below the board top (0.1 of a square down).
 
 # Phase 3: powers, travel styles, statuses (2026-10-27)
