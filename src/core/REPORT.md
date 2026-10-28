@@ -1,5 +1,48 @@
 # Core stream report
 
+## Phase 6: board-game modes (Sandcastle King, Stepping Stones)
+
+### What's done
+- `createArena()` now runs `castle` and `stones` next to Sumo and Raid, per the Phase 6 contract: `shapeOptions()`, stages, `mover`, `levels`, `crowned`, `nextTideIn`, `draft`, `fresh`, `pathLength`, and the `tide` and `crowned` events.
+- **Sandcastle King**: the draft (2 each, Land/Sea/Land/Sea), moves (up at most 1 level, down any), build/dig next to the mover, all six traits, the tide (end of every 5th round, empty beach squares), and the hold-the-castle win at the start of your own turn.
+- **Stepping Stones**: water on ranks 3–6, raise and sink, the fresh rule, all six powers reworked for water (bridge, double jump, headbutt, block, stomp, escape), the crossing win, and `pathLength` (shortest dry path, blocks are walls, animals ignored).
+- **Bot**: a game-tree search over whole turns (alpha-beta, levels 1–8, seeded so it's repeatable), in the same Web Worker. Separate knobs per mode (`castleBot`, `stonesBot` in `tuning.ts`). Level 8 takes about 75 ms a move on a laptop. It drafts from its top 4 picks, weighted, so drafts vary.
+- Every rule number is a knob in `src/core/arena/tuning.ts` and in the playtest's Tuning panel.
+- Tests: 25 castle and 21 stones rules tests (`arena/castle.test.ts`, `arena/stones.test.ts`), and a fuzz of 200 seeded games per mode (`arena/fuzz.castle.test.ts`, `arena/fuzz.stones.test.ts`). The fuzz checks options against legal moves, rebuilds pieces, levels and water from events, re-checks every change against the rules on its own, checks event order, refuses bogus actions, and replays each game from seed + inputs to the same result.
+- `npm run typecheck` passes; `npm test` passes (424 tests, Sumo, Raid and chess included).
+- Checked in the browser at 1280px and 390px: drafted, moved, built, raised and stepped vs the bot in both modes, no console errors. Also fixed: board rows came out uneven at 390px (all modes); the board is square again.
+
+### How to run the playtest
+- Start the `core-demo` launch config, then open `/src/core/arena.html` on its port (4411; it moves up if that's taken).
+- Pick **Sandcastle King** or **Stepping Stones**, local or vs bot, a level and an optional seed. Press **New game**.
+- Castle: pick 2 animals from the draft grid. Click an animal, click a dot to move, then click a green ring to build (or switch the bar to **Dig**). Numbers on squares are levels; 🏰 is a castle; 👑 marks a crowned animal. The Digger's second dig is optional: **End turn** skips it.
+- Stones: first raise or sink (bar under the board) or use a power, then step. 🫧 marks fresh squares you can't change this turn. The status line shows each side's path length.
+- `window.arena` is the controller, for the console.
+
+### Contract requests
+- **Castle "nobody can move" draw uses reason `'stalemate'`.** If both sides pass in a row, the game is a draw. No Phase 6 reason fits; `'stalemate'` was the closest existing one. Add a reason if the UI needs to say something else.
+- Castle `pieceOptions().power.available` is always `true` (traits are always on; there's no power action).
+- `shapeOptions()` returns `[]` while the bot is moving, same as `pieceOptions`.
+- After a draft pick, the `acted` state still shows stage `'pick'`; the stage changes with the next `state`.
+- Round cap in castle: the contract says "a draw", but a side that holds a castle at the start of its turn on the last round still wins (reason `'castle'`), so the hold-the-castle rule is the same every round.
+
+### Open design questions for Johanes
+- **Stones favours Land (moves first).** Bot vs bot, 30 games each: level 4 Land 19 / Sea 11; level 6 Land 23 / Sea 7. No draws; games end around round 7–8. Possible fixes: Sea gets one free raise at the start, or Land skips its first shape.
+- **Castle with strong bots draws a lot.** Level 4: Land 12 / Sea 11 / 7 draws, median round 8. Level 6: 9 / 4 / 17 draws (round cap 30). Strong bots keep digging each other's castles away. Fewer rounds or a faster tide would push games to an end. (Measured before the draft change that makes bot drafts vary.)
+- A headbutt can push an enemy onto your back rank, and that counts as their crossing win. I kept it (the rule is "an animal on the enemy back rank"); say if it should only count on the mover's own move.
+- Bridge works anywhere on the board, not only next to the animal.
+- In Stones a turn must start by shaping (or a power). If nothing can be shaped, that stage is skipped.
+- Castle start squares: c2/f2 and c7/f7, with d1/e8 for a 3rd animal if the draft size goes up.
+- `pathLength` ignores animals and treats blocks as walls.
+- The tide is skipped on the very last round, and it still fires (with a log line) when there is nothing to wear down.
+- The Zoomer's 2 steps can't end where it started.
+
+### Known issues
+- The bot only looks at shapes within 2 squares of an animal and trims Block targets, to stay fast. It can miss far-off ideas.
+- The stones fuzz takes about 30 s in the full suite. `ARENA_FUZZ_GAMES=10` runs a quick sample.
+- The playtest is a flat 2D dev tool with emoji stand-ins, not the game look.
+
+
 ## Phase 4: party modes (Sumo, Raid)
 
 ### What's done
