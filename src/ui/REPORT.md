@@ -11,7 +11,7 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 
 **Party HUD (`setArenaState`)**
 - By each player card: the six animals. Fallen ones are crossed out. A gold dot marks each power that's still ready. It also shows duel tokens (2 dots) and status (stunned, frozen, dug in). In Raid it shows where that side's treasure is: "Home", "Dropped on f4" or, in red, "Horse has it!". The carrier's icon wears the treasure.
-- Top chip: "Round 4 / 15". Sumo: "Island sinks in N", which turns red and pulses as "Island sinks this round!". Raid: "Land 1 – 2 Sea (to 3)" and "Wheel in N".
+- Top chip: "Round 4 / 15". Sumo: "Island sinks in N", which turns red and pulses as "Island sinks this round!". Raid: "Land 1 – 2 Sea (to 5)", the target read from the state and "Wheel in N".
 - Bottom turn bar: the die face, AP pips with "3 AP", and a big **End turn** button. The button emits `endTurn` and plays `endTurn`. It shows only for a human side to move, with AP left and outside a duel. During a duel the bar says "Duel!"; on the bot's turn it shows thinking dots. **E** on the keyboard ends the turn too.
 - The selected-animal panel shows core's `PowerInfo.name`, `line` and `note` when they're there ("Dig in", "Not enough AP"). Without them it falls back to the UI's own party text.
 - No clocks and no undo in party games. `setArenaState(null)` hides it all.
@@ -38,12 +38,14 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 
 **Who plays which sound.**
 - The UI plays `endTurn` (button or E), plus everything it already played: die, duel throws, wheel.
-- Integration plays the rest, timed with the board: step, shove, tag, splash, sinkWarn, sink, anchor, pickup, drop, treasureHome and score. `announce` plays no sound of its own, so pair it: score with "+1 Sea!", splash with "Pug overboard!".
+- Integration plays the rest, timed with the board: step, shove, tag, splash, sinkWarn, sink, anchor, pickup, drop, treasureHome, score, and the Raid pass cues toss, catch and intercept. `announce` plays no sound of its own, so pair it: score with "+1 Sea!", splash with "Pug overboard!".
 
 **Notes for integration**
 - Call `setArenaState` on every `state`. It also gives the duel and selection panels their animal names. Call it with the final state *before* `showResult`, because the result line reads the score and the animals left from it.
 - `setGameInfo` with `mode: 'sumo' | 'raid'` hides the clocks and undo.
 - `addLog` shows `'move'` records in party modes (chess still uses `addMove`).
+
+**Raid update (quick raids, pass and run, 2026-10-28):** the Raid pitch and How it works follow the new spec (bone e3, pearl d6, grab +1, home +2, first to 5, 12 rounds, pass and run, stun on tag, tide both sides). New cues: `toss` (whoosh-up), `catch` (bright pluck), `intercept` (a "nope" boing). The demo's fake Raid data and script use the new rules. The UI has no throw button: picking a throw target is integration (the `throws` on the selection, like steps).
 
 **Tests** (`ui.test.ts`, now 24): party setup (no clock, Weird Mode or FEN), text for every mode, die to AP, shove and tag wording, every party ending, step lines in party mode only, and every Phase 4 cue has a sound. `npm run typecheck` passes.
 
@@ -54,7 +56,7 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
    - **Party: banners, die, duels:** each announce tone, "5 → 4 AP", shove and tag duel questions, the Raid wheel.
    - **Party results:** all three endings.
    - **▶ Sumo turn:** roll, step, shove the Crab off the board, Sea calls a duel (you throw), Crab overboard. Then it waits for End turn (tap it or press E), the bot steps, and the edge sinks with the Seahorse.
-   - **▶ Raid turn:** the Horse grabs the pearl, the carrier walks slowly, the Crab tags it (you choose to duel), the pearl drops and flies home, then the wheel (Disco) and the next roll.
+   - **▶ Raid turn:** the Horse grabs the pearl (+1) and throws it to the Dachshund, the Octopus stuns the Horse, the Crab tags the carrier (you choose to duel), the pearl drops and flies home, then the wheel (Disco) and the next roll.
    - Choosing Sumo or Raid in **setup** and pressing Start gives a free-play fake. End turn works there; the bot takes random legal steps.
 3. The stand-in board draws the animals, water, the wobbling ring and the treasures so the scripts make sense. It is a CSS stand-in, not the world. The fake states follow the party rules (start squares, rings 3/6/9, AP 2/3/4, costs, halves). They are not core.
 

@@ -234,9 +234,9 @@ describe('Phase 4: party modes', () => {
     expect(partyLine({ winner: 'sea', reason: 'kingOverboard' }, arena(), 'sumo')).toBe("Sea wins: Land's Pug fell into the sea!");
     expect(partyLine({ winner: null, reason: 'kingOverboard' }, arena(), 'sumo')).toContain('Both kings');
     expect(partyLine({ winner: 'land', reason: 'rounds' }, arena(), 'sumo')).toBe('Round 15 is over. Land wins with more animals left (3 to 1).');
-    const raid = arena({ mode: 'raid', maxRounds: 20, score: { land: 3, sea: 1 }, target: 3 });
-    expect(partyLine({ winner: 'land', reason: 'treasure' }, raid, 'raid')).toBe('Land wins 3–1 by raiding the pearl!');
-    expect(partyLine({ winner: null, reason: 'rounds' }, { ...raid, score: { land: 1, sea: 1 } }, 'raid')).toBe('Round 20 is over, level on points (1–1).');
+    const raid = arena({ mode: 'raid', maxRounds: 12, score: { land: 5, sea: 1 }, target: 5 });
+    expect(partyLine({ winner: 'land', reason: 'treasure' }, raid, 'raid')).toBe('Land wins 5–1 by raiding the pearl!');
+    expect(partyLine({ winner: null, reason: 'rounds' }, { ...raid, score: { land: 1, sea: 1 } }, 'raid')).toBe('Round 12 is over, level on points (1–1).');
     expect(partyLine({ winner: 'land', reason: 'checkmate' }, null, 'classic')).toBeNull();
   });
 
@@ -247,7 +247,7 @@ describe('Phase 4: party modes', () => {
   });
 
   it('has a sound for every Phase 4 cue', () => {
-    const want = ['step', 'shove', 'tag', 'splash', 'sinkWarn', 'sink', 'anchor', 'pickup', 'drop', 'treasureHome', 'score', 'endTurn'] as AudioCue[];
+    const want = ['step', 'shove', 'tag', 'splash', 'sinkWarn', 'sink', 'anchor', 'pickup', 'drop', 'treasureHome', 'score', 'endTurn', 'toss', 'catch', 'intercept'] as AudioCue[];
     for (const c of want) expect(cueFn(c), c).toBeTypeOf('function');
   });
 });
