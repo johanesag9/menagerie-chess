@@ -469,16 +469,11 @@ button('sumo', 'Restore board', () => {
 });
 
 const treasures: Record<Side, TreasureState> = {
-  land: { owner: 'land', home: 'e1', square: 'e1', carrier: null },
-  sea: { owner: 'sea', home: 'd8', square: 'd8', carrier: null },
+  // Homes as in the spec (core's default tuning): bone e3, pearl d6.
+  land: { owner: 'land', home: 'e3', square: 'e3', carrier: null },
+  sea: { owner: 'sea', home: 'd6', square: 'd6', carrier: null },
 };
-let treasuresOn = false;
 function showTreasures(msg: string) {
-  if (!treasuresOn) {
-    treasuresOn = true;
-    // Raid: nobody stands on their own treasure. Hide the stand-ins on the home squares.
-    for (const sq of ['e1', 'd8'] as Square[]) tokens.get(sq)?.removeFromParent();
-  }
   world.setTreasures([treasures.land, treasures.sea]);
   log(msg);
 }
@@ -486,9 +481,9 @@ const setT = (side: Side, square: Square | null, carrier: string | null = null) 
   treasures[side] = { ...treasures[side], square, carrier };
 };
 button('raid', 'Treasures at home', () => {
-  setT('land', 'e1');
-  setT('sea', 'd8');
-  showTreasures('Bone in the bowl at e1, pearl in the shell at d8');
+  setT('land', 'e3');
+  setT('sea', 'd6');
+  showTreasures('Bone in the bowl at e3, pearl in the shell at d6');
 });
 button('raid', 'Steal pearl', () => {
   setT('sea', null, 'stand-in');
@@ -500,16 +495,16 @@ button('raid', 'Drop pearl', () => {
 });
 button('raid', 'Pearl flies home', () => {
   const was = treasures.sea.square;
-  setT('sea', 'd8');
-  showTreasures(was === 'd8' ? 'Pearl is already home' : 'Pearl flies home to d8');
+  setT('sea', 'd6');
+  showTreasures(was === 'd6' ? 'Pearl is already home' : 'Pearl flies home to d6');
 });
 button('raid', 'Drop bone', () => {
   setT('land', 'e5');
   showTreasures('Bone dropped on e5');
 });
 button('raid', 'Bone flies home', () => {
-  setT('land', 'e1');
-  showTreasures('Bone flies home to e1');
+  setT('land', 'e3');
+  showTreasures('Bone flies home to e3');
 });
 function pigeonSnatch() {
   const owner: Side = Math.random() < 0.5 ? 'land' : 'sea';
@@ -527,8 +522,26 @@ function pigeonSnatch() {
   });
 }
 button('raid', 'Pigeon snatch', pigeonSnatch);
+// Raid "pass and run": what integration does. The carrier stops holding it, it flies, then the catcher holds it.
+button('raid', 'Pass bone (caught)', async () => {
+  setT('land', null, 'sea-carrier');
+  world.setTreasures([treasures.land, treasures.sea]);
+  log('A Sea carrier on e5 throws the bone to its teammate on e7');
+  await world.flyTreasure('land', 'e5', 'e7');
+  setT('land', null, 'sea-catcher');
+  world.setTreasures([treasures.land, treasures.sea]);
+  log('Caught on e7 (the cast shows it in the catcher\'s mouth)');
+});
+button('raid', 'Pass pearl (intercepted)', async () => {
+  setT('sea', null, 'land-carrier');
+  world.setTreasures([treasures.land, treasures.sea]);
+  log('A Land carrier on c4 throws the pearl to c2; a Sea animal on c3 intercepts');
+  await world.flyTreasure('sea', 'c4', 'd6', { intercepted: true });
+  setT('sea', 'd6');
+  world.setTreasures([treasures.land, treasures.sea]);
+  log('Intercepted: the pearl is back home on d6');
+});
 button('raid', 'Hide treasures', () => {
-  treasuresOn = false;
   world.setTreasures([]);
   placeAll();
   log('Treasures hidden');
