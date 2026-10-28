@@ -304,10 +304,12 @@ export class Room {
     p.graceEndsAt = null;
     this.fx.push({ kind: 'bind', token: p.token });
     const opp = m.players[other(side)];
-    this.reply({ t: 'welcome', you: side, token: p.token, info: this.info()!, opponent: opp ? opp.presence : 'waiting' });
+    const starts = fresh && m.status === 'waiting' && !!opp;
+    const info = { ...this.info()!, ...(starts ? { status: 'playing' as const } : {}) };
+    this.reply({ t: 'welcome', you: side, token: p.token, info, opponent: opp ? opp.presence : 'waiting' });
     if (opp) this.sendPresence(other(side));
 
-    if (fresh && m.status === 'waiting' && m.players.land && m.players.sea) {
+    if (starts) {
       this.startGame();
     } else if (m.status !== 'waiting') {
       // Rejoin: the current game, the inputs this mirror lacks, then the live extras.
@@ -403,8 +405,8 @@ export class Room {
     this.deps.onMatch?.(this.match);
     for (const side of ['land', 'sea'] as Side[]) {
       const p = m.players[side]!;
-      p.sentGame = m.game;
-      if (p.presence !== 'here') {
+      if (p.presence === 'here') p.sentGame = m.game; // an away player gets this game from input 0 when back
+      else {
         p.graceEndsAt = now + TIMING.graceMs;
         this.sendPresence(other(side));
       }
