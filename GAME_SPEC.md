@@ -198,7 +198,7 @@ Two more modes use the same board, animals, powers, die and duels, but none of t
 | Mode | In one line |
 |---|---|
 | **Sumo** (Sinking Island) | Shove the enemy king into the sea while the island sinks ring by ring. |
-| **Raid** (Treasure Raid) | Steal the other side's treasure and carry it into your own half. First to 3 wins. |
+| **Raid** (Treasure Raid) | Grab the other side's treasure, pass it and run it home. First to 5 points wins. |
 
 Core runs both with its own engine (`ArenaController`) and a simple bot. The setup screen lists them next to the chess modes. Clocks, Weird Mode and FEN don't apply.
 
@@ -244,26 +244,29 @@ Core runs both with its own engine (`ArenaController`) and a simple bot. The set
 
 **Duel:** you can call one when a shove would make your animal fall in. Sinking can't be dueled.
 
-### Raid (Treasure Raid)
-**Win:** first to **3 points**. After round 20, whoever has more points wins; if they're equal, it's a draw.
+### Raid (Treasure Raid): "quick raids" with "pass and run" (Johanes approved both, 2026-10-28)
+**Win:** first to **5 points**. After round 12, whoever has more points wins; if they're equal, it's a draw.
 
 **The halves and the treasures**
 - **Halves.** Land's half is the meadow (ranks 1–4). Sea's half is the beach (ranks 5–8).
-- **Treasures.** Land's bone lies at e1, by the dog house. Sea's pearl lies at d8, by the water.
-- **No guarding the treasure.** You can't stand on your own treasure's square.
+- **Treasures.** Land's bone lies at e3, Sea's pearl at d6: close to the middle, so raids are quick.
+- **No guarding the treasure.** You can't stand on your own treasure's home square.
+- **The enemy home is closed while its treasure is away.** You can only step onto it to grab the treasure.
 
 **Stealing and scoring**
-- **Pick up (free).** Step onto the enemy treasure to pick it up.
+- **Grab (free): +1 point.** Step onto the enemy treasure at its home to pick it up. Picking up a dropped treasure scores nothing.
 - **Carrying.** The carrier moves slowly: each step costs 2 AP, and it can't use its power.
-- **Score.** Carry the treasure into your own half to score 1 point. The treasure then goes back to its home square.
+- **Bring it home: +2 points.** Carry it into your own half. The treasure then goes back to its home square.
+- **Pass and run (1 AP).** The carrier throws the treasure to a teammate in a straight line, up to 2 squares away.
+  - The catcher becomes the carrier. If it stands in its own half, the +2 scores at once.
+  - If an enemy stands on the square in between, it intercepts, and the treasure flies straight home.
 
 **Tag (1 AP).** An animal standing in its own half can tag a neighbouring enemy that is also in that half.
-- The tagged enemy is sent home, to the nearest empty square on its own back rank.
-- If it was carrying the treasure, it drops the treasure where it was tagged.
-- If the tagged enemy is the carrier, it can call a duel.
+- A tagged animal that isn't carrying is **stunned where it stands** for its next turn. A stunned animal can't be tagged again.
+- A tagged **carrier** is sent home, to the nearest empty square on its own back rank, and drops the treasure where it was tagged. It can call a duel.
 
 **Dropped treasure**
-- An enemy can pick it up again.
+- An enemy can pick it up again (no grab point).
 - If its owner's animal steps on it, the treasure flies straight home.
 
 **Powers in Raid:** the same as Normal mode.
@@ -281,10 +284,12 @@ Core runs both with its own engine (`ArenaController`) and a simple bot. The set
 
 | Result | Effect |
 |---|---|
-| **Tide** | Land animals in Sea's half are swept back one rank. |
-| **Pigeon** | It grabs a carried or dropped treasure and drops it on a random empty square. If there's none to grab, it flies past. |
+| **Tide** | Every animal standing in the other side's half is swept back one rank toward home. |
+| **Pigeon** | It grabs a carried or dropped treasure and drops it on a random empty square in its owner's half. If there's none to grab, it flies past. |
 | **Earthquake** | Every animal shifts one file. |
 | **Disco** | Every power recharges. |
+
+All of these numbers are knobs in `src/core/arena/tuning.ts`. Bot-vs-bot playtests: every game is won by someone at about round 6, Land 60–65%.
 
 ### Fine print (party modes)
 - **Both kings fall at once:** it's a draw, even on your own turn. If only your own king falls, you lose.
@@ -310,7 +315,7 @@ Core runs both with its own engine (`ArenaController`) and a simple bot. The set
 - **No guarding (Raid)**
   - Nothing can put an animal on its own treasure's home square.
   - A push, tide, earthquake or escape that would do it leaves the animal where it is instead.
-- **Sent home (Raid)**
+- **Sent home (Raid, a tagged carrier)**
   - The animal goes to the nearest free square on its back rank, by file. Ties go toward the centre.
   - If the back rank is full, it goes to the next rank in.
 - **Picking up and scoring (Raid)**

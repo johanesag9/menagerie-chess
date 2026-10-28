@@ -16,7 +16,7 @@ const other = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
 
 type TreasureChange = Extract<BoardChange, { type: 'treasure' }>;
 const TREASURE_CUE: Record<TreasureChange['event'], AudioCue> = {
-  pickup: 'pickup', drop: 'drop', return: 'treasureHome', score: 'score', snatch: 'treasureHome',
+  pickup: 'pickup', drop: 'drop', return: 'treasureHome', score: 'score', snatch: 'treasureHome', throw: 'catch', intercept: 'intercept',
 };
 
 /** BoardChange travel -> cast travel style (see `ChangeHow` in the contracts). */
@@ -124,6 +124,7 @@ export class ModeShow {
   /** Raid: a treasure is picked up, dropped, sent home or scored. */
   private async treasure(c: TreasureChange): Promise<void> {
     const before = this.treasures.find((t) => t.owner === c.owner)?.carrier ?? null;
+    if (c.event === 'throw' || c.event === 'intercept') await this.flight(c, before);
     if (before && before !== c.carrier) this.board.get(before)?.setCarrying(null);
     if (c.carrier && c.carrier !== before) this.board.get(c.carrier)?.setCarrying(c.owner);
     this.treasures = this.treasures.map((t) => (t.owner === c.owner ? { ...t, square: c.square, carrier: c.carrier } : t));
@@ -234,6 +235,20 @@ export class ModeShow {
         await Promise.all([world.playChaos('disco'), this.changes(w.changes)]);
         return;
     }
+  }
+
+  /** Raid "pass and run": the thrower winds up and the treasure arcs to the catcher, or straight home when an enemy intercepts it. */
+  private async flight(c: TreasureChange, thrower: PieceId | null): Promise<void> {
+    const { world, audio } = this.d;
+    const to = c.event === 'throw' ? (c.carrier ? this.d.squareOf?.(c.carrier) : undefined) : (c.square ?? undefined);
+    const from = c.from ?? (thrower ? this.d.squareOf?.(thrower) : undefined);
+    const actor = thrower ? this.board.get(thrower) : undefined;
+    audio.play('toss');
+    if (actor && to) await actor.toss?.(this.board.point(to));
+    actor?.setCarrying(null);
+    if (c.event === 'intercept' && c.by) this.board.get(c.by)?.emote('taunt');
+    if (from && to && world.flyTreasure) await world.flyTreasure(c.owner, from, to, { intercepted: c.event === 'intercept' });
+    else await wait(350);
   }
 
   /** Raid pigeon: it grabs a treasure (off the ground or out of a carrier's mouth) and drops it somewhere else. */

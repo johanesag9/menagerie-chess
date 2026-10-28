@@ -288,6 +288,7 @@ export class ArenaMatch {
     if (sel && this.opts) {
       if (this.opts.steps.includes(sq)) return this.submit({ type: 'step', pieceId: sel.id, to: sq });
       if (this.opts.hits.includes(sq)) return this.submit({ type: 'hit', pieceId: sel.id, target: sq });
+      if (this.opts.throws?.includes(sq)) return this.submit({ type: 'throw', pieceId: sel.id, to: sq });
       if (piece?.id === sel.id) {
         this.d.audio.play('deselect');
         return this.clearSelection();
@@ -324,8 +325,9 @@ export class ArenaMatch {
     const o = this.arena.pieceOptions(p.id);
     this.selected = p;
     this.opts = o;
-    this.targets = [...o.steps, ...o.hits];
-    this.d.world.setHighlights({ selected: p.square, legal: o.steps, captures: o.hits, targets: [], area: [] });
+    // Raid carrier: teammates it can throw to show as aim targets.
+    this.targets = [...o.steps, ...o.hits, ...(o.throws ?? [])];
+    this.d.world.setHighlights({ selected: p.square, legal: o.steps, captures: o.hits, targets: o.throws ?? [], area: [] });
     this.d.board.get(p.id)?.setSelected(true);
     this.d.ui.setSelection({ pieceId: p.id, side: p.side, kind: p.kind, power: o.power });
     this.d.audio.play('select');
