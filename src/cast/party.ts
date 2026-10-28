@@ -47,7 +47,7 @@ function ringGeometry() {
     const a = (i / 11) * TAU + r() * 0.4;
     const rad = 0.42 + r() * 0.08;
     const k = 0.07 + r() * 0.05;
-    parts.push(new THREE.DodecahedronGeometry(1, 0).scale(k * 1.3, k * 0.8, k).rotateY(r() * TAU).translate(Math.cos(a) * rad, 0.09 + r() * 0.05, Math.sin(a) * rad));
+    parts.push(new THREE.IcosahedronGeometry(1, 1).scale(k * 1.3, k * 0.75, k).rotateY(r() * TAU).translate(Math.cos(a) * rad, 0.09 + r() * 0.05, Math.sin(a) * rad));
   }
   return mergeGeometries(parts)!;
 }
@@ -337,7 +337,7 @@ export function fall(a: Actor, tl: TL, dir: THREE.Vector3): { splash: number; en
   tl.to(a.b('head'), { rx: -0.2, duration: 0.25, ease: 'sine.inOut' }, 0);
   if (octo) {
     // The octopus waves goodbye with a tentacle (right side, facing us).
-    tl.to(a.b('t1a'), { rz: 1.5, rx: 0.2, duration: 0.14, ease: 'back.out(2)' }, 0);
+    tl.to(a.b('t1a'), { rz: 2.1, rx: 0.2, duration: 0.14, ease: 'back.out(2)' }, 0);
     tl.to(a.b('t1b'), { rz: 0.6, duration: 0.09, yoyo: true, repeat: 3, ease: 'sine.inOut' }, 0.1);
     tl.to(a.b('t1c'), { rz: 0.9, duration: 0.09, yoyo: true, repeat: 3, ease: 'sine.inOut' }, 0.12);
     tl.to(a.b('t1a'), { rz: 0, rx: 0, duration: 0.15, ease: 'power2.in' }, 0.42);
