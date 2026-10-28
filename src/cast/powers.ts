@@ -105,7 +105,7 @@ const horseDoubleJump: Flourish = (a, tl, at) => {
   tl.to(body, { sy: 0.88, sx: 1.07, sz: 1.07, duration: 0.1, ease: 'power2.out' }, at);
   tl.to(base, { rx: amt(a, 0.1), duration: 0.1 }, at);
   const r = at + 0.1;
-  tl.to(base, { rx: amt(a, -0.74), py: amt(a, 0.1), duration: 0.24, ease: 'back.out(1.8)' }, r);
+  tl.to(base, { rx: amt(a, -0.74), py: amt(a, 0.16), duration: 0.24, ease: 'back.out(1.8)' }, r);
   tl.to(body, { sy: 1.07, sx: 0.96, sz: 0.96, duration: 0.2 }, r);
   tl.to(neck, { rx: -0.45, duration: 0.22 }, r);
   tl.to(a.b('tail1'), { rx: -0.85, duration: 0.22 }, r);
@@ -141,7 +141,7 @@ const goatHeadbutt: Flourish = (a, tl, at0, target) => {
   tl.to(a.face, { brows: 1, blink: 0.25, duration: 0.1 }, at);
   a.mouth('frown', tl, at);
   const r = at + 0.14;
-  tl.to(base, { rx: amt(a, -0.5), py: amt(a, 0.1), pz: -0.14, duration: 0.24, ease: 'back.out(1.6)' }, r);
+  tl.to(base, { rx: amt(a, -0.5), py: amt(a, 0.16), pz: -0.14, duration: 0.24, ease: 'back.out(1.6)' }, r);
   tl.to(head, { rx: 0.65, duration: 0.22, ease: 'power2.out' }, r);
   tl.to(body, { sy: 1.05, sx: 0.97, sz: 0.97, duration: 0.2 }, r);
   for (const n of ['legFL', 'legFR']) tl.to(a.b(n), { rx: -1.0, duration: 0.2 }, r);
@@ -161,8 +161,8 @@ const elephantStomp: Flourish = (a, tl, at) => {
   tl.to(a.b('earL'), { ry: 0.2, duration: 0.1 }, at);
   tl.to(a.b('earR'), { ry: -0.2, duration: 0.1 }, at);
   const r = at + 0.1;
-  tl.to(base, { rx: amt(a, -0.55), py: amt(a, 0.17), duration: 0.26, ease: 'back.out(1.5)' }, r);
-  tl.to(body, { sy: 1.06, sx: 0.97, sz: 0.97, duration: 0.2 }, r);
+  tl.to(base, { rx: amt(a, -0.55), py: amt(a, 0.26), duration: 0.26, ease: 'back.out(1.5)' }, r);
+  tl.to(body, { sy: 1.1, sx: 0.95, sz: 0.95, duration: 0.2 }, r);
   tl.to(tr[0], { rx: -1.3, duration: 0.24, ease: 'back.out(1.6)' }, r);
   tl.to(tr[1], { rx: -0.9, duration: 0.24 }, r + 0.02);
   tl.to(tr[2], { rx: -0.7, duration: 0.24 }, r + 0.04);

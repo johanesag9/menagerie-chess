@@ -124,7 +124,7 @@ export function impact(parent: THREE.Object3D, at: THREE.Vector3, sq: number, k 
     const life = 0.17;
     emit(parent, K.burst, 3, life, (i) => layers[i][1], (i, t, o) => {
       o.p.copy(at);
-      const s = sq * 0.95 * k * layers[i][0] * (0.55 + 0.45 * out3(t / 0.05)) * (1 + 0.15 * (t / life));
+      const s = sq * 0.7 * k * layers[i][0] * (0.55 + 0.45 * out3(t / 0.05)) * (1 + 0.15 * (t / life));
       o.s.set(s, s, 1);
       o.spin = spin + (i === 1 ? 0.18 : 0) + t * 1.5;
       o.a = t < life * 0.6 ? 1 : 1 - (t - life * 0.6) / (life * 0.4);
@@ -135,7 +135,7 @@ export function impact(parent: THREE.Object3D, at: THREE.Vector3, sq: number, k 
     const life = 0.13;
     emit(parent, K.burst, 1, life, () => COLORS.white, (_i, t, o) => {
       o.p.copy(at);
-      const s = sq * 0.6 * k * (0.6 + 0.4 * out3(t / 0.04));
+      const s = sq * 0.5 * k * (0.6 + 0.4 * out3(t / 0.04));
       o.s.set(s, s, 1);
       o.a = 1 - in2(t / life);
     });
@@ -324,7 +324,7 @@ export function kick(parent: THREE.Object3D, at: THREE.Vector3, back: THREE.Vect
 
 /** Blobs flying along an arc from `from` to `to` over `dur` (an ink squirt), then splatting. Pooled. */
 export function arc(parent: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, sq: number, o: { n?: number; dur?: number; color?: THREE.ColorRepresentation; size?: number } = {}) {
-  const n = few(o.n ?? 12), dur = o.dur ?? 0.35, size = o.size ?? 0.6;
+  const n = few(o.n ?? 12), dur = o.dur ?? 0.35, size = o.size ?? 0.85;
   const mid = from.clone().lerp(to, 0.5);
   mid.y += sq * (0.45 + (from.distanceTo(to) / sq) * 0.15);
   const curve = new THREE.QuadraticBezierCurve3(from.clone(), mid, to.clone());
