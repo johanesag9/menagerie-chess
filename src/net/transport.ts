@@ -7,8 +7,8 @@
 export interface SocketLike {
   onopen: (() => void) | null;
   onmessage: ((data: string) => void) | null;
-  /** Fires once, whether the socket closed cleanly, failed to open or was dropped. */
-  onclose: (() => void) | null;
+  /** Fires once, whether the socket closed cleanly, failed to open or was dropped. `code`: the WebSocket close code, if any. */
+  onclose: ((code?: number) => void) | null;
   send(data: string): void;
   close(): void;
 }
@@ -46,21 +46,21 @@ export function httpTransport(base: string): Transport {
       const url = root.replace(/^http/, 'ws') + path;
       const out: SocketLike = { onopen: null, onmessage: null, onclose: null, send: () => {}, close: () => {} };
       let closed = false;
-      const done = () => {
+      const done = (code?: number) => {
         if (closed) return;
         closed = true;
-        out.onclose?.();
+        out.onclose?.(code);
       };
       let ws: WebSocket;
       try {
         ws = new WebSocket(url);
       } catch {
-        setTimeout(done, 0);
+        setTimeout(() => done(), 0);
         return out;
       }
       ws.onopen = () => out.onopen?.();
       ws.onmessage = (e) => typeof e.data === 'string' && out.onmessage?.(e.data);
-      ws.onclose = done;
+      ws.onclose = (e) => done(e.code);
       ws.onerror = () => {}; // onclose follows
       out.send = (data) => ws.readyState === WebSocket.OPEN && ws.send(data);
       // A half-open socket can take a long time to report its close; treat it as closed right away.
@@ -98,9 +98,9 @@ export class ControlledTransport implements Transport {
     this.live.add(s);
     s.onopen = () => out.onopen?.();
     s.onmessage = (d) => out.onmessage?.(d);
-    s.onclose = () => {
+    s.onclose = (code) => {
       this.live.delete(s);
-      out.onclose?.();
+      out.onclose?.(code);
     };
     out.send = (d) => s.send(d);
     out.close = () => s.close();

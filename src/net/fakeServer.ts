@@ -12,7 +12,7 @@ import type {
 import type { GameOptions, Side } from '../contracts/types';
 import { ArenaGame } from '../core/arena/game';
 import { MenagerieGame } from '../core/controller';
-import { Match, other } from './match';
+import { HANDS, Match, other } from './match';
 import { ControlledTransport, type HttpReply, type SocketLike, type Transport } from './transport';
 
 export interface FakeServerOptions {
@@ -51,13 +51,14 @@ class Conn {
     const data = JSON.stringify(msg);
     this.server.later(() => !this.dead && this.client.onmessage?.(data));
   }
-  close(): void {
+  /** `code`: the close code the client sees (server/REPORT.md: 4001 replaced, 4003 bad token, 4004 full, 4005 left). */
+  close(code?: number): void {
     if (!this.open) return;
     this.open = false;
     this.server.later(() => {
       if (this.dead) return;
       this.dead = true;
-      this.client.onclose?.();
+      this.client.onclose?.(code);
     });
   }
 }
@@ -73,8 +74,8 @@ class Room {
   presence: Record<Side, Presence> = { land: 'waiting', sea: 'waiting' };
   graceEndsAt: Record<Side, number | null> = { land: null, sea: null };
   private graceTimers: Record<Side, ReturnType<typeof setTimeout> | null> = { land: null, sea: null };
-  /** The first throw of a round, held back until the second arrives. */
-  heldThrow: SentInput | null = null;
+  /** This round's throws, held back until both are in. A second throw from the same side replaces its first. */
+  held: Partial<Record<Side, SentInput>> = {};
   rematch = new Set<Side>();
   timer: { side: Side; endsAt: number; handle: ReturnType<typeof setTimeout> } | null = null;
   private fallback: ReturnType<typeof setTimeout> | null = null;
@@ -93,14 +94,14 @@ class Room {
     let side: Side | undefined;
     if (token) {
       side = (['land', 'sea'] as Side[]).find((s) => this.tokens[s] === token);
-      if (!side) return this.refuse(conn, 'This invite has expired');
+      if (!side) return this.refuse(conn, 'This invite is for someone else', 4003);
     } else {
       side = (['land', 'sea'] as Side[]).find((s) => !this.tokens[s]);
-      if (!side) return this.refuse(conn, 'This game is full');
+      if (!side) return this.refuse(conn, 'This game is full', 4004);
       this.tokens[side] = this.server.token();
     }
     const old = this.conns[side];
-    if (old && old !== conn) old.close();
+    if (old && old !== conn) old.close(4001);
     this.conns[side] = conn;
     this.server.sides.set(conn, { room: this, side });
     const wasHere = this.presence[side];
@@ -122,9 +123,9 @@ class Room {
     if (wasHere !== 'here') this.send(other(side), this.presenceMsg(other(side)));
   }
 
-  private refuse(conn: Conn, reason: string): void {
+  private refuse(conn: Conn, reason: string, code: number): void {
     conn.send({ t: 'error', reason });
-    conn.close();
+    conn.close(code);
   }
 
   message(side: Side, msg: ClientMsg): void {
@@ -167,7 +168,7 @@ class Room {
     const conn = this.conns[side];
     this.markLeft(side);
     this.conns[side] = null;
-    conn?.close();
+    conn?.close(4005);
   }
 
   private markLeft(side: Side): void {
@@ -198,7 +199,7 @@ class Room {
     this.match?.dispose();
     this.match = Match.create(this.options, { game: () => new MenagerieGame(), arena: () => new ArenaGame() });
     this.inputs = [];
-    this.heldThrow = null;
+    this.held = {};
     this.rematch.clear();
     this.match.core.ctl.newGame(this.options);
     for (const s of ['land', 'sea'] as Side[]) this.send(s, this.startMsg(s));
@@ -213,30 +214,37 @@ class Room {
   }
 
   /**
-   * Check and apply an input (from a player or the room), then broadcast it. The first throw of a round is held
-   * back until the second arrives; then both go out together, attacker first. Returns a reason when refused.
+   * Check and apply an input (from a player or the room), then broadcast it. Throws are held until both are in;
+   * then both apply and go out together, attacker first. Returns a reason when refused.
    */
   private take(input: NetInput, auto?: SentInput['auto']): string | null {
     const match = this.match!;
-    const before = match.awaiting();
+    const sent: SentInput = auto ? { input, auto } : { input };
+    if (input.k === 'throw') return this.takeThrow(input, sent);
     const bad = match.check(input) ?? match.apply(input);
     if (bad) return bad;
-    const sent: SentInput = auto ? { input, auto } : { input };
-    if (input.k === 'throw' && before.kind === 'throw') {
-      if (before.sides.length === 2) {
-        this.heldThrow = sent;
-        this.armTimer(); // the timer moves to the side that still has to throw
-        return null;
-      }
-      const held = this.heldThrow;
-      this.heldThrow = null;
-      const pair = held ? [held, sent] : [sent];
-      if (held && held.input.side !== before.info.attacker) pair.reverse();
-      this.broadcast(pair);
+    this.held = {};
+    this.broadcast([sent]);
+    return null;
+  }
+
+  private takeThrow(input: Extract<NetInput, { k: 'throw' }>, sent: SentInput): string | null {
+    const match = this.match!;
+    const d = match.duel;
+    if (match.isOver() || d?.stage !== 'throw') return 'No throw now';
+    if (input.side !== d.info.attacker && input.side !== d.info.defender) return 'Not in this duel';
+    if (!HANDS.includes(input.hand)) return 'Not a hand';
+    this.held[input.side] = sent;
+    d.thrown[input.side] = true; // so the timer moves on to whoever still has to throw
+    const a = this.held[d.info.attacker];
+    const b = this.held[d.info.defender];
+    if (!a || !b) {
+      this.armTimer();
       return null;
     }
-    this.heldThrow = null;
-    this.broadcast([sent]);
+    this.held = {};
+    for (const t of [a, b]) match.apply(t.input);
+    this.broadcast([a, b]);
     return null;
   }
 
@@ -355,6 +363,13 @@ class Room {
     this.send('sea', msg);
   }
 
+  /** The room is deleted (24 h without a move): sockets close with 4010. */
+  expire(): void {
+    for (const side of ['land', 'sea'] as Side[]) this.conns[side]?.close(4010);
+    this.conns = { land: null, sea: null };
+    this.dispose();
+  }
+
   /** Close a player's socket as if their network went away. */
   drop(side: Side): void {
     this.conns[side]?.close();
@@ -410,6 +425,12 @@ export class FakeServer {
     this.rooms.get(code)?.timeout();
   }
 
+  /** Delete a room as the 24-hour expiry would. */
+  expire(code: string): void {
+    this.rooms.get(code)?.expire();
+    this.rooms.delete(code);
+  }
+
   room(code: string): Room | undefined {
     return this.rooms.get(code);
   }
@@ -457,7 +478,7 @@ export class FakeServer {
       room.tokens[you] = this.token();
       this.rooms.set(room.code, room);
       const res: CreateRoomResponse = { room: room.code, token: room.tokens[you]!, you };
-      return { status: 200, body: res };
+      return { status: 201, body: res };
     }
     const m = /^\/rooms\/([A-Z0-9]{6})$/.exec(path);
     if (method === 'GET' && m) {
@@ -471,6 +492,12 @@ export class FakeServer {
     const client: SocketLike = { onopen: null, onmessage: null, onclose: null, send: () => {}, close: () => {} };
     const m = /^\/rooms\/([A-Z0-9]{6})\/ws$/.exec(path);
     const conn = new Conn(this, client);
+    if (!m || !this.rooms.has(m[1])) {
+      // Like the real Worker: an unknown room is refused at the upgrade (HTTP 404), so the socket never opens.
+      conn.open = false;
+      this.later(() => client.onclose?.(1006));
+      return client;
+    }
     let joined = false;
     client.send = (data) => {
       if (!conn.open) return;
@@ -508,7 +535,7 @@ export class FakeServer {
         conn.open = false;
         if (conn.dead) return;
         conn.dead = true;
-        client.onclose?.();
+        client.onclose?.(1000);
         const at = this.sides.get(conn);
         this.sides.delete(conn);
         if (at) at.room.closed(conn, at.side);
@@ -516,9 +543,9 @@ export class FakeServer {
     };
     // Server-side close (refuse, replaced, drop) also has to tell the room.
     const serverClose = conn.close.bind(conn);
-    conn.close = () => {
+    conn.close = (code?: number) => {
       if (!conn.open) return;
-      serverClose();
+      serverClose(code);
       this.later(() => {
         const at = this.sides.get(conn);
         this.sides.delete(conn);

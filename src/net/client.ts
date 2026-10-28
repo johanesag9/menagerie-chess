@@ -36,6 +36,17 @@ const PONG_WAIT_MS = 10_000;
 const GIVE_UP_MS = 150_000;
 /** The catch-up after `welcome` ends at the first message that isn't `start`/`inputs`, or after this long. */
 const CATCHUP_MS = 400;
+/**
+ * Close codes that mean "don't come back" (server/REPORT.md). 4008 (too many messages) is not one: we reconnect.
+ * `forget`: the token is no good any more.
+ */
+const FINAL_CLOSE: Record<number, { reason: string; forget: boolean }> = {
+  4001: { reason: 'This game was opened somewhere else', forget: false },
+  4003: { reason: 'This invite is for someone else', forget: true },
+  4004: { reason: 'This game is full', forget: true },
+  4005: { reason: 'You left this game', forget: true },
+  4010: { reason: 'This game has expired', forget: true },
+};
 
 export const tokenKey = (room: string) => `mc.online.${room}`;
 
@@ -108,7 +119,7 @@ export class OnlineClientImpl implements OnlineClient {
 
   async createRoom(options: GameOptions): Promise<{ room: string; link: string; you: Side }> {
     const res = await this.request('POST', '/rooms', { options });
-    if (res.status !== 200) throw new Error(errorText(res.body) ?? `Could not create a room (${res.status})`);
+    if (res.status < 200 || res.status > 299) throw new Error(errorText(res.body) ?? `Could not create a room (${res.status})`);
     const { room, token, you } = res.body as CreateRoomResponse;
     this.saveToken(room, token);
     await this.join(room);
@@ -118,7 +129,7 @@ export class OnlineClientImpl implements OnlineClient {
   async roomInfo(room: string): Promise<RoomInfo | null> {
     const res = await this.request('GET', `/rooms/${encodeURIComponent(room)}`);
     if (res.status === 404) return null;
-    if (res.status !== 200) throw new Error(errorText(res.body) ?? `Could not look up the room (${res.status})`);
+    if (res.status < 200 || res.status > 299) throw new Error(errorText(res.body) ?? `Could not look up the room (${res.status})`);
     return res.body as RoomInfo;
   }
 
@@ -219,8 +230,10 @@ export class OnlineClientImpl implements OnlineClient {
     this.welcomed = false;
     const s = this.deps.transport.connect(`/rooms/${encodeURIComponent(this._room)}/ws`);
     this.socket = s;
+    let opened = false;
     s.onopen = () => {
       if (this.socket !== s) return;
+      opened = true;
       if (this.joining) this.joining.opened = true;
       const token = this.loadToken(this._room!);
       this.raw({ t: 'join', token, have: this.mirror?.applied ?? 0 });
@@ -236,10 +249,10 @@ export class OnlineClientImpl implements OnlineClient {
       this.heard();
       this.onMessage(msg);
     };
-    s.onclose = () => {
+    s.onclose = (code) => {
       if (this.socket !== s) return;
       this.socket = null;
-      this.lost();
+      this.lost(code, opened);
     };
   }
 
@@ -251,18 +264,25 @@ export class OnlineClientImpl implements OnlineClient {
     if (this.isOpen) this.raw(msg);
   }
 
-  private lost(): void {
+  private lost(code: number | undefined, opened: boolean): void {
     this.welcomed = false;
     this.stopPing();
     this.endCatchup();
     if (!this.wantOpen) return;
+    const final = code === undefined ? undefined : FINAL_CLOSE[code];
+    if (final) return this.giveUp(final.reason, final.forget);
     const j = this.joining;
     if (j && !j.opened) {
-      // Never got through on the first try: the server is down or unreachable.
+      // Never got through on the first try: the room is gone (404 at the upgrade) or the server is unreachable.
       this.joining = null;
       this.stop('offline');
-      j.reject(new Error('Could not reach the game server'));
+      this.roomGone().then((gone) => j.reject(new Error(gone ? 'This invite has expired' : 'Could not reach the game server')));
       return;
+    }
+    // A refused upgrade looks just like a network failure; ask whether the room still exists.
+    if (!opened) {
+      const room = this._room;
+      this.roomGone().then((gone) => gone && this._room === room && this.wantOpen && this.giveUp('This game has ended', true));
     }
     this.downSince ??= this.now();
     const gaveUp = this.now() - this.downSince > GIVE_UP_MS;
@@ -273,6 +293,28 @@ export class OnlineClientImpl implements OnlineClient {
       this.retry = null;
       this.open();
     }, wait);
+  }
+
+  /** True only when the server answered that the room doesn't exist (not on a network failure). */
+  private async roomGone(): Promise<boolean> {
+    const room = this._room;
+    if (!room) return false;
+    try {
+      const res = await this.deps.transport.request('GET', `/rooms/${encodeURIComponent(room)}`);
+      return res.status === 404;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The room said not to come back: stop for good. */
+  private giveUp(reason: string, forget: boolean): void {
+    if (forget && this._room) this.forgetToken(this._room);
+    const j = this.joining;
+    this.joining = null;
+    this.stop('offline');
+    this.events.emit('error', { reason });
+    j?.reject(new Error(reason));
   }
 
   private closeSocket(): void {

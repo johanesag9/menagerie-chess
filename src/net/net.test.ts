@@ -89,6 +89,64 @@ describe('rooms', () => {
   });
 });
 
+describe('the room says stop', () => {
+  it('a dead invite link rejects join with "expired"', async () => {
+    const server = new FakeServer({ latencyMs: 0, now });
+    const c = createOnlineWith({ transport: server.transport(), storage: memStore(), now });
+    const j = c.join('ZZZZZZ');
+    j.catch(() => {});
+    await flush();
+    await expect(j).rejects.toThrow('This invite has expired');
+    expect(c.connection).toBe('offline');
+  });
+
+  it('opened somewhere else (4001): the old screen stops and keeps its token', async () => {
+    const { b, server, sb, room } = await setup('classic');
+    const errors = record<OnlineEventMap>(b, ['error']);
+    const b2 = createOnlineWith({ transport: server.transport(), storage: sb, now });
+    b2.join(room);
+    await flush(20_000);
+    expect(b.connection).toBe('offline');
+    expect(errors.log.map((e) => e.payload)).toEqual([{ reason: 'This game was opened somewhere else' }]);
+    expect(b2.connection).toBe('online');
+    expect(sb.map.has(`mc.online.${room}`)).toBe(true);
+  });
+
+  it('room expired while connected (4010): stop and forget the token', async () => {
+    const { a, server, sa, room } = await setup('classic');
+    const errors = record<OnlineEventMap>(a, ['error']);
+    server.expire(room);
+    await flush(20_000);
+    expect(a.connection).toBe('offline');
+    expect(errors.log.map((e) => e.payload)).toEqual([{ reason: 'This game has expired' }]);
+    expect(sa.map.has(`mc.online.${room}`)).toBe(false);
+  });
+
+  it('room gone while away: a refused reconnect asks roomInfo, then stops', async () => {
+    const { b, tb, server, sb, room } = await setup('classic');
+    const errors = record<OnlineEventMap>(b, ['error']);
+    tb.offline = true;
+    tb.drop();
+    await flush();
+    server.expire(room);
+    tb.offline = false;
+    await flush(5000);
+    expect(b.connection).toBe('offline');
+    expect(errors.log.map((e) => e.payload)).toEqual([{ reason: 'This game has ended' }]);
+    expect(sb.map.has(`mc.online.${room}`)).toBe(false);
+    await flush(60_000);
+    expect(server.received.filter((r) => r.side === 'sea' && r.msg.t === 'join')).toHaveLength(0); // no more tries got in
+  });
+
+  it('a network drop (no close code) keeps retrying', async () => {
+    const { b, tb } = await setup('classic');
+    tb.offline = true;
+    tb.drop();
+    await flush(40_000);
+    expect(b.connection).toBe('reconnecting');
+  });
+});
+
 describe('mirror and proxies', () => {
   it('reads come from the mirror (same seed, forced untimed, no Weird Mode)', async () => {
     const { a, b, server, room } = await setup('classic');
@@ -273,6 +331,31 @@ describe('duels', () => {
     expect(auto.log[0].payload).toEqual({ side: 'sea', why: 'timeout' });
     expect(ended.log[0].payload).toMatchObject({ called: false, winner: 'attacker' });
     expect(b.game.fen).toBe(a.game.fen);
+  });
+});
+
+describe('re-throw', () => {
+  it('a second throw replaces the held one (handy after a reload)', async () => {
+    const { a, b, server } = await setup('crazy', { seed: () => 5 });
+    for (const [c, from, to] of [[a, 'e2', 'e4'], [b, 'd7', 'd5'], [a, 'e4', 'd5']] as const) {
+      c.game.act({ type: 'move', from, to });
+      await flush();
+    }
+    b.game.answerDuel(true);
+    await flush();
+    const mark = server.sent.length;
+    b.sendInput({ k: 'throw', side: 'sea', hand: 'rock' });
+    b.sendInput({ k: 'throw', side: 'sea', hand: 'scissors' });
+    await flush();
+    a.game.throwHand('land', 'paper');
+    await flush();
+    const out = server.sent.slice(mark).find((x) => x.side === 'sea' && x.msg.t === 'inputs')!.msg as Extract<ServerMsg, { t: 'inputs' }>;
+    expect(out.list.map((x) => x.input)).toEqual([
+      { k: 'throw', side: 'land', hand: 'paper' },
+      { k: 'throw', side: 'sea', hand: 'scissors' },
+    ]);
+    expect(server.sent.slice(mark).some((x) => x.msg.t === 'reject')).toBe(false);
+    expect(a.game.fen).toBe(b.game.fen);
   });
 });
 
