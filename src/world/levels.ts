@@ -108,7 +108,7 @@ export class SandLevels {
   private s = new THREE.Vector3();
   private axis = new THREE.Vector3();
   private col = new THREE.Color();
-  private wetCol = new THREE.Color('#9fb3c4');
+  private wetCol = new THREE.Color('#9c8462');
 
   constructor(private c: LevelsContext) {
     this.group.name = 'sand-levels';
@@ -282,8 +282,13 @@ export class SandLevels {
             if (p < 0) shown = false;
             else if (k === 2) {
               // The castle pops up out of the tier.
-              sy = ease.elasticOut(p) * 0.92 + 0.08 * p;
-              sxz = 0.65 + 0.35 * ease.backOut(Math.min(1, p * 1.3));
+              // Grows with an overshoot, then a little jiggle as it settles.
+              if (p < 0.6) sy = Math.max(0.02, ease.backOut(p / 0.6));
+              else {
+                const u = (p - 0.6) / 0.4;
+                sy = 1 + 0.05 * Math.sin(u * Math.PI * 2) * (1 - u);
+              }
+              sxz = 0.6 + 0.4 * ease.backOut(Math.min(1, p / 0.5));
               contrib = sy;
               if (!(s.fx & 1)) {
                 s.fx |= 1;
@@ -668,8 +673,10 @@ function castleGeometry(): THREE.BufferGeometry {
   }
   // The flag spot: a little hole on the back-left turret.
   parts.push(paint(new THREE.CylinderGeometry(0.028, 0.028, 0.006, 10).translate(FLAG_SPOT.x, th + 0.002, FLAG_SPOT.z), () => tmp.copy(door)));
-  const merged = mergeGeometries(parts)!;
-  for (const g of parts) g.dispose();
+  // RoundedBoxGeometry has no index; the rest do. Merge them all unindexed.
+  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  const merged = mergeGeometries(flat)!;
+  for (const g of new Set([...parts, ...flat])) g.dispose();
   return merged;
 }
 
