@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import type { Emitter } from '../contracts/emitter';
 import type { Square, WorldEventMap } from '../contracts/types';
-import { rayToBoardXZ, xzToSquare } from './coords';
+import { rayToBoardXZ, rayToColumns, xzToSquare } from './coords';
 import { TapTracker } from './tap';
 
 export class Picker {
@@ -29,7 +29,12 @@ export class Picker {
     private boardGroup: THREE.Object3D,
     private pieceLayer: THREE.Object3D,
     private events: Emitter<WorldEventMap>,
-    private hooks: { canPick: () => boolean; onPress: () => void },
+    private hooks: {
+      canPick: () => boolean;
+      onPress: () => void;
+      /** Phase 6: raised squares (height of each top above the board, index file * 8 + rank) and their half width. */
+      columns?: () => { heights: ArrayLike<number>; half: number } | null;
+    },
   ) {
     this.raycaster.camera = camera as THREE.PerspectiveCamera;
     const on = <K extends keyof HTMLElementEventMap>(name: K, fn: (e: HTMLElementEventMap[K]) => void) => {
@@ -77,8 +82,15 @@ export class Picker {
     this.boardGroup.updateMatrixWorld();
     this.inv.copy(this.boardGroup.matrixWorld).invert();
     this.ray.copy(this.raycaster.ray).applyMatrix4(this.inv);
-    const p = rayToBoardXZ(this.ray.origin.x, this.ray.origin.y, this.ray.origin.z, this.ray.direction.x, this.ray.direction.y, this.ray.direction.z);
-    const boardSquare = p ? xzToSquare(p.x, p.z) : null;
+    const o = this.ray.origin, d = this.ray.direction;
+    const p = rayToBoardXZ(o.x, o.y, o.z, d.x, d.y, d.z);
+    let boardSquare = p ? xzToSquare(p.x, p.z) : null;
+    // Phase 6: a raised square's top or side is hit before the flat board behind it.
+    const cols = this.hooks.columns?.();
+    if (cols) {
+      const hit = rayToColumns(o.x, o.y, o.z, d.x, d.y, d.z, cols.heights, cols.half);
+      if (hit) boardSquare = hit.square;
+    }
 
     // Pieces win: the square of the piece that was hit.
     if (this.pieceLayer.children.length) {

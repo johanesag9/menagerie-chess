@@ -306,7 +306,9 @@ export class ModeHud {
       h('div', { class: 'mc-sel__text' },
         h('span', { class: 'mc-sel__name' }, h('strong', { text: t.name }), h('span', { text: ` · ${name}` })),
         h('span', { class: 'mc-sel__line', text: t.line })),
-      p.available ? use : h('span', { class: 'mc-sel__why', 'data-reason': p.reason ?? '', text: p.note ?? POWER_BLOCK_TEXT[p.reason ?? 'wrongPhase'] }));
+      // Phase 6 castle: traits are always on; there is nothing to press.
+      mode === 'castle' ? h('span', { class: 'mc-sel__why', 'data-reason': 'trait', text: 'Always on' })
+        : p.available ? use : h('span', { class: 'mc-sel__why', 'data-reason': p.reason ?? '', text: p.note ?? POWER_BLOCK_TEXT[p.reason ?? 'wrongPhase'] }));
     this.selPanel.setAttribute('aria-label', `${name}: ${t.name}. ${t.line}`);
   }
 }

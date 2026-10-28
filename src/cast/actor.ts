@@ -24,6 +24,7 @@ import { charge, FLOURISH, genericFlourish, POWER_INTENSITY } from './powers';
 import { travelStyle } from './travels';
 import * as party from './party';
 import { catchHop, noteToss, releaseFx, takeCatch, tossPose } from './toss';
+import { work as playWork, type WorkKind } from './work';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -1025,6 +1026,22 @@ export class Actor implements PieceActor {
       b = b.parent;
     }
     return k || 1;
+  }
+
+  // ---------- Phase 6 ----------
+
+  /**
+   * Build (pat sand onto `target`) or dig (scoop it off), in this animal's style; resolves when the sand lands or leaves.
+   * `target` = the square's walkable top (world space). Cast extra: `opts.water` (Stepping Stones: the stone rises out of,
+   * or sinks into, the sea) swaps the sand pat for a splash and bubbles.
+   */
+  work(kind: WorkKind, target: THREE.Vector3, opts?: { water?: boolean }): Promise<void> {
+    if (this.disposed || this.gone) return Promise.resolve();
+    const tl = this.begin();
+    if (this.rm) tl.timeScale(RM_SPEED);
+    const { hit, end } = playWork(this, tl, kind, this.toParent(target), !!opts?.water);
+    this.relaxFaceAndPose(tl, end);
+    return this.promiseAt(tl, hit);
   }
 
   get selected(): boolean { return this.selT === 1; }

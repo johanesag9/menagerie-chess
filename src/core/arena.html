@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Party playtest · Menagerie Chess</title>
+    <title>Arena playtest · Menagerie Chess</title>
     <link rel="stylesheet" href="./demo.css" />
     <link rel="stylesheet" href="./arena.css" />
   </head>
   <body>
     <header class="top">
-      <h1>Party modes playtest</h1>
-      <p class="note">Dev tool for Sumo and Raid. Flat 2D board with emoji stand-ins, not the real game look.</p>
+      <h1>Arena modes playtest</h1>
+      <p class="note">Dev tool for Sumo, Raid, Sandcastle King and Stepping Stones. Flat 2D board with emoji stand-ins, not the real game look.</p>
     </header>
 
     <main class="layout">
@@ -27,6 +27,10 @@
         <div class="turnbar">
           <span class="ap" id="ap" aria-label="Action points"></span>
           <button type="button" class="primary endturn" id="end-turn">End turn</button>
+        </div>
+        <div class="shapebar" id="shapebar" role="group" aria-label="Shape the board" hidden>
+          <button type="button" id="shape-up" aria-pressed="true">Build</button>
+          <button type="button" id="shape-down" aria-pressed="false">Dig</button>
         </div>
         <div class="prompt" id="prompt" hidden>
           <span id="prompt-text"></span>
@@ -45,6 +49,8 @@
             <legend>Mode</legend>
             <label><input type="radio" name="mode" value="sumo" checked /> Sumo</label>
             <label><input type="radio" name="mode" value="raid" /> Raid</label>
+            <label><input type="radio" name="mode" value="castle" /> Sandcastle King</label>
+            <label><input type="radio" name="mode" value="stones" /> Stepping Stones</label>
           </fieldset>
           <label>Opponent
             <select id="opponent">
@@ -76,7 +82,7 @@
         </div>
 
         <details>
-          <summary>Tuning (Sumo and Raid, applies to new games)</summary>
+          <summary>Tuning (all four modes, applies to new games)</summary>
           <div class="tuning" id="tuning"></div>
           <div class="actions">
             <button type="button" class="primary" id="tuning-apply">Apply and start a new game</button>
@@ -96,6 +102,10 @@
           Blue = water. Dashed wobbling squares sink at the end of this round. 🦴 Land's bone, 🦪 Sea's pearl; a small
           badge on an animal means it carries one. 🥣 / 🐚 = home squares. ⚓ dug in, 💫 stunned. 🏺 / ⚫ = blocks.
           A gold dot = power still ready.
+          Sandcastle King: the number on a square is its level (darker = higher), 🏰 = a castle (level 3), 👑 = an animal
+          standing on one. Green rings = squares to build on (+1 / +2), brown rings = squares to dig (−1).
+          Stepping Stones: blue = water, 🫧 = changed last turn (can't be raised or sunk now). Green rings = raise,
+          brown rings = sink.
         </p>
       </section>
     </main>

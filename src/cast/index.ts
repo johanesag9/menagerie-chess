@@ -95,6 +95,10 @@ export function createCast(opts: CastOptions): CastWithExtras {
       scene.add(tmp);
       try {
         await renderer.compileAsync(scene, camera);
+        // Draw them once too (off-screen, so nothing shows): some GPUs only finish a pipeline on its first draw,
+        // which stalled the first splash by ~100ms.
+        tmp.traverse((o) => { o.frustumCulled = false; });
+        renderer.render(scene, camera);
       } finally {
         tmp.removeFromParent();
         tmp.traverse((o) => {

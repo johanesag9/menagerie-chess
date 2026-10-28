@@ -4,7 +4,7 @@ import { BOT_LEVELS, TIME_CONTROLS } from '../config';
 import type { UiCtx, View } from '../ctx';
 import { button, h, radioGroup, toggle } from '../dom';
 import { animalIcon } from '../icons';
-import { ALL_MODES, ARENA_MODES, MODE_TEXT } from '../modeText';
+import { ALL_MODES, ARENA_MODES, BOARD_MODES, MODE_TEXT } from '../modeText';
 import { howToSheet } from './howto';
 import { checkFen, loadSetup, saveSetup, toGameOptions, type SetupChoice } from '../settings';
 
@@ -16,13 +16,16 @@ export function setupScreen(ctx: UiCtx): View & { setBusy(on: boolean): void } {
   const mode = radioGroup<PlayMode>('Mode',
     ALL_MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name, sub: MODE_TEXT[m].pitch, html: MODE_TEXT[m].icon })),
     choice.mode, (v) => { choice.mode = v; save(); syncMode(); }, 'mc-modes');
-  // One radio group (arrow keys run through all five), shown as two rows: chess, then the party modes.
+  // One radio group (arrow keys run through all seven), shown as three rows: chess, the party modes, the board games.
   const opts = Array.from(mode.el.children) as HTMLElement[];
   const party = opts.filter((b) => (ARENA_MODES as string[]).includes(b.dataset.value ?? ''));
+  const boardGames = opts.filter((b) => (BOARD_MODES as string[]).includes(b.dataset.value ?? ''));
   mode.el.replaceChildren(
-    h('div', { class: 'mc-modes__row' }, ...opts.filter((b) => !party.includes(b))),
+    h('div', { class: 'mc-modes__row' }, ...opts.filter((b) => !party.includes(b) && !boardGames.includes(b))),
     h('div', { class: 'mc-modes__party' }, h('span', { class: 'mc-label', text: 'Party modes' }), h('span', { class: 'mc-modes__tag', text: 'Not chess' })),
-    h('div', { class: 'mc-modes__row mc-modes__row--party' }, ...party));
+    h('div', { class: 'mc-modes__row mc-modes__row--party' }, ...party),
+    h('div', { class: 'mc-modes__party' }, h('span', { class: 'mc-label', text: 'Board games' }), h('span', { class: 'mc-modes__tag mc-modes__tag--board', text: 'No luck' })),
+    h('div', { class: 'mc-modes__row mc-modes__row--party mc-modes__row--board' }, ...boardGames));
   const howTo = howToSheet();
   const howBtn = button('How it works', { variant: 'ghost', class: 'mc-btn--sm', onClick: () => howTo.open(choice.mode, panel, howBtn) });
 
@@ -75,7 +78,8 @@ export function setupScreen(ctx: UiCtx): View & { setBusy(on: boolean): void } {
     const label = start.querySelector('.mc-btn__text');
     if (label && !busy) label.textContent = choice.opponent === 'online' ? 'Invite a friend' : 'Start game';
   }
-  // Crazy has the Wheel of Chaos instead of Weird Mode. Party modes have no clock, Weird Mode or FEN; online games neither.
+  syncBot();
+  // Crazy has the Wheel of Chaos instead of Weird Mode. Party modes and board games have no clock, Weird Mode or FEN; online games neither.
   const timeLabel = h('h3', { class: 'mc-label', text: 'Time' });
   function syncMode() {
     const party = isArenaMode(choice.mode);

@@ -1,4 +1,5 @@
 import type { AudioCue, EmoteKind, PieceKind, PowerKind, Side, WheelOutcome } from '../contracts/types';
+import { BOARD_CUES, BOARD_TRIM } from './boardCues';
 import { midi, noise, tone, voice, type Out } from './synth';
 
 /** One synthesized sound. `t` is the AudioContext start time. */
@@ -505,7 +506,7 @@ const online: Record<'friendJoined' | 'friendLeft' | 'timeLow', CueFn> = {
   },
 };
 
-const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos, ...party, ...online };
+const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos, ...party, ...online, ...BOARD_CUES };
 for (const p of Object.keys(powers) as PowerKind[]) table[`power:${p}`] = powers[p];
 for (const w of Object.keys(wheel) as WheelOutcome[]) table[`chaos:${w}`] = wheel[w];
 for (const side of ['land', 'sea'] as const) {
@@ -601,6 +602,8 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   friendJoined: 1.4,
   friendLeft: 1.55,
   timeLow: 1.88,
+  // Phase 6 (boardCues.ts)
+  ...BOARD_TRIM,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;

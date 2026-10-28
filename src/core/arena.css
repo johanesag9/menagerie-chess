@@ -1,4 +1,4 @@
-/* Party modes playtest: extras on top of demo.css. */
+/* Arena playtest (party and board-game modes): extras on top of demo.css. */
 :root {
   --water: #3c8fd0;
   --water-deep: #1f5f9a;
@@ -38,3 +38,37 @@
 .sq.falls::after { content: '💦'; position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: flex-end; padding: 2px; font-size: 40%; background: rgba(60, 143, 208, 0.35); pointer-events: none; z-index: 3; }
 .sq.throw::before { content: ''; position: absolute; inset: 4%; border-radius: 50%; border: 4px dashed #e0a800; pointer-events: none; z-index: 2; }
 .sq .cost.throw { background: #b07d00; }
+
+/* ---------- Phase 6: board-game modes ---------- */
+.sq.lv1 { box-shadow: inset 0 0 0 999px rgba(150, 105, 50, 0.16); }
+.sq.lv2 { box-shadow: inset 0 0 0 999px rgba(150, 105, 50, 0.34); }
+.sq.lv3 { box-shadow: inset 0 0 0 999px rgba(150, 105, 50, 0.52); }
+.sq.selected.lv1, .sq.selected.lv2, .sq.selected.lv3 { box-shadow: inset 0 0 0 4px var(--sel), inset 0 0 0 999px rgba(150, 105, 50, 0.3); }
+.sq .level { position: absolute; right: 3px; top: 2px; z-index: 3; font: 800 12px/1 system-ui, sans-serif; color: #5a3a14; pointer-events: none; }
+.sq .level.castle { font-size: 15px; right: 1px; top: 1px; }
+.piece .crowned { position: absolute; top: -18%; left: 50%; transform: translateX(-50%); font-size: 46%; z-index: 4; }
+.sq.shape-up::before, .sq.shape-down::before { content: ''; position: absolute; inset: 8%; border-radius: 50%; border: 4px solid #2f8f3a; pointer-events: none; z-index: 2; }
+.sq.shape-down::before { border-color: #8a5a33; border-style: dashed; }
+.sq .cost.shape { background: #2f8f3a; }
+.sq .cost.shape.down { background: #8a5a33; }
+.sq.fresh::after { content: '🫧'; position: absolute; left: 2px; top: 1px; font-size: 32%; pointer-events: none; z-index: 1; }
+.sq.fresh { outline: 2px dotted rgba(255, 255, 255, 0.9); outline-offset: -5px; }
+
+.shapebar { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-radius: 14px; overflow: hidden; border: 2px solid var(--ink); }
+.shapebar button { min-height: 52px; border: 0; border-radius: 0; font-size: 18px; background: #fff; }
+.shapebar button + button { border-left: 2px solid var(--ink); }
+.shapebar button[aria-pressed='true'] { background: var(--ink); color: #fff; }
+.shapebar button:disabled { opacity: 0.35; }
+
+.draft-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 460px; }
+.draft-grid button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; min-height: 88px; font-weight: 600; }
+.draft-grid .emoji { font-size: 28px; line-height: 1; }
+.draft-grid .trait { font-size: 12px; color: var(--sea); }
+.draft-grid .line { font-size: 11px; font-weight: 400; color: var(--muted); line-height: 1.2; }
+@media (max-width: 420px) {
+  .draft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .draft-grid button { min-height: 72px; }
+  .draft-grid .line { display: none; }
+}
+.overlay .picks { font-size: 14px; }
+.modebar .pill.crown, .status.crown { background: #fff1c2; border-color: #e0a800; }

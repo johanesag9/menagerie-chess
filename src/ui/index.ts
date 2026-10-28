@@ -10,7 +10,7 @@
  */
 import './styles.css';
 import type {
-  ActionRecord, ArenaState, AudioEngine, Card, DieEffect, DieValue, DuelInfo, EmoteKind, GameEventMap, Hand, JokerOutcome, ModeState, PieceId, PieceState, SelectionInfo, GameOptions, GameOver,
+  ActionRecord, ArenaState, AudioEngine, BoardMode, Card, DieEffect, DieValue, DuelInfo, EmoteKind, GameEventMap, Hand, JokerOutcome, ModeState, PieceId, PieceState, SelectionInfo, GameOptions, GameOver,
   MoveResult, PieceKind, PlayMode, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent, WheelOutcome,
 } from '../contracts/types';
 import type { CreateUi } from '../contracts/factories';
@@ -20,6 +20,7 @@ import { FALLBACK_SKINS, type SkinCatalog } from './config';
 import type { UiCtx, View } from './ctx';
 import { focusables, h } from './dom';
 import { Chaos } from './screens/chaos';
+import { DraftPicker } from './screens/draft';
 import { Hud } from './screens/hud';
 import { customizeScreen, settingsScreen } from './screens/options';
 import { InviteView, JoinDialog } from './screens/online';
@@ -61,6 +62,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   private setup: ReturnType<typeof setupScreen>;
   private invite: InviteView;
   private join: JoinDialog;
+  private draft: DraftPicker;
   private errorEl: HTMLElement;
   private current: Screen | null = null;
   /** Where settings/customize return to. */
@@ -88,6 +90,8 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     };
     this.chaos = new Chaos(this, { kindOf: (id) => this.hud.mode.kindOf(id), handRect: (side) => this.hud.mode.handRect(side) });
     this.hud.el.append(this.chaos.el);
+    this.draft = new DraftPicker(this);
+    this.hud.el.append(this.draft.el);
     this.result = new ResultView(this);
     this.promo = new PromotionPicker(this);
     this.setup = setupScreen(this);
@@ -125,7 +129,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   }
 
   get arenaState(): ArenaState | null {
-    return this.hud.arena.arenaState;
+    return this.hud.arenaState;
   }
 
   updateSettings(patch: Partial<Settings>): void {
@@ -171,6 +175,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     if (screen === 'title' || screen === 'setup') {
       this.inGame = false;
       this.chaos.reset();
+      this.draft.cancel();
     }
     if (screen === 'game') this.inGame = true;
     // Rematch / new game from the result screen: start clean.
@@ -233,6 +238,8 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
 
   showResult(result: GameOver): void {
     this.chaos.reset(); // an open question gets its default answer; the game is over
+    this.draft.cancel();
+    this.hud.board.setShape(null);
     this.hud.mode.setPrompt(null);
     this.hud.mode.setSelection(null);
     this.result.set(result);
@@ -247,6 +254,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.cleanup.forEach((f) => f());
     this.hud.dispose();
     this.chaos.dispose();
+    this.draft.cancel();
     this.promo.dispose();
     this.join.dispose();
     this.layer.remove();
@@ -344,6 +352,19 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   announce(text: string, tone: 'info' | 'good' | 'bad' = 'info'): Promise<void> {
     return this.chaos.announce(text, tone);
   }
+
+  // ---------- Phase 6: board-game modes ----------
+
+  setShapeMode(state: { dir: 'up' | 'down'; canUp: boolean; canDown: boolean; mode: BoardMode; upBy?: number } | null): void {
+    this.hud.board.setShape(state);
+  }
+
+  askDraft(side: Side, opts: { picks: Record<Side, PieceKind[]>; size: number; traits: Record<PieceKind, { name: string; line: string }>; hotSeat: boolean }): Promise<PieceKind> {
+    this.hud.board.setTraits(opts.traits);
+    const o = this._gameInfo?.opponent;
+    return this.draft.ask(side, opts, o?.type === 'bot' ? (o.botSide === 'land' ? 'sea' : 'land') : null);
+  }
+
 
   // ---------- Phase 5: online with a friend ----------
 
@@ -461,6 +482,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
       if (this.promo.open) return this.trap(e, this.promo.el);
       const cur = this.current;
       if (cur === 'game' && this.chaos.dialog) return this.trap(e, this.chaos.dialog);
+      if (cur === 'game' && this.draft.open && e.key === 'Tab') return this.trap(e, this.draft.sheet);
       // Esc while aiming a power or card cancels it instead of pausing.
       if (cur === 'game' && e.key === 'Escape' && this.hud.mode.promptOpen) {
         e.preventDefault();

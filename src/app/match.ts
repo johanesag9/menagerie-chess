@@ -677,6 +677,7 @@ export class Match {
     ui.on('undo', () => !this.party && this.game.undo());
     ui.on('resign', () => (this.party ? this.arena.resign() : this.game.resign(this.remote ? other(this.remote) : this.game.turn)));
     ui.on('endTurn', () => this.party && this.arena.endTurn());
+    ui.on('shapeMode', ({ dir }) => this.party && this.arena.setShapeDir(dir));
     ui.on('emote', ({ emote }) => {
       // Online: the room sends it back to both screens.
       if (this.onlineFlow.active) return this.deps.online.sendEmote(emote);

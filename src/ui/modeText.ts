@@ -2,6 +2,7 @@
  * Every word the UI shows about the game modes (Phase 3), in one place like config.ts.
  * Rules text follows GAME_SPEC.md "Game modes". If the spec changes, change it here too.
  */
+import { BOARD_HOW_TO, BOARD_MODES, CASTLE_TRAIT_BY_POWER, STONES_POWER_TEXT } from './boardText';
 import type { ArenaMode, CardSuit, DieValue, GameMode, Hand, JokerOutcome, PieceKind, PlayMode, PowerBlock, PowerKind, Side, WheelOutcome } from '../contracts/types';
 
 export const MODE_TEXT: Record<PlayMode, { name: string; pitch: string; icon: string }> = {
@@ -11,12 +12,17 @@ export const MODE_TEXT: Record<PlayMode, { name: string; pitch: string; icon: st
   // Phase 4: party modes (not chess).
   sumo: { name: 'Sumo', pitch: 'Shove the enemy king into the sea while the island sinks.', icon: '🏝️' },
   raid: { name: 'Raid', pitch: "Grab their treasure, pass and run it home. First to 5 wins.", icon: '🦴' },
+  // Phase 6: board-game modes (no luck), a third row on setup.
+  castle: { name: 'Sandcastle King', pitch: 'Move, then build or dig. Hold a castle until your next turn to win.', icon: '🏰' },
+  stones: { name: 'Stepping Stones', pitch: 'Raise stones, sink theirs, and be first across the sea.', icon: '🪨' },
 };
 
 export const MODES: GameMode[] = ['classic', 'normal', 'crazy'];
 /** Phase 4: the party modes, shown as a second row on the setup screen. */
 export const ARENA_MODES: ArenaMode[] = ['sumo', 'raid'];
-export const ALL_MODES: PlayMode[] = [...MODES, ...ARENA_MODES];
+/** Phase 6: the board-game modes, a third row. */
+export { BOARD_MODES };
+export const ALL_MODES: PlayMode[] = [...MODES, ...ARENA_MODES, ...BOARD_MODES];
 
 export const POWER_TEXT: Record<PowerKind, { name: string; line: string; flavour: Record<Side, string> }> = {
   sidestep: { name: 'Sidestep', line: 'Move one square left or right, to an empty square. No capture.', flavour: { land: 'The pup digs across.', sea: 'The crab scuttles.' } },
@@ -221,6 +227,9 @@ export const HOW_TO: Record<PlayMode, { title: string; items: string[] }[]> = {
       '🪩 Disco: every power recharges.',
     ] },
   ],
+  // Phase 6: GAME_SPEC "Board-game modes" (boardText.ts).
+  castle: BOARD_HOW_TO.castle,
+  stones: BOARD_HOW_TO.stones,
 };
 
 // ---------- Phase 5: online with a friend ----------
@@ -263,6 +272,9 @@ export const ARENA_POWER_TEXT: Record<ArenaMode, Partial<Record<PowerKind, { nam
     stomp: { name: 'Stomp', line: 'Stun every neighbouring enemy (not the king) for its next turn.' },
     block: { name: 'Block', line: 'Block an empty square for 4 turns.' },
   },
+  // Phase 6: castle traits and stones powers (boardText.ts). Core's own name/line still win.
+  castle: CASTLE_TRAIT_BY_POWER,
+  stones: STONES_POWER_TEXT,
 };
 
 /** The Wheel of Chaos in Raid moves animals and treasures, not chess pieces. */

@@ -81,7 +81,7 @@ export interface SetupChoice {
   weirdMode: boolean;
 }
 
-const PLAY_MODES: PlayMode[] = ['classic', 'normal', 'crazy', 'sumo', 'raid'];
+const PLAY_MODES: PlayMode[] = ['classic', 'normal', 'crazy', 'sumo', 'raid', 'castle', 'stones'];
 
 export const defaultSetup = (): SetupChoice => ({ mode: 'classic', opponent: 'bot', level: 3, side: 'land', timeId: 'none', weirdMode: false });
 

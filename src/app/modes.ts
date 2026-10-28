@@ -2,10 +2,11 @@
  * Normal and Crazy on the 3D board: how each power, card, bonus, bonk and wheel result plays out.
  * Every function here runs inside a Director task, so core stays paused until it resolves.
  */
+import gsap from 'gsap';
 import { Vector3 } from 'three';
 import type {
-  AudioCue, AudioEngine, BoardChange, Cast, CardResult, ChangeHow, DuelInfo, GameEventMap, MoveStyle, PieceActor, PieceId, PowerResult, Side, Square,
-  TreasureState, Ui, World,
+  AudioCue, AudioEngine, BoardChange, Cast, CardResult, ChangeHow, DuelInfo, GameEventMap, Level, MoveStyle, PieceActor, PieceId, PowerResult, Side,
+  Square, TreasureState, Ui, World,
 } from '../contracts/types';
 import { TIDE_TIMING } from '../world';
 import type { PieceBoard } from './pieces';
@@ -39,6 +40,10 @@ export interface ModeShowDeps {
 export class ModeShow {
   /** Raid: the treasures as the changes play out (reset from every `state` snapshot). */
   treasures: TreasureState[] = [];
+  /** Sandcastle King: square levels as the changes play out (reset from every `state` snapshot). */
+  levels: Partial<Record<Square, Level>> = {};
+  /** Stepping Stones: water squares as the changes play out (reset from every `state` snapshot). */
+  sunk = new Set<Square>();
 
   constructor(private d: ModeShowDeps) {}
 
@@ -60,7 +65,7 @@ export class ModeShow {
         if (!a) return;
         if (c.how === 'pushed') void a.hit();
         if (c.how === 'swept' || c.how === 'quake') void a.hit();
-        await a.moveTo(this.board.point(c.to), { style: STYLE[c.how] });
+        await a.moveTo(this.board.point(c.to), { style: this.styleFor(a, c.how, c.to) });
         return;
       }
       case 'capture': {
@@ -118,7 +123,63 @@ export class ModeShow {
       }
       case 'treasure':
         return this.treasure(c);
+      // Phase 6
+      case 'level': {
+        // The animal's build or dig gesture has already played (ArenaMatch); the tier lands now and anyone on it rides.
+        audio.play(c.cause === 'build' ? 'build' : c.cause === 'dig' ? 'dig' : 'tideWear');
+        this.setLevel(c.square, c.to);
+        await this.ride([c.square]);
+        return;
+      }
+      case 'water': {
+        if (c.sunk) this.sunk.add(c.square);
+        else this.sunk.delete(c.square);
+        this.d.world.setSunk([...this.sunk], []);
+        audio.play(c.sunk ? 'sinkStone' : 'raise');
+        await wait(this.d.reducedMotion() ? 150 : 450);
+        return;
+      }
+      case 'enter': {
+        const a = this.board.spawn(c.piece, false);
+        audio.play('draftPick');
+        await a.appear();
+        return;
+      }
     }
+  }
+
+  /** Steps between heights hop (climb); a long flat step is a knight hop (Leaper). */
+  private styleFor(a: PieceActor, how: ChangeHow, to: Square): MoveStyle {
+    if (how !== 'step' && how !== 'jump') return STYLE[how];
+    const dest = this.board.local(to);
+    if (Math.abs(dest.y - a.object.position.y) > 0.01) return 'climb';
+    if (how === 'step' && a.object.position.distanceTo(dest) > this.d.world.squareSize * 1.6) return 'jump';
+    return STYLE[how];
+  }
+
+  /** Sandcastle King: one square's tier changes now (the world animates it). */
+  setLevel(sq: Square, level: Level): void {
+    if (level) this.levels[sq] = level;
+    else delete this.levels[sq];
+    this.d.world.setLevels?.({ ...this.levels });
+  }
+
+  /** Animals standing on squares whose height changed ride up or down with the sand. */
+  async ride(squares: Square[]): Promise<void> {
+    const rides: Promise<unknown>[] = [];
+    for (const sq of squares) {
+      const id = this.pieceOn(sq);
+      const a = id ? this.board.get(id) : undefined;
+      if (!a) continue;
+      const y = this.board.local(sq).y;
+      if (Math.abs(a.object.position.y - y) < 1e-4) continue;
+      rides.push(gsap.to(a.object.position, { y, duration: this.d.reducedMotion() ? 0.15 : 0.4, ease: 'power2.inOut' }).then());
+    }
+    await Promise.all(rides);
+  }
+
+  private pieceOn(sq: Square): PieceId | undefined {
+    return this.board.all().find((a) => this.d.squareOf?.(a.id) === sq)?.id;
   }
 
   /** Raid: a treasure is picked up, dropped, sent home or scored. */

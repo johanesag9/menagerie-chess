@@ -19,7 +19,7 @@ const GAME_EVENT_SET: Record<keyof GameEventMap, true> = {
 };
 const ARENA_EVENT_SET: Record<keyof ArenaEventMap, true> = {
   started: true, state: true, rolled: true, acted: true, sank: true, wheelSpun: true, duelOffered: true, duelRound: true,
-  duelEnded: true, bonked: true, turnChanged: true, logged: true, gameOver: true, botThinking: true,
+  duelEnded: true, bonked: true, turnChanged: true, logged: true, gameOver: true, botThinking: true, tide: true, crowned: true,
 };
 export const GAME_EVENTS = Object.keys(GAME_EVENT_SET) as (keyof GameEventMap)[];
 export const ARENA_EVENTS = Object.keys(ARENA_EVENT_SET) as (keyof ArenaEventMap)[];

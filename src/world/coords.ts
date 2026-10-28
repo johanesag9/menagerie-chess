@@ -46,3 +46,56 @@ export function rayToBoardXZ(
   if (t <= 0) return null;
   return { x: ox + dx * t, z: oz + dz * t };
 }
+
+/** Phase 6: index of a square in the per-square arrays (file * 8 + rank). */
+export function squareIdx(sq: Square): number {
+  const { file, rank } = squareIndex(sq);
+  return file * 8 + rank;
+}
+
+/** Phase 6: the square for a per-square array index (file * 8 + rank). */
+export function idxSquare(i: number): Square {
+  return `${FILES[Math.floor(i / 8)]}${RANKS[i % 8]}` as Square;
+}
+
+/**
+ * Phase 6 (castle): the nearest raised square column a ray (board-local) hits, top or side.
+ * `heights[i]` = how far square i's top stands above the board (0 = flat, skipped). `half` = half the column width.
+ * Returns the square and the ray distance, or null when no column is hit.
+ */
+export function rayToColumns(
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+  heights: ArrayLike<number>, half: number,
+): { square: Square; t: number } | null {
+  let best: { square: Square; t: number } | null = null;
+  for (let i = 0; i < 64; i++) {
+    const h = heights[i];
+    if (!(h > 0.005)) continue;
+    const cx = (Math.floor(i / 8) - 3.5) * SQUARE, cz = (3.5 - (i % 8)) * SQUARE;
+    const t = slab(ox, oy, oz, dx, dy, dz, cx - half, BOARD_TOP - 0.2, cz - half, cx + half, BOARD_TOP + h, cz + half);
+    if (t !== null && (!best || t < best.t)) best = { square: idxSquare(i), t };
+  }
+  return best;
+}
+
+/** Ray vs axis-aligned box (slab method): the entry distance, or null on a miss. */
+function slab(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
+  x0: number, y0: number, z0: number, x1: number, y1: number, z1: number,
+): number | null {
+  let tmin = 0, tmax = Infinity;
+  const axes: [number, number, number, number][] = [[ox, dx, x0, x1], [oy, dy, y0, y1], [oz, dz, z0, z1]];
+  for (const [o, d, lo, hi] of axes) {
+    if (Math.abs(d) < 1e-9) {
+      if (o < lo || o > hi) return null;
+      continue;
+    }
+    let a = (lo - o) / d, b = (hi - o) / d;
+    if (a > b) [a, b] = [b, a];
+    tmin = Math.max(tmin, a);
+    tmax = Math.min(tmax, b);
+    if (tmin > tmax) return null;
+  }
+  return tmin;
+}

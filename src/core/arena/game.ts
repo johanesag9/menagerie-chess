@@ -1,20 +1,29 @@
 /**
- * ArenaGame: the ArenaController for Sumo and Raid (GAME_SPEC "Party modes"). No chess here.
+ * ArenaGame: the ArenaController for Sumo and Raid (GAME_SPEC "Party modes"), and since Phase 6 for the board-game
+ * modes Sandcastle King ('castle') and Stepping Stones ('stones'). No chess here.
  * Event order (types.ts `ArenaController`, docs/phase4-briefs.md "Event order"):
  *   newGame: started · state · turnChanged · rolled · state
  *   an action: [duelOffered, duelRound*, duelEnded] · acted · logged · state      (a bonk: bonked · logged · state)
  *   end of a turn (AP spent, nothing left to do, or endTurn): [sank · logged] · state · gameOver? · turnChanged ·
  *     [wheelSpun · logged] · rolled · state
  *   a game that ends mid-turn: acted · logged · state (phase 'over') · gameOver
+ * Board-game modes (no die, AP or duels; see board.ts for the stages):
+ *   newGame: started · state · turnChanged · state
+ *   an action: acted · logged · state · [crowned]; the turn ends by itself after its last stage
+ *   end of a turn: [tide · logged] · state · gameOver? · turnChanged · [castle win check: state · gameOver] · state · [crowned]
+ *   a side with nothing to do: logged (pass), then the end of its turn
  */
 import { Emitter } from '../../contracts/emitter';
 import type {
   ActionRecord, ActResponse, ArenaAction, ArenaController, ArenaEventMap, ArenaPieceOptions, ArenaState, BotLevel, DuelInfo,
-  GameOptions, GameOver, Hand, PieceId, Side, Square, TargetStep, Unsubscribe,
+  GameOptions, GameOver, Hand, Level, PieceId, PieceKind, Side, Square, TargetStep, Unsubscribe,
 } from '../../contracts/types';
-import { POWER_OF } from '../../contracts/types';
+import { isArenaMode, POWER_OF } from '../../contracts/types';
+import type { ShapeOption } from '../../contracts/types';
 import { opposite, sqIndex, sqName } from '../modes/state';
+import { beginTurn, boardEndTurn, completingRound, isBoard, passLabel, startWin, turnOverResult } from './board';
 import { createLocalArenaBot, type ArenaBotEngine } from './botClient';
+import { castlePushes, castleShapes, crownedOf, nextTideIn, TRAITS } from './castle';
 import { wantsDuel } from './bot';
 import {
   ANIMAL, actionKey, applyAction, powerLine, powerNote, carriedBy, cloneArena, createArenaState, detectOver, endTurn, findA, hasAnyAction,
@@ -22,6 +31,7 @@ import {
   powerOptions, pushLine, roll, roundCapResult, sentHomeSquare, shoveLine, sinkingNext,
   spinWheel, stepCostOf, stepTargets, stompShoves, stunVictims, throwTargets, wheelDue, type AState,
 } from './rules';
+import { headbuttDest, pathLength, STONES_POWERS, stonesPowerArea, stonesPowerBlock, stonesPowerOptions, stonesShapes } from './stones';
 import { getArenaTuning } from './tuning';
 
 export interface ArenaDeps {
@@ -57,6 +67,8 @@ export class ArenaGame implements ArenaController {
   private botToken = 0;
   private botThinking = false;
   private heldBotStep: (() => void) | null = null;
+  /** Castle: the crown last announced with `crowned` ('' = none). */
+  private crownKey = '';
 
   constructor(private deps: ArenaDeps = {}) {
     this.newGame({ mode: 'sumo', opponent: { type: 'local' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false }, true);
@@ -84,6 +96,7 @@ export class ArenaGame implements ArenaController {
   }
 
   pieceOptions(pieceId: PieceId): ArenaPieceOptions {
+    if (isBoard(this.s.mode)) return this.boardPieceOptions(pieceId);
     const s = this.s;
     const i = findA(s, pieceId);
     const p = s.board[i];
@@ -109,6 +122,46 @@ export class ArenaGame implements ArenaController {
     };
   }
 
+  /** Phase 6: what the side to move can build/dig (castle, next to the mover) or raise/sink (stones) right now. */
+  shapeOptions(): ShapeOption[] {
+    const s = this.s;
+    if (!isBoard(s.mode) || !this.humanCanAct()) return [];
+    if (s.mode === 'castle') {
+      const builder = s.board[findA(s, s.mover ?? '')]?.kind === 'r';
+      return castleShapes(s).map((o) => ({ square: sqName(o.sq), up: o.up, down: o.down, ...(builder && o.up ? { upBy: o.upBy } : {}) }));
+    }
+    return stonesShapes(s).map((o) => ({ square: sqName(o.sq), up: o.up, down: o.down }));
+  }
+
+  private boardPieceOptions(pieceId: PieceId): ArenaPieceOptions {
+    const s = this.s;
+    const i = findA(s, pieceId);
+    const p = s.board[i];
+    const kind = p?.kind ?? (pieceId.split('-')[1] as keyof typeof POWER_OF);
+    const power = POWER_OF[kind] ?? 'sidestep';
+    const text = s.mode === 'castle' ? TRAITS[kind] : STONES_POWERS[kind];
+    const info = text ? { name: text.name, line: text.line } : {};
+    // Castle traits are always on: there is no power action, so `available` is simply true.
+    const none: ArenaPieceOptions = {
+      steps: [], hits: [], stepCost: 0, hitCosts: [],
+      power: s.mode === 'castle' && p ? { power, available: true, ...info } : { power, available: false, reason: 'noTarget', ...info },
+    };
+    if (!p) return none;
+    if (!this.humanCanAct() || p.side !== s.turn) {
+      if (s.mode === 'castle') return none;
+      return { ...none, power: { power, available: false, reason: s.over ? 'wrongPhase' : 'notYourTurn', ...info } };
+    }
+    const mine = legalActions(s).filter((a) => 'pieceId' in a && a.pieceId === pieceId && a.type !== 'shape');
+    const steps = mine.flatMap((a) => (a.type === 'step' ? [a.to] : []));
+    const hits = mine.flatMap((a) => (a.type === 'hit' ? [a.target] : []));
+    if (s.mode === 'castle') return { steps, hits, stepCost: 0, hitCosts: hits.map(() => 0), power: { power, available: true, ...info } };
+    const block = stonesPowerBlock(s, i);
+    return {
+      steps, hits: [], stepCost: 0, hitCosts: [],
+      power: block ? { power, available: false, reason: block, ...info } : { power, available: true, ...info },
+    };
+  }
+
   targets(pending: { pieceId: PieceId; targets: Square[] }): TargetStep {
     const lists = this.humanCanAct() ? this.powerLists(pending.pieceId) : [];
     const picked = pending.targets;
@@ -128,6 +181,7 @@ export class ArenaGame implements ArenaController {
     const s = this.s;
     let falls: Square[] = [];
     const p = s.board[findA(s, pending.pieceId)];
+    if (isBoard(s.mode)) return { area: this.boardArea(pending), falls };
     if (p && s.mode === 'sumo' && !s.over) {
       const action: ArenaAction = 'hit' in pending
         ? { type: 'hit', pieceId: pending.pieceId, target: pending.hit }
@@ -138,6 +192,21 @@ export class ArenaGame implements ArenaController {
       }
     }
     return { area, falls };
+  }
+
+  /** Castle hit: the victim and where it lands. Stones powers: the squares they touch. */
+  private boardArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): Square[] {
+    const s = this.s;
+    const i = findA(s, pending.pieceId);
+    if (i < 0) return [];
+    if ('hit' in pending) {
+      const h = s.mode === 'castle' ? castlePushes(s, i).find((x) => sqName(x.victim) === pending.hit) : undefined;
+      return h ? [pending.hit, sqName(h.to)] : [];
+    }
+    if (s.mode !== 'stones') return [];
+    const t = pending.targets.map(sqIndex);
+    if (s.board[i]!.kind === 'b' && t.length && !headbuttDest(s, i, t[0])) return [pending.targets[0]];
+    return stonesPowerArea(s, i, t).map(sqName);
   }
 
   private area(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): Square[] {
@@ -184,7 +253,7 @@ export class ArenaGame implements ArenaController {
   // ---------- game flow ----------
 
   newGame(options: GameOptions, silent = false): void {
-    if (options.mode !== 'sumo' && options.mode !== 'raid') throw new Error(`ArenaController runs 'sumo' or 'raid', not '${options.mode}'`);
+    if (!isArenaMode(options.mode)) throw new Error(`ArenaController runs 'sumo', 'raid', 'castle' or 'stones', not '${options.mode}'`);
     const seed = options.seed ?? Math.floor(Math.random() * 2 ** 31);
     this.cancelBot();
     this.options = { ...options, opponent: { ...options.opponent }, time: { ...options.time } };
@@ -193,6 +262,7 @@ export class ArenaGame implements ArenaController {
     this.records = [];
     this.duel = null;
     this.paused = false;
+    this.crownKey = '';
     if (silent) return;
     if (options.opponent.type === 'bot' && !this.bot) this.bot = this.deps.createBot?.() ?? createLocalArenaBot();
     this.events.emit('started', { options: this.options, state: this.snapshot() });
@@ -258,7 +328,8 @@ export class ArenaGame implements ArenaController {
   /** Every complete target list for this animal's power right now. */
   private powerLists(pieceId: PieceId): Square[][] {
     const i = findA(this.s, pieceId);
-    return i < 0 ? [] : powerOptions(this.s, i).map((t) => t.map(sqName));
+    if (i < 0 || this.s.mode === 'castle') return [];
+    return (this.s.mode === 'stones' ? stonesPowerOptions(this.s, i) : powerOptions(this.s, i)).map((t) => t.map(sqName));
   }
 
   /** Validate and run an action for the side to move (human or bot). */
@@ -279,7 +350,7 @@ export class ArenaGame implements ArenaController {
   /** A clean copy of the legal action matching `input`, or null. */
   private normalise(a: ArenaAction): ArenaAction | null {
     if (!a || typeof a !== 'object') return null;
-    if (a.type === 'endTurn') return { type: 'endTurn' };
+    if (a.type === 'endTurn' && !isBoard(this.s.mode)) return { type: 'endTurn' };
     const key = actionKey(a.type === 'power' ? { ...a, targets: Array.isArray(a.targets) ? a.targets : [] } : a);
     const found = legalActions(this.s).find((x) => actionKey(x) === key);
     return found ?? null;
@@ -288,7 +359,7 @@ export class ArenaGame implements ArenaController {
   /** Can the defender duel this? A shove (or Headbutt) that would make one of its animals fall in; a tag on its carrier. */
   private duelFor(a: ArenaAction): DuelInfo | null {
     const s = this.s;
-    if (a.type === 'endTurn' || a.type === 'step') return null;
+    if (isBoard(s.mode) || a.type === 'endTurn' || a.type === 'step' || a.type === 'pick' || a.type === 'shape') return null;
     const i = findA(s, a.pieceId);
     const attacker = s.board[i]!;
     const defender = opposite(attacker.side);
@@ -379,6 +450,7 @@ export class ArenaGame implements ArenaController {
 
   /** Apply a legal action, then send acted · logged · state, then end the turn or the game if due. */
   private resolve(action: ArenaAction): void {
+    if (isBoard(this.s.mode)) return this.resolveBoard(action);
     const s = this.s;
     const mover = s.turn;
     if (action.type === 'endTurn') {
@@ -401,6 +473,79 @@ export class ArenaGame implements ArenaController {
     this.afterAction();
   }
 
+  /** Board-game modes: acted · logged · state · [crowned], then the turn ends after its last stage. */
+  private resolveBoard(action: ArenaAction): void {
+    const s = this.s;
+    const mover = s.turn;
+    const out = applyAction(s, action);
+    if (action.type === 'endTurn') {
+      const record: ActionRecord = { side: mover, kind: 'pass', label: out.label };
+      this.records.push(record);
+      this.events.emit('logged', record);
+      return this.endOfTurn();
+    }
+    const record: ActionRecord = { side: mover, kind: action.type === 'power' ? 'power' : 'move', label: out.label };
+    this.records.push(record);
+    this.events.emit('acted', { side: mover, action, ...(out.power ? { power: out.power } : {}), changes: out.changes });
+    this.events.emit('logged', record);
+    this.events.emit('state', this.snapshot());
+    if (s.over) return this.finish(s.over);
+    this.syncCrowned();
+    if (out.done) return this.endOfTurn();
+    this.maybeBot();
+  }
+
+  /** Castle: announce the crown when it changes (an animal stepped onto a castle, or the crown was lost: null). */
+  private syncCrowned(): void {
+    if (this.s.mode !== 'castle') return;
+    const c = crownedOf(this.s);
+    const key = c ? `${c.id}@${c.sq}` : '';
+    if (key === this.crownKey) return;
+    this.crownKey = key;
+    this.events.emit('crowned', { crowned: c ? { pieceId: c.id, side: c.side, square: sqName(c.sq) } : null });
+  }
+
+  /** [tide · logged] · state · gameOver? · turnChanged, then the next turn starts. */
+  private endOfBoardTurn(): void {
+    const s = this.s;
+    const e = this.events;
+    const completed = completingRound(s);
+    const tide = boardEndTurn(s);
+    if (tide) {
+      const record: ActionRecord = { side: null, kind: 'wheel', label: tide.label };
+      this.records.push(record);
+      e.emit('tide', { changes: tide.changes });
+      e.emit('logged', record);
+    }
+    const over = turnOverResult(s, completed);
+    if (over) s.over = over;
+    e.emit('state', this.snapshot());
+    if (over) return this.finish(over);
+    e.emit('turnChanged', { turn: s.turn });
+    this.startBoardTurn();
+  }
+
+  /** [castle: still on a castle? state · gameOver] · state · [crowned]; a side with nothing to do passes. */
+  private startBoardTurn(): void {
+    const s = this.s;
+    const e = this.events;
+    const win = startWin(s);
+    if (win) {
+      s.over = win;
+      e.emit('state', this.snapshot());
+      return this.finish(win);
+    }
+    const any = beginTurn(s);
+    e.emit('state', this.snapshot());
+    this.syncCrowned();
+    if (any) return this.maybeBot();
+    s.passes++;
+    const record: ActionRecord = { side: s.turn, kind: 'pass', label: passLabel(s.turn) };
+    this.records.push(record);
+    e.emit('logged', record);
+    this.endOfBoardTurn();
+  }
+
   /** After an action: the turn ends when AP is spent or nothing is left to do; else the side (or bot) goes on. */
   private afterAction(): void {
     if (this.s.ap <= 0 || !hasAnyAction(this.s)) return this.endOfTurn();
@@ -409,6 +554,7 @@ export class ArenaGame implements ArenaController {
 
   /** [sank · logged] · state · gameOver? · turnChanged, then the next turn starts. */
   private endOfTurn(): void {
+    if (isBoard(this.s.mode)) return this.endOfBoardTurn();
     const s = this.s;
     const e = this.events;
     const mover = s.turn;
@@ -431,6 +577,7 @@ export class ArenaGame implements ArenaController {
 
   /** [wheelSpun · logged] · rolled · state; a side with nothing to do passes. */
   private startTurn(): void {
+    if (isBoard(this.s.mode)) return this.startBoardTurn();
     const s = this.s;
     const e = this.events;
     if (wheelDue(s)) {
@@ -489,6 +636,31 @@ export class ArenaGame implements ArenaController {
       target: raid ? s.cfg.pointsToWin : 0,
       nextWheelIn: nextWheelIn(s),
       maxRounds: maxRoundsOf(s),
+      ...(isBoard(s.mode) ? this.boardSnapshot() : {}),
+    };
+  }
+
+  /** The Phase 6 fields of the snapshot. */
+  private boardSnapshot(): Partial<ArenaState> {
+    const s = this.s;
+    const base: Partial<ArenaState> = {
+      phase: s.over ? 'over' : s.stage === 'pick' ? 'draft' : 'action',
+      die: null, ap: 0, duelTokens: { land: 0, sea: 0 },
+      ...(s.over ? {} : { stage: s.stage ?? undefined }),
+      mover: s.mover,
+    };
+    if (s.mode === 'stones') {
+      return { ...base, fresh: s.cfg.freshRule ? s.fresh.map(sqName) : [], pathLength: { land: pathLength(s, 'land'), sea: pathLength(s, 'sea') } };
+    }
+    const levels: Partial<Record<Square, Level>> = {};
+    for (let i = 0; i < 64; i++) if (s.levels[i]) levels[sqName(i)] = s.levels[i] as Level;
+    const c = crownedOf(s);
+    return {
+      ...base,
+      levels,
+      crowned: c ? { pieceId: c.id, side: c.side, square: sqName(c.sq) } : null,
+      nextTideIn: nextTideIn(s),
+      draft: { size: s.cfg.castleDraftSize, picks: { land: s.picks.land.slice(), sea: s.picks.sea.slice() } },
     };
   }
 
@@ -496,6 +668,7 @@ export class ArenaGame implements ArenaController {
     const s = this.s;
     const p = s.board[findA(s, pieceId)];
     if (!p) return '';
+    if (s.mode === 'stones') return stonesPrompt(p.kind, n, complete);
     const power = powerName(s.mode, p.kind);
     if (complete) {
       if (p.kind === 'p' && s.mode === 'sumo') return 'Dig in: it can\'t be pushed until your next turn';
@@ -545,6 +718,8 @@ export class ArenaGame implements ArenaController {
     if (!need || this.botThinking) return;
     const level = (this.options.opponent as { level: BotLevel }).level;
     const cfg = this.s.cfg.bot[level] ?? this.s.cfg.bot[4];
+    const levels = this.s.mode === 'castle' ? this.s.cfg.castleBot : this.s.mode === 'stones' ? this.s.cfg.stonesBot : null;
+    const board = levels ? levels[level] ?? levels[4] : null;
     const token = ++this.botToken;
     this.setBotThinking(true);
 
@@ -552,6 +727,9 @@ export class ArenaGame implements ArenaController {
     if (need === 'duel') {
       const d = this.duel!;
       pick = Promise.resolve(wantsDuel(this.s, d.info, () => this.botRandom()));
+    } else if (board) {
+      const req = { state: cloneArena(this.s), level: cfg, board, seed: Math.floor(this.botRandom() * 2 ** 31) };
+      pick = (this.bot ?? (this.bot = createLocalArenaBot())).decide(req);
     } else if (this.botRandom() < cfg.randomChance) {
       const all = legalActions(this.s, true);
       const pool = all.length > 1 ? all.filter((a) => a.type !== 'endTurn') : all;
@@ -560,7 +738,7 @@ export class ArenaGame implements ArenaController {
       const req = { state: cloneArena(this.s), level: cfg, seed: Math.floor(this.botRandom() * 2 ** 31) };
       pick = (this.bot ?? (this.bot = createLocalArenaBot())).decide(req);
     }
-    void Promise.all([pick, wait(this.deps.botMinThinkMs ?? cfg.minThinkMs)]).then(([choice]) => {
+    void Promise.all([pick, wait(this.deps.botMinThinkMs ?? board?.minThinkMs ?? cfg.minThinkMs)]).then(([choice]) => {
       if (token !== this.botToken) return;
       const step = () => {
         this.setBotThinking(false);
@@ -576,7 +754,8 @@ export class ArenaGame implements ArenaController {
   private botAct(choice: ArenaAction | null): void {
     if (choice && this.perform(choice).ok) return;
     if (choice) console.warn('[core] arena bot picked an illegal action; ending its turn', choice);
-    this.perform({ type: 'endTurn' });
+    // Board-game modes have no free end turn: take the first legal action instead.
+    this.perform(isBoard(this.s.mode) ? legalActions(this.s)[0] ?? { type: 'endTurn' } : { type: 'endTurn' });
   }
 
   private cancelBot(): void {
@@ -597,6 +776,18 @@ export class ArenaGame implements ArenaController {
 }
 
 const SQUARES = Array.from({ length: 64 }, (_, i) => i);
+
+function stonesPrompt(kind: PieceKind, n: number, complete: boolean): string {
+  if (complete) return kind === 'r' ? 'Stomp sinks every empty stone around it' : `Ready: ${STONES_POWERS[kind].name}`;
+  switch (kind) {
+    case 'p': return n === 0 ? 'Pick a sunk square next to dry land' : 'Pick the second sunk square, next to the first';
+    case 'n': return n === 0 ? 'Pick the first hop' : 'Pick where to land';
+    case 'b': return 'Pick an enemy next to it to push';
+    case 'q': return 'Pick an empty dry square to block';
+    case 'k': return 'Pick an empty dry square up to 2 away';
+    default: return '';
+  }
+}
 
 /** The squares a shove line touches: where its animals stand now, plus where the last one ends (if on the board). */
 function lineArea(line: { moves: [number, number][]; fall: number | null; dir: [number, number] }): Square[] {

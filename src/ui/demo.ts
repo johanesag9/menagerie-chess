@@ -4,9 +4,10 @@
  */
 import { Chess, type Move } from 'chess.js';
 import { ALL_CUES, createAudio, measureCue, type CueLevel } from '../audio';
-import { isArenaMode } from '../contracts/types';
+import { isArenaMode, isBoardMode } from '../contracts/types';
 import type { AudioCue, DieValue, EmoteKind, GameOptions, MoveFlag, MoveResult, PieceKind, Side, WeirdEventKind, WheelOutcome } from '../contracts/types';
 import { addArenaControls } from './demoArena';
+import { addBoardControls } from './demoBoard';
 import { FakeMode, addModeControls } from './demoModes';
 import { addOnlineControls } from './demoOnline';
 import { createUi, type MenagerieUi } from './index';
@@ -282,9 +283,13 @@ function note(name: string, payload: unknown) {
 (['startGame', 'promotionChosen', 'emote', 'undo', 'resign', 'rematch', 'settingsChanged', 'screenChanged', 'powerRequested', 'cardRequested', 'cancelAction'] as const).forEach((n) => ui.on(n, (p) => note(n, p)));
 let lastOpts: GameOptions | null = null;
 let arena: { start(o: GameOptions): void } | null = null;
+let boardGames: { start(o: GameOptions): void } | null = null;
 const startAny = (o: GameOptions) => {
   lastOpts = o;
-  if (isArenaMode(o.mode)) {
+  if (isBoardMode(o.mode)) {
+    game.stop();
+    boardGames?.start(o);
+  } else if (isArenaMode(o.mode)) {
     game.stop();
     arena?.start(o);
   } else {
@@ -399,6 +404,7 @@ btn(results, 'Draw: threefold', () => ui.showResult({ winner: null, reason: 'thr
 addModeControls(ui, section, btn, note, () => game.stop());
 arena = addArenaControls(ui, section, btn, note, () => game.stop());
 addOnlineControls(ui, section, btn, note, startAny, () => game.stop());
+boardGames = addBoardControls(ui, section, btn, note, () => game.stop());
 
 const music = section('Music');
 (['title', 'game', 'tense', 'none'] as const).forEach((t) => btn(music, t, () => audio.setMusic(t)));

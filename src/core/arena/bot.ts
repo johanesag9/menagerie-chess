@@ -8,11 +8,14 @@ import { opposite } from '../modes/state';
 import {
   applyAction, carriedBy, cloneArena, findA, halfOf, legalActions, ringOf, shoveLine, sinkingNext, statusOf, treasureOf, type AState,
 } from './rules';
-import type { ArenaBotLevel } from './tuning';
+import { decideBoard } from './boardBot';
+import type { ArenaBotLevel, BoardBotLevel } from './tuning';
 
 export interface ArenaBotRequest {
   state: AState;
   level: ArenaBotLevel;
+  /** Phase 6: castle and stones use their own search with these settings. */
+  board?: BoardBotLevel;
   seed: number;
 }
 
@@ -20,6 +23,7 @@ const WIN = 100000;
 
 /** The bot's next action for the side to move (endTurn when doing nothing more scores best). */
 export function decideArena(req: ArenaBotRequest): ArenaAction {
+  if (req.state.mode === 'castle' || req.state.mode === 'stones') return decideBoard(req.state, req.board ?? (req.state.mode === 'castle' ? req.state.cfg.castleBot : req.state.cfg.stonesBot)[4], req.seed);
   const plan = planTurn(req.state, req.level, req.seed);
   return plan[0] ?? { type: 'endTurn' };
 }

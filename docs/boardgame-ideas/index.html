@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board-game mode ideas</title>
+<style>
+:root {
+  --bg: #f6efe2; --card: #fffaf1; --ink: #2b2620; --muted: #6d6458; --line: #e4d8c3; --accent: #b5762a;
+  --grass: #b9d68a; --sand: #f0dcae; --water: #66bfd3; --stone: #cdbf9f; --night: #2c3550;
+  --land: #fff3d6; --land-rim: #c8962f; --sea: #1f6b6e; --sea-rim: #6fdcdc;
+  --sandbag: #9a6b3d; --hedge: #4c7a35; --coral: #e9806e; --rock: #8b8f97; --wood: #a9783f;
+  --print-l: #e3a43f; --print-s: #3c9fb4; --reg-l: #f2c56e; --reg-s: #8fd3e0; --shape: #ffd34d;
+  --lit-l: #ffe07a; --lit-s: #a8eeff; --both: #8d93a3; --mark: #d9472b;
+  --s: #5d8f3e; --m: #b5762a; --l: #b0413e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1c1a17; --card: #26231f; --ink: #f1eadf; --muted: #b3a896; --line: #3a352e; --accent: #e3a85a;
+    --mark: #ff7a5c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1c1a17; --card: #26231f; --ink: #f1eadf; --muted: #b3a896; --line: #3a352e; --accent: #e3a85a; --mark: #ff7a5c;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+.lede { color: var(--muted); margin: 0 0 18px; max-width: 64ch; }
+.shared { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 0 0 22px; }
+.shared h2 { font-size: 15px; margin: 0 0 6px; }
+.shared ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.tablewrap { overflow-x: auto; margin: 0 0 28px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+@media (max-width: 480px) { table { font-size: 13px; } th, td { padding: 7px 6px; } }
+td a { color: var(--ink); font-weight: 600; text-decoration: none; }
+td a:hover { color: var(--accent); }
+.top td:first-child a::after { content: " ★"; color: var(--accent); }
+.size { display: inline-block; min-width: 22px; text-align: center; font-weight: 700; font-size: 12px; color: #fff; border-radius: 6px; padding: 1px 6px; }
+.size.S { background: var(--s); } .size.M { background: var(--m); } .size.L { background: var(--l); }
+.cards { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 780px) { .cards { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; scroll-margin-top: 12px; }
+.card.top { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.num { color: var(--muted); font-weight: 700; }
+.card h3 { margin: 0; font-size: 20px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 8px; }
+.tag { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--muted); }
+.tag.pick { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.pitch { font-weight: 600; margin: 0 0 10px; }
+.sketch { display: flex; gap: 12px; align-items: center; margin: 0 0 10px; }
+.sketch svg { width: 150px; height: auto; flex: none; border-radius: 8px; }
+.sketch figcaption { font-size: 13px; color: var(--muted); }
+.sketch figcaption b { color: var(--ink); font-weight: 600; }
+@media (max-width: 420px) { .sketch { flex-direction: column; align-items: flex-start; } .sketch svg { width: 190px; } }
+dl { margin: 0; display: grid; grid-template-columns: 1fr; gap: 6px; font-size: 14px; }
+dt { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-top: 4px; }
+dd { margin: 0; }
+dd ol, dd ul { margin: 0; padding-left: 18px; }
+.top3 { background: var(--card); border: 1px solid var(--accent); border-radius: 16px; padding: 16px; margin-top: 28px; }
+.top3 h2 { margin: 0 0 8px; font-size: 20px; }
+.top3 ol { margin: 0 0 8px; padding-left: 20px; }
+.top3 li { margin-bottom: 6px; }
+.note { color: var(--muted); font-size: 13px; }
+svg .cell-g { fill: var(--grass); } svg .cell-s { fill: var(--sand); } svg .cell-w { fill: var(--water); }
+svg .cell-n { fill: var(--stone); } svg .cell-d { fill: var(--night); } svg .cell-p { fill: var(--print-l); }
+svg .cell-q { fill: var(--print-s); } svg .cell-a { fill: var(--reg-l); } svg .cell-b { fill: var(--reg-s); }
+svg .cell-x { fill: var(--shape); } svg .cell-y { fill: var(--lit-l); } svg .cell-Y { fill: var(--lit-s); } svg .cell-z { fill: var(--both); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Board-game mode ideas</h1>
+  <p class="lede">10 new modes for Menagerie Chess that play like an abstract board game. Our own designs: they borrow feelings (building up, walling off, territory, racing), not other games' rules. Ideas only, nothing built. Board sketches are rough, Land at the bottom.</p>
+
+  <section class="shared">
+    <h2>What all 10 share (defaults, easy to change)</h2>
+    <ul>
+      <li>6 animals per side, one of each kind, like Sumo and Raid.</li>
+      <li>No die, cards or duels: everything is visible, like the genre. Luck could return later as an optional switch.</li>
+      <li>Powers: once per game, and using one is your whole turn. Each idea re-themes them.</li>
+      <li>Online: the server runs the rules; nothing is secret. The 60s turn timer works for all. Land moves first.</li>
+      <li>Size: <span class="size S">S</span> about a week across streams, <span class="size M">M</span> a normal phase, <span class="size L">L</span> a big phase.</li>
+    </ul>
+  </section>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Mode</th><th>Feel</th><th>Size</th><th>Bot</th><th>Length</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <section class="top3">
+    <h2>My top 3 (you decide)</h2>
+    <ol>
+      <li><b>Stepping Stones.</b> Best reuse: sinking tiles already exist, so it mostly needs "rise" as well. Simple rules, a strong bot from a simple measure, short games. It feels the most like a real abstract board game.</li>
+      <li><b>Shore Shift.</b> The most on-theme: Land and Sea fight over the shoreline itself, and the board shows the score. Animals and powers work as they are.</li>
+      <li><b>High Tide.</b> The most dramatic: water creeping toward the dog house. A bigger balance job (the two sides play differently), so it may suit a second release.</li>
+    </ol>
+    <p class="note">Cheapest to try first: Paw Prints or Slick Sand (both S). Once you pick, core builds a 2D playtest first, like Phases 3 and 4, then the 3D build.</p>
+  </section>
+</main>
+
+<script>
+// Board sketch: 8 rows (row 0 = rank 8, top). Terrain '.' = sand (rows 0-3) or grass (rows 4-7).
+// Terrain: g s w n(stone) d(night) p q(prints) a b(regions) x(shape) y Y(lit) z(lit by both)
+// Tokens: L S animals, h sandbag, H hedge, r coral, k rock, c crate, 1-5 tower, o O lanterns, * nest, ! ring, + - raise/sink
+const C = 22, P = 4;
+function board(spec) {
+  const t = spec.terrain || [], k = spec.tokens || [];
+  const night = spec.night;
+  let lit = null;
+  if (spec.lanterns) {
+    lit = Array.from({ length: 8 }, () => Array(8).fill(0));
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const ch = (k[r] || '')[c];
+      if (ch !== 'o' && ch !== 'O') continue;
+      const bit = ch === 'o' ? 1 : 2;
+      for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        let rr = r + dr, cc = c + dc;
+        while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && ((k[rr] || '')[cc] || '.') === '.') { lit[rr][cc] |= bit; rr += dr; cc += dc; }
+      }
+    }
+  }
+  let s = `<svg viewBox="0 0 ${C*8+P*2} ${C*8+P*2}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${spec.alt}">`;
+  s += `<defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--mark)"/></marker></defs>`;
+  s += `<rect width="100%" height="100%" rx="8" fill="${night ? '#1a2036' : '#8a6a44'}"/>`;
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    let ch = (t[r] || '')[c] || '.';
+    if (ch === '.') ch = night ? 'd' : (r < 4 ? 's' : 'g');
+    if (lit && lit[r][c]) ch = lit[r][c] === 3 ? 'z' : lit[r][c] === 1 ? 'y' : 'Y';
+    const x = P + c*C, y = P + r*C;
+    s += `<rect class="cell-${ch}" x="${x}" y="${y}" width="${C}" height="${C}"/>`;
+    if ((r + c) % 2 && ch !== 'w') s += `<rect x="${x}" y="${y}" width="${C}" height="${C}" fill="#000" opacity=".06"/>`;
+    if (ch === 'w') s += `<path d="M${x+4} ${y+12}q3.5-3 7 0t7 0" stroke="#fff" stroke-opacity=".55" fill="none" stroke-width="1.2"/>`;
+    if (ch === 'p' || ch === 'q') s += `<circle cx="${x+8}" cy="${y+9}" r="2" fill="#fff" opacity=".6"/><circle cx="${x+14}" cy="${y+14}" r="2" fill="#fff" opacity=".6"/>`;
+  }
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const ch = (k[r] || '')[c] || '.';
+    const cx = P + c*C + C/2, cy = P + r*C + C/2, x = P + c*C, y = P + r*C;
+    switch (ch) {
+      case 'L': s += `<circle cx="${cx}" cy="${cy}" r="7.5" fill="var(--land)" stroke="var(--land-rim)" stroke-width="2.4"/>`; break;
+      case 'S': s += `<circle cx="${cx}" cy="${cy}" r="7.5" fill="var(--sea)" stroke="var(--sea-rim)" stroke-width="2.4"/>`; break;
+      case 'h': s += `<rect x="${x+3}" y="${y+6}" width="16" height="10" rx="4" fill="var(--sandbag)"/>`; break;
+      case 'H': s += `<rect x="${x+2}" y="${y+2}" width="18" height="18" rx="6" fill="var(--hedge)"/>`; break;
+      case 'r': s += `<rect x="${x+2}" y="${y+2}" width="18" height="18" rx="6" fill="var(--coral)"/>`; break;
+      case 'k': s += `<path d="M${x+4} ${y+17}l3-10 6-3 5 6 1 7z" fill="var(--rock)"/>`; break;
+      case 'c': s += `<rect x="${x+5}" y="${y+5}" width="12" height="12" rx="1.5" fill="var(--wood)"/><path d="M${x+5} ${y+5}l12 12M${x+17} ${y+5}l-12 12" stroke="#5e3f1d" stroke-width="1.2"/>`; break;
+      case 'o': case 'O': s += `<circle cx="${cx}" cy="${cy}" r="9" fill="${ch === 'o' ? 'var(--lit-l)' : 'var(--lit-s)'}" opacity=".5"/><rect x="${cx-4}" y="${cy-6}" width="8" height="12" rx="2" fill="${ch === 'o' ? 'var(--land-rim)' : 'var(--sea)'}" stroke="#fff" stroke-width="1.2"/>`; break;
+      case '*': s += `<circle cx="${cx}" cy="${cy}" r="8" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 2"/><circle cx="${cx}" cy="${cy}" r="2.5" fill="var(--accent)"/>`; break;
+      case '!': s += `<rect x="${x+1.5}" y="${y+1.5}" width="${C-3}" height="${C-3}" rx="4" fill="none" stroke="var(--mark)" stroke-width="2.2" stroke-dasharray="4 2"/>`; break;
+      case '+': case '-': s += `<circle cx="${cx}" cy="${cy}" r="7" fill="#fff" stroke="var(--mark)" stroke-width="1.8"/><text x="${cx}" y="${cy+4.5}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--mark)">${ch === '+' ? '+' : '−'}</text>`; break;
+      default:
+        if (/[1-5]/.test(ch)) {
+          const n = +ch;
+          for (let i = 0; i < n; i++) s += `<rect x="${x+5}" y="${y+18-i*3.4}" width="12" height="3" fill="var(--wood)" stroke="#5e3f1d" stroke-width=".6"/>`;
+        }
+    }
+  }
+  for (const [r1, c1, r2, c2, dash] of spec.arrows || []) {
+    s += `<line x1="${P+c1*C+C/2}" y1="${P+r1*C+C/2}" x2="${P+c2*C+C/2}" y2="${P+r2*C+C/2}" stroke="var(--mark)" stroke-width="2.2" ${dash ? 'stroke-dasharray="4 3"' : ''} marker-end="url(#ah)"/>`;
+  }
+  return s + '</svg>';
+}
+
+function seesaw() {
+  // Side view: the plank tips down on the Sea side (right).
+  const blob = (x, y, r, side) => `<circle cx="${x}" cy="${y - r}" r="${r}" fill="var(--${side})" stroke="var(--${side}-rim)" stroke-width="2"/>`;
+  return `<svg viewBox="0 0 184 184" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Side view of the board tipping toward Sea">
+    <rect width="184" height="184" rx="8" fill="#cfe7ee"/>
+    <rect x="0" y="128" width="184" height="56" fill="var(--water)"/>
+    <path d="M0 132q12-5 24 0t24 0t24 0t24 0t24 0t24 0t24 0t24 0" stroke="#fff" stroke-opacity=".6" fill="none" stroke-width="1.5"/>
+    <circle cx="92" cy="122" r="12" fill="var(--wood)"/>
+    <g transform="rotate(9 92 108)">
+      <rect x="18" y="104" width="74" height="7" fill="var(--grass)"/>
+      <rect x="92" y="104" width="74" height="7" fill="var(--sand)"/>
+      <line x1="92" y1="98" x2="92" y2="113" stroke="#5e3f1d" stroke-width="1" stroke-dasharray="2 2"/>
+      ${blob(40, 104, 6, 'land')}${blob(78, 104, 7, 'land')}
+      ${blob(112, 104, 7, 'sea')}${blob(132, 104, 11, 'land')}${blob(156, 104, 7, 'sea')}
+    </g>
+    <text x="12" y="30" font-size="12" font-weight="700" fill="#2b2620">Land</text>
+    <text x="140" y="30" font-size="12" font-weight="700" fill="#2b2620">Sea</text>
+    <path d="M150 58v22" stroke="var(--mark)" stroke-width="2.4" marker-end="url(#ah2)"/>
+    <defs><marker id="ah2" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--mark)"/></marker></defs>
+  </svg>`;
+}
+
+const IDEAS = [
+  { id: 'shore-shift', name: 'Shore Shift', feel: 'territory, tug-of-war', size: 'M', bot: 'easy to build, decent', len: '~10 min',
+    pitch: 'The shoreline is the scoreboard. Grow grass onto the beach, or wash sand over the meadow, one square at a time.',
+    sketch: { alt: 'Land animals next to a ringed sand square', terrain: ['', '', 'gggsssss', 'gggggsss', '.....ss.', '......s.', '', ''],
+      tokens: ['', '', '......S.', '.....!..', '....LL..', '', '', ''] },
+    caption: '<b>Land 2, Sea 1</b> around the ringed sand square, so it turns to grass.',
+    win: 'Own 40 of the 64 squares. After round 15, whoever owns more wins; equal is a draw.',
+    turn: ['Move one animal 1 step (2 if it starts on your own terrain), or use a power.', 'Flip one enemy square that touches your terrain, if more of your animals than theirs stand around it. Grass sprouts over sand, or a wave washes sand over grass.'],
+    sides: 'Each side is quicker on home ground, so pushing into enemy turf needs backup. Stomp flips every flippable square around the rook. Block keeps a square from flipping for 4 plies. Headbutt shoves a defender off a contested square. Double jump and Escape reach a weak spot fast.',
+    build: 'Rules S (a neighbour count). 3D: a per-square terrain flip (grass grows, sand drifts, the tile re-tints). UI: a 64-square tug meter.',
+    botd: 'Easy to build and decent: greedy flips plus a 2-ply look-ahead.',
+    fun: 'You see who is winning by looking at the board, and the border moves every turn.',
+    risk: 'A stable front line can stall. Fix with the round cap, or let squares next to the water count double.' },
+
+  { id: 'stepping-stones', name: 'Stepping Stones', feel: 'racing, path building', size: 'M', bot: 'medium, plays well', len: '~10 min', top: 1,
+    pitch: 'The middle of the board is sea. Raise stones to make your path, sink theirs, and be first across.',
+    sketch: { alt: 'Two paths of stones across the water, each one stone short', terrain: ['', '', 'wwnwwwww', 'wwnwwnww', 'wwnwwnww', 'wwwwwnww', '', ''],
+      tokens: ['', '..S.....', '.....+..', '', '..-.....', '', '.....L..', ''] },
+    caption: '<b>Both paths are one stone short.</b> Land must choose: raise its own (+) or sink Sea\'s (−).',
+    win: 'The first animal to stand on the enemy\'s back rank.',
+    turn: ['Shape the sea: raise one sunk square that touches dry land, or sink one empty stone in the middle four ranks. A sunk square bubbles: it can\'t be raised again until next round.', 'Move one animal 1 step onto dry land.'],
+    setup: 'Ranks 3–6 start under water. Land on rank 2, Sea on rank 7.',
+    sides: 'Same rules both sides; the race is the fight. Double jump crosses water. Escape teleports over it. Headbutt pushes an enemy into the water: it is swept back to its back rank. Stomp sinks every empty stone around the rook. Block makes a stone safe from sinking and from feet for 4 plies.',
+    build: 'Rules M. 3D: sinking tiles already exist (setSunk); add the reverse, a stone rising with a splash. UI: an optional "shortest path" hint.',
+    botd: '"My path length minus theirs" is a classic, strong measure: the bot plays well at medium effort.',
+    fun: 'Every turn is "build mine or wreck theirs", and tiles rising and sinking is pure diorama.',
+    risk: 'Raising and sinking can cancel out and stall (the bubbling rule helps). Land\'s first move may be an edge.' },
+
+  { id: 'high-tide', name: 'High Tide', feel: 'walling off (sides differ)', size: 'M', bot: 'medium, two bots', len: '2 × 10 min', top: 3,
+    pitch: 'The tide is coming in. Sea steers the water toward the dog house; Land piles sandbags to keep it dry.',
+    sketch: { alt: 'Water creeping down a channel toward sandbags', terrain: ['wwwwwwww', 'wwssswww', 'ssssswws', 'ssssswss', '.....w..', '', '', ''],
+      tokens: ['', '', '', '.....S..', '....!.!.', '....hhh.', '....L.L.', '....*...'] },
+    caption: '<b>Water reached the meadow.</b> Sandbags hold it; Sea picks 2 squares touching the water (ringed) to flood next. The dog house is dotted.',
+    win: 'Sea wins if water reaches the dog house (e1) by the end of round 12; otherwise Land wins. Play two legs, swapping sides; at 1–1 the faster flood wins.',
+    turn: ['<b>Land:</b> move one animal up to 2 steps, then drop 2 sandbags next to your animals (16 in the sack).', '<b>Sea:</b> move one animal up to 2 steps (Sea animals swim), then flood 2 empty squares touching the water, or wash away 1 sandbag next to one of your animals.', 'Every 4th round a big wave floods 4.'],
+    sides: 'The sides play differently: Land builds walls, Sea digs and swims. Animals are walls too. Stomp is the big one: the elephant packs sandbags so they can\'t be washed away; the turtle\'s shell-slam washes them all away. Block stops water for 4 plies.',
+    build: 'Rules M (flooding, two rule sets). 3D: water creeping over tiles (setSunk), a sandbag prop, a wash-away splash. UI: sandbag count, "big wave in N", the two-leg score.',
+    botd: 'Two bots, one per side, with a flood look-ahead: medium.',
+    fun: 'Tower-defence tension, and the most Land-vs-Sea idea of all. Water creeping in looks great in 3D.',
+    risk: 'Balancing two unequal sides takes playtesting. Two legs make a match about 20 minutes.' },
+
+  { id: 'paw-prints', name: 'Paw Prints', feel: 'territory, painting', size: 'S', bot: 'easy, good', len: '~10 min',
+    pitch: 'Every animal leaves tracks. Paint the biggest connected patch of the board.',
+    sketch: { alt: 'Land and Sea print patches with a cat moving diagonally', terrain: ['', '.qqq....', '.q..qqq.', '.q....q.', '..p.....', '..pppp..', '..p..p..', '.pp.....'],
+      tokens: ['', '', '......S.', '', '', '.....L..', '', ''], arrows: [[5,5,3,7]] },
+    caption: '<b>The cat moves diagonally</b> and prints both squares it covers. Nobody can cross the other side\'s prints.',
+    win: 'When neither side can move, or after round 16, the biggest connected patch of prints wins. Tie: most prints overall.',
+    turn: ['Move one animal with its real chess move (horse L, goat diagonal, elephant straight, cat any line, pug and pup 1 step any way). No captures.', 'Every square it crossed or landed on gets your prints (paws in the grass, a wet trail on the sand). Nobody can cross enemy prints.'],
+    sides: 'Mirrored moves both sides; Sea gets +2 at the end for moving second. Stomp prints all 8 squares around the rook. Block cuts a patch in two. Headbutt shoves an enemy off a key square. Escape and Double jump hop over prints.',
+    build: 'Rules S (chess moves without captures, plus a flood fill). 3D: print decals per square, cheap. UI: live patch counters.',
+    botd: 'Easy to build and good: grow the biggest region, 2-ply look-ahead.',
+    fun: 'Chess know-how used a new way. Long movers paint stripes that cut the board in half.',
+    risk: 'Cat and octopus may be too strong (a whole line in one move). First-move edge.' },
+
+  { id: 'slick-sand', name: 'Slick Sand', feel: 'racing, sliding', size: 'S', bot: 'easy (too sharp unless tuned)', len: '~6 min',
+    pitch: 'The beach is wet. Animals slide until they bump into something. Park your king on the enemy\'s nest.',
+    sketch: { alt: 'A pug slides up then right and stops on the nest next to a rock', tokens: ['...*k...', '', '.....S..', '.L......', '', '......k.', '', ''],
+      arrows: [[3,1,0,1],[0,1,0,3,1]] },
+    caption: '<b>Up, then right:</b> the rock stops the pug right on Sea\'s nest.',
+    win: 'Your king stops on the enemy\'s nest (Land aims for d8, Sea for e1).',
+    turn: ['Do one: slide one animal straight in one of 4 directions. On sand it slides until it bumps an animal, a rock or the edge; on grass it stops after 2 squares (grass grips).', 'Or place one of your 4 rocks on any empty square. It stays all game.'],
+    sides: 'The board makes it lopsided in a fun way: Land must cross the slippery beach, Sea trudges through grippy grass. Your other animals are bumpers. Block is a temporary bumper. Headbutt sends an enemy sliding. Escape, Double jump and Sidestep move without sliding.',
+    build: 'Rules S. 3D: reuse the banana-peel slip style, plus a rock prop. UI: 4 arrows around the selected animal.',
+    botd: 'A search finds slide paths easily, so it is easy to build; low levels need randomness or it is too sharp.',
+    fun: 'Bank shots and big slapstick slides; quick games; great on phones.',
+    risk: 'May feel like a solo puzzle, and the first player might find a forced win. Test the setup.' },
+
+  { id: 'hedge-reef', name: 'Hedge & Reef', feel: 'walling off, territory', size: 'M', bot: 'medium-hard, weaker than people', len: '15–20 min',
+    pitch: 'Grow hedges and coral reefs to fence off as much of the shore as you can.',
+    sketch: { alt: 'A coral lagoon top left and a hedge pen bottom right', terrain: ['bbbb....', 'bbbb....', '', '', '', '....aaaa', '....aaaa', '....aaaa'],
+      tokens: ['.S..r...', '....r...', 'rrrrr...', '..S.....', '...HHHHH', '...H....', '...H.L..', '...H....'] },
+    caption: '<b>Sea has sealed a lagoon</b> (blue), <b>Land a pen</b> (gold). The open middle is still the fight.',
+    win: 'When no region holds animals of both sides, each side scores the empty squares only its animals can reach. Most wins.',
+    turn: ['Move one animal up to 2 steps (walls block).', 'Grow one wall square next to one of your animals or walls. In your own half you may grow a second one.'],
+    sides: 'Land grows hedges, Sea grows coral; both grow faster at home, so the middle is the fight. Double jump hops a wall. Escape lands inside a pen before it closes. Headbutt shoves an enemy out of a pen. Stomp grows 3 walls at once.',
+    build: 'Rules M (regions and the end check). 3D: hedge and coral pillars rising out of the board, region tint. UI: region scores.',
+    botd: 'Territory is tricky for bots: medium-hard to make strong, and weaker than a good player.',
+    fun: 'Closing a pen around a big empty area is very satisfying; the board ends as a little garden maze.',
+    risk: 'Slow and brainy. The end scoring must be very clear.' },
+
+  { id: 'beacon-builders', name: 'Beacon Builders', feel: 'building up, racing', size: 'M', bot: 'medium', len: '~12 min',
+    pitch: 'Each side stacks a lighthouse from driftwood. First to light the top wins.',
+    sketch: { alt: 'Two towers at the back ranks and crates in the middle', tokens: ['...2....', '', '...S....', '.c....c.', '.....c..', '....L...', '', '....3...'],
+      arrows: [[5,4,6,4]] },
+    caption: '<b>A carrier heads home.</b> Land\'s tower is at 3 of 5, Sea\'s at 2. Crates wait on the shoreline.',
+    win: 'The first tower to 5 levels lights up.',
+    turn: ['Move one animal up to 2 steps. Stepping onto a crate picks it up; a carrier moves only 1 step.', 'A carrier next to your tower adds its crate: the tower grows a level. The tide then washes a new crate onto the shoreline.'],
+    setup: 'Tower bases on the back ranks (Land e1, Sea d8). 8 crates on ranks 4–5.',
+    sides: 'Elephant and turtle carry 2 crates. Headbutt next to the enemy tower knocks its top crate off; it lands 2 squares away. Stomp makes nearby carriers drop their crates. Block shuts a path.',
+    build: 'Rules M. 3D: a tower that grows a level at a time and lights at the top, a crate prop, carrying (like Raid). UI: tower heights.',
+    botd: 'Medium: path finding plus a race.',
+    fun: 'Towers rising at both ends is a clear visual race; knock-downs are big moments.',
+    risk: 'Close to Raid (fetch and carry). It could feel like Raid with crates.' },
+
+  { id: 'seesaw-shore', name: 'Seesaw Shore', feel: 'balance, weight', size: 'M', bot: 'easy', len: '~10 min',
+    pitch: 'The board balances on a log along the shoreline. Pile weight on their side to tip it into the sea.',
+    custom: seesaw,
+    caption: '<b>Land\'s elephant (big) sits deep on the beach</b>, so the Sea half tips toward the water.',
+    win: 'The first side whose half dips 3 times loses. Each dip floods that side\'s outermost dry rank; animals on it fall in.',
+    turn: ['Move one animal 1 step, or use a power. The board tilts live.', 'At the end of each round, if the tilt is past the line, the low side dips.'],
+    setup: 'Weights: pup and crab 1; horse, seahorse, goat, pufferfish, pug, blobfish 2; cat and octopus 3; elephant and turtle 4. Pull = weight × distance from the shoreline.',
+    sides: 'The heavies decide everything. Invaders push the enemy half down, but they fall in too when it floods. Enemies deep in their own half also weigh it down, so Headbutt (push them back) is strong. Stomp makes the rook count double for a round.',
+    build: 'Rules S. 3D: the whole board tilting on a log (the Weird Mode tilt, made to follow the game), ranks flooding (setSunk). UI: a tilt gauge.',
+    botd: 'Easy: the pull is simple maths.',
+    fun: 'Physical, new and readable: every step visibly tips the board.',
+    risk: 'Once one side dips it may snowball. A tilting board may make tapping harder on phones (keep the tilt small).' },
+
+  { id: 'sand-shapes', name: 'Sand Shapes', feel: 'patterns, racing', size: 'S', bot: 'easy, medium strength', len: '~8 min',
+    pitch: 'Three shape cards lie face up. Arrange 4 of your animals into one to claim it. First to 3 wins.',
+    sketch: { alt: 'Three Land animals in an L shape, one step from finishing it', terrain: ['', '', '', '', '..x.....', '..x.....', '..xx....', ''],
+      tokens: ['', '', '.....S..', '...S....', '..L.....', '..L.....', '..L.L...', ''], arrows: [[6,4,6,3]] },
+    caption: '<b>One step completes the L card.</b> Sea\'s only answer is to stand on that square first.',
+    win: 'Claim 3 shapes.',
+    turn: ['Move one animal 1 step, or use a power.', 'If 4 of your animals form a face-up shape (turned or mirrored is fine), claim it: the shape is drawn in the sand and a new card turns over. The 12-card deck is shuffled from the game seed.'],
+    sides: 'Same rules; the fight is blocking. Headbutt breaks a nearly finished shape. Escape and Double jump snap the last animal in. Block fills the key square. Stomp stuns blockers.',
+    build: 'Rules S (shape matching). 3D: the outline drawn in the sand with a glow. UI: the card row.',
+    botd: 'Easy to build, medium strength.',
+    fun: 'Quick and easy to learn; lots of "they\'re one step away!" moments.',
+    risk: 'The card order adds luck, and it may feel more like a race than a fight.' },
+
+  { id: 'lantern-night', name: 'Lantern Night', feel: 'territory, light', size: 'L', bot: 'easy to build, medium', len: '~12 min',
+    pitch: 'Night falls on the shore. Lanterns light straight lines until something blocks them. Light the most squares.',
+    sketch: { alt: 'Warm and cool lantern beams crossing the night board', night: true, lanterns: true,
+      tokens: ['', '', '...L.O..', '', '', '.o......', '', '.....S..'] },
+    caption: '<b>Warm Land light, cool Sea light.</b> The Land animal blocks Sea\'s beam; the grey square is lit by both and scores for nobody.',
+    win: 'At the end of every round, score 1 point per square lit only by your lanterns. First to 60.',
+    turn: ['Do one: place a lantern (you have 4), move one of your lanterns 1 step, or move one animal 1 step (or use a power).', 'Light goes out in 4 straight lines and stops at any animal, lantern or block.'],
+    sides: 'Animals are shadows: park them in enemy beams to cut the light. Stomp blows out nearby enemy lanterns for 2 plies. Block casts a shadow. Headbutt pushes an animal into a beam.',
+    build: '3D is the big part: a night version of the diorama, lantern props, beams as glowing strips (not real lights, for phones). Rules S. UI: a points race.',
+    botd: 'Easy to build, medium strength: count lit squares, 2-ply look-ahead.',
+    fun: 'The prettiest one: warm and cool light fighting across the board, and it is clear who holds what.',
+    risk: 'The night look is a big new world job, and scoring every round needs a quick, clear tally.' },
+];
+
+const rows = document.getElementById('rows'), cards = document.getElementById('cards');
+IDEAS.forEach((d, i) => {
+  rows.insertAdjacentHTML('beforeend', `<tr class="${d.top ? 'top' : ''}"><td><a href="#${d.id}">${i + 1}. ${d.name}</a></td><td>${d.feel}</td><td><span class="size ${d.size}">${d.size}</span></td><td>${d.bot}</td><td>${d.len}</td></tr>`);
+  const list = (a) => a.length > 1 ? `<ol>${a.map((x) => `<li>${x}</li>`).join('')}</ol>` : a[0];
+  cards.insertAdjacentHTML('beforeend', `
+    <article class="card${d.top ? ' top' : ''}" id="${d.id}">
+      <div class="head"><span class="num">${i + 1}</span><h3>${d.name}</h3></div>
+      <div class="tags"><span class="size ${d.size}">${d.size}</span><span class="tag">${d.feel}</span><span class="tag">${d.len}</span>${d.top ? `<span class="tag pick">top ${d.top}</span>` : ''}</div>
+      <p class="pitch">${d.pitch}</p>
+      <figure class="sketch" style="margin:0 0 10px">${d.custom ? d.custom() : board(d.sketch)}<figcaption>${d.caption}<br><span style="font-size:12px">Sketch, not the real look.</span></figcaption></figure>
+      <dl>
+        ${d.setup ? `<dt>Setup</dt><dd>${d.setup}</dd>` : ''}
+        <dt>Win</dt><dd>${d.win}</dd>
+        <dt>A turn</dt><dd>${list(d.turn)}</dd>
+        <dt>Land vs Sea, powers</dt><dd>${d.sides}</dd>
+        <dt>To build · <span class="size ${d.size}">${d.size}</span></dt><dd>${d.build}</dd>
+        <dt>Bot</dt><dd>${d.botd}</dd>
+        <dt>Why fun</dt><dd>${d.fun}</dd>
+        <dt>Main risk</dt><dd>${d.risk}</dd>
+      </dl>
+    </article>`);
+});
+</script>
+</body>
+</html>
