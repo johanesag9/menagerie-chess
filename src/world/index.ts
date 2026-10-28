@@ -13,7 +13,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Emitter } from '../contracts/emitter';
 import type { CreateWorld } from '../contracts/factories';
 import type {
-  HighlightSet, QualityTier, Side, Square, SquareEffect, Unsubscribe, WeirdEvent, WheelOutcome, World, WorldEventMap, WorldOptions,
+  HighlightSet, QualityTier, Side, Square, SquareEffect, TreasureState, Unsubscribe, WeirdEvent, WheelOutcome, World, WorldEventMap, WorldOptions,
 } from '../contracts/types';
 import { Animator } from './anim';
 import { createBoard } from './board';
@@ -28,10 +28,15 @@ import { PROFILES, detectQuality, readDeviceInfo } from './quality';
 import { Stage } from './stage';
 import { makeTextures } from './textures';
 import { WeirdEffects } from './weird';
-import { ChaosEffects, type ChaosOptions } from './chaos';
+import { ChaosEffects, type ChaosOptions, Particles } from './chaos';
 import { SquareEffects } from './squareFx';
+import { SinkingIsland } from './sink';
+import { Splashes } from './splash';
+import { Treasures } from './treasures';
 
 export { TIDE_TIMING } from './chaos';
+export { SINK_TIMING, sinkDropTimes, ringOf } from './sink';
+export { TREASURE_COLORS, makeBoneGeometry, makePearlGeometry } from './treasures';
 
 export interface WorldStats {
   fps: number;
@@ -125,10 +130,24 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     pxScale: () => renderer.getDrawingBufferSize(bufSize).y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)),
   });
 
+  // Phase 4: the sinking island, treasures and splashes share one particle system (one draw call).
+  const waterParticles = new Particles(bin, tex, () => renderer.getDrawingBufferSize(bufSize).y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)));
+  waterParticles.points.name = 'water-particles';
+  board.overlay.add(waterParticles.points);
+  const sink = new SinkingIsland({ board, bin, particles: waterParticles, reducedMotion, shake: (k) => rig.shake(k) });
+  const treasures = new Treasures(bin, tex, waterParticles, reducedMotion);
+  board.overlay.add(treasures.group);
+  const splashes = new Splashes(bin, board.overlay, waterParticles, reducedMotion);
+  board.overlay.add(splashes.group);
+
   // Compile every shader (including hidden effects) before the first visible frame.
   weird.setPrewarm(true);
   chaos.setPrewarm(true);
   squareFx.setPrewarm(true);
+  sink.setPrewarm(true);
+  treasures.setPrewarm(true);
+  splashes.setPrewarm(true);
+  waterParticles.points.visible = true;
   highlights.setAllVisible(true);
   for (const t of Object.values(tex)) renderer.initTexture(t);
   await renderer.compileAsync(scene, camera);
@@ -136,6 +155,10 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   weird.setPrewarm(false);
   chaos.setPrewarm(false);
   squareFx.setPrewarm(false);
+  sink.setPrewarm(false);
+  treasures.setPrewarm(false);
+  splashes.setPrewarm(false);
+  waterParticles.points.visible = false;
   highlights.setAllVisible(false);
 
   let paused = false;
@@ -161,6 +184,10 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       highlights.update(dt, elapsed);
       squareFx.update(dt, elapsed);
       chaos.update(dt);
+      sink.update(dt, elapsed);
+      treasures.update(dt, elapsed);
+      splashes.update(dt);
+      waterParticles.update(dt);
       for (const fn of frameFns) {
         try {
           fn(dt, elapsed);
@@ -253,10 +280,18 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     playChaos(outcome: WheelOutcome, o?: ChaosOptions) {
       return chaos.play(outcome, o);
     },
-    // Phase 4 stubs (orchestrator, so the branch typechecks). The world session replaces these.
-    setSunk() {},
-    setTreasures() {},
-    splash() {},
+    setSunk(sunk: Square[], warn: Square[]) {
+      sink.set(sunk, warn);
+      dirty = true;
+    },
+    setTreasures(list: TreasureState[]) {
+      treasures.set(list);
+      dirty = true;
+    },
+    splash(point: THREE.Vector3, big?: boolean) {
+      splashes.play(point, big);
+      dirty = true;
+    },
     get stats(): WorldStats {
       const i = stage.info;
       return { fps: Math.round(fps), drawCalls: i.calls, triangles: i.triangles, pixelRatio: i.pixelRatio, quality: stage.quality, programs: renderer.info.programs?.length ?? 0 };
@@ -271,6 +306,9 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       picker.dispose();
       chaos.dispose();
       squareFx.dispose();
+      sink.dispose();
+      treasures.dispose();
+      splashes.clear();
       weird.dispose();
       animator.clear();
       rig.dispose();

@@ -399,7 +399,7 @@ export class ChaosEffects {
 
 // ---------- one shared particle system: spray, dust and sparkles in one draw call ----------
 
-interface Emit {
+export interface Emit {
   x: number; y: number; z: number;
   vx: number; vy: number; vz: number;
   life: number;
@@ -411,9 +411,11 @@ interface Emit {
   drag?: number;
   /** 0 = soft round puff, 1 = four-point twinkle. Default 0. */
   shape?: number;
+  /** Phase 4: a particle falling below this height dies (a droplet back in the water). Default: it rests on the board. */
+  floor?: number;
 }
 
-class Particles {
+export class Particles {
   readonly points: THREE.Points;
   private n = 512;
   private pos: Float32Array;
@@ -425,6 +427,7 @@ class Particles {
   private a0 = new Float32Array(this.n);
   private grav = new Float32Array(this.n);
   private drag = new Float32Array(this.n);
+  private floorY = new Float32Array(this.n).fill(NaN);
   private attrs: { pos: THREE.BufferAttribute; col: THREE.BufferAttribute; size: THREE.BufferAttribute; alpha: THREE.BufferAttribute; shape: THREE.BufferAttribute };
   private cursor = 0;
   private alive = 0;
@@ -497,6 +500,7 @@ class Particles {
     this.a0[i] = e.alpha;
     this.grav[i] = e.gravity ?? -4;
     this.drag[i] = e.drag ?? 0.5;
+    this.floorY[i] = e.floor ?? NaN;
     this.tmp.set(e.color);
     (this.attrs.col.array as Float32Array).set([this.tmp.r, this.tmp.g, this.tmp.b], i * 3);
     (this.attrs.shape.array as Float32Array)[i] = e.shape ?? 0;
@@ -526,7 +530,15 @@ class Particles {
       this.vel[i * 3 + 2] *= d;
       this.vel[i * 3 + 1] = this.vel[i * 3 + 1] * d + this.grav[i] * dt;
       this.pos[i * 3] += this.vel[i * 3] * dt;
-      this.pos[i * 3 + 1] = Math.max(BOARD_TOP + 0.02, this.pos[i * 3 + 1] + this.vel[i * 3 + 1] * dt);
+      const y = this.pos[i * 3 + 1] + this.vel[i * 3 + 1] * dt;
+      const floor = this.floorY[i];
+      if (floor === floor && y < floor && this.vel[i * 3 + 1] < 0) {
+        this.life[i] = 0;
+        alpha[i] = 0;
+        this.alive--;
+        continue;
+      }
+      this.pos[i * 3 + 1] = floor === floor ? y : Math.max(BOARD_TOP + 0.02, y);
       this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
       size[i] = lerp(this.s0[i], this.s1[i], k);
       alpha[i] = this.a0[i] * Math.min(1, k * 8) * (1 - k * k);

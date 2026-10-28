@@ -1,5 +1,72 @@
 # World stream report
 
+## Phase 4: sinking island, treasures, splash
+
+Branch `claude/p4-world-3e55fc`. New files: `sink.ts`, `treasures.ts`, `splash.ts`, `phase4.test.ts`. Changed: `chaos.ts` (the particle system is exported and droplets can die at a water line), `index.ts`, the demo.
+
+### What's done
+- **`setSunk(sunk, warn)`** (Sumo)
+  - **Sunk squares:** the tile drops a little and stays faintly visible under deep-teal water. White foam runs where the water meets dry tiles and the frame, and the water spills a little over the rim. Sunk tiles bob very slightly.
+  - **A ring sinking at once** (4 or more new squares): a wave crest rolls in from the board edge, reaching the Sea side first and wrapping round to Land. Spray flies off the crest. Each tile pops, dunks and tips outward as the crest passes, with droplets. The crest crashes into the next dry ring with a spray and a small camera shake. About 1.2s in total.
+  - **1–3 new squares** just drop quietly, with no wave.
+  - **Warn squares:** the tile wobbles gently with a little shudder every couple of seconds. Its edge goes dark and wet with a moving sheen, and dark water creeps into the gaps around it.
+  - **`setSunk([], [])`** restores the board at once.
+  - **Draw calls:** the water is one mesh over the whole board; the wet edges are one instanced mesh; the tiles are the board's own instanced squares (only their matrices move). Both are hidden, so they cost nothing, outside Sumo. Everything is `noPick`.
+- **`setTreasures(list)`** (Raid)
+  - **Home markers** while the list isn't empty: a red dog bowl (pale inside) at Land's home, and an open pink ribbed shell at Sea's home, opening toward the middle of the board. They pop in.
+  - **Treasures on the board:** Land's cream cartoon bone and Sea's glossy white pearl (pearly sheen). Each is about 0.3–0.4 of a square and floats with a slow bob and spin, a soft glow on the board under it, and an odd twinkle. At home they sit in the bowl or shell.
+  - **Changes animate:** a new square = it drops in with a little hop; a square change (flying home) = an arc with a spin and a sparkle puff on landing; picked up (carried) = a quick lift and shrink. Carried treasures are skipped (the cast draws them). `[]` hides everything at once.
+  - **Shared colours:** bone `#f3e6c8`, pearl `#f7f4ee`, shell `#f2a7b5`, exported as `TREASURE_COLORS`. The exact shapes are exported too (`makeBoneGeometry`, `makePearlGeometry`) if the cast wants them.
+- **`splash(point, big)`:** a jagged water crown shoots up and collapses, a double ripple ring spreads, droplets fly and die when they fall back to the water line, and a puff of mist rises. `big` (a king) is 1.6× bigger with twice the droplets. `point` is world space. Four splashes are pooled, so a whole ring falling in at once is fine.
+- **Reduced motion:** a lower, quicker sink with no crest, spray or tile pop; no wobble (the wet edge stays); a small crown with few droplets; treasures slide instead of arcing, with no bob or spin.
+- **No first-use hitch:** every new shader compiles in the existing warm-up. Frame times while running every Phase 4 effect matched idle in headless Chrome.
+- **Tests:** ring sizes, ring-sink timing (every tile drops inside the effect, Sea first, Land last, normal and reduced). World tests: 24.
+
+### Ring-sink timing (for integration)
+Exported from `src/world/index.ts`: `SINK_TIMING`, `sinkDropTimes(squares, reduced)` and `ringOf(square)`.
+
+| | Whole effect | Crest crashes into the next ring | One tile's drop |
+|---|---|---|---|
+| Normal | **1.2s** | 0.74s | 0.4s |
+| Reduced motion | **0.8s** | (no crest) | 0.3s |
+
+**When each tile drops:** `sinkDropTimes(ring, reduced)` gives each square's time in seconds after `setSunk`. Start an animal's fall on a sinking square at its square's time.
+
+| Ring | Sea-side middle | Sea corners | Land corners | Land-side middle | Reduced motion |
+|---|---|---|---|---|---|
+| Outer (0) | 0.31s | 0.37s | 0.52s | 0.58s | 0.17–0.33s |
+| Next (1) | 0.46s | 0.50s | 0.60s | 0.64s | 0.26–0.36s |
+| Next (2) | 0.54s | 0.57s | 0.65s | 0.67s | 0.30–0.38s |
+
+With a 0.55s fall, the last animal is under by about 1.2s. The demo does exactly this with its stand-in tokens, and splashes each one as it hits the water.
+
+**Water height on a sunk square:** about y 0.35 (board-local, which is also world space at rest). Use it for `splash` points.
+
+### How to run the demo
+Start `world-demo` (port 4412) and open http://localhost:4412/src/world/demo.html. The pieces are **stand-in tokens**, not the animals.
+- **Sumo:** Sink next ring (the tokens on it fall in step and splash, and the next ring starts to wobble), Warn next ring, Sink 1 square, Restore board.
+- **Raid:** Treasures at home, Steal pearl, Drop pearl (d4), Pearl flies home, Drop bone (e5), Bone flies home, Hide treasures. The tokens on e1 and d8 are hidden while treasures show (nobody stands on their own treasure).
+- **Splash:** Splash and Big splash (king). They land on a sunk square if there is one, else in the sea.
+- **URL shortcuts:** `&warn`, `&sink=1|2|3` (sinks that many rings), `&treasures`.
+
+### Contract requests
+1. **Ring timing in the contract.** Integration shouldn't import from `src/world/`. Suggest a `World.sinkDropTimes(squares)` method, or `setSunk` returning `Promise<void>` that resolves when the wave ends. For now it's `sinkDropTimes` from `src/world/index.ts`.
+2. **`splash` point space.** I read it as world space. If the cast's `splash` event gives a `pieceLayer` point, it's the same while the board is at rest.
+
+### Open design questions for Johanes
+- **Sunk look:** the dropped tile stays faintly visible under the water (its checker colour shows through). Should sunk squares be solid sea instead?
+- **Where the wave comes from:** it reaches the Sea side first and wraps round to Land, as if the sea pours in. Should it come in from all sides at once?
+- **Warn wobble strength:** gentle, about 1.5°, with a shudder every couple of seconds. Stronger?
+- **Bowl colour:** red outside, pale steel inside. **Shell:** pink with darker ribs.
+- **Treasure size:** bone 0.4 long, pearl 0.3 across. Bigger reads better at 390px but covers more of the square.
+
+### Known issues
+- **The water spills a little onto the rim** next to sunk edge squares, so the frame looks wet there. That's on purpose, but it shows even while a ring only wobbles.
+- **Warn and the tide/disco:** these never meet (Sumo has no Wheel of Chaos), so they weren't tested together.
+- **Testing:** headless Chrome on this Mac only (load average over 100, so about 30fps overall; no hitches from these effects). No real phone yet.
+
+---
+
 ## Phase 3: blocked squares, chaos spectacles, aiming highlights
 
 Branch `claude/p3-world-022f8e`. New files: `squareFx.ts` (blocks), `chaos.ts` (Wheel of Chaos), `phase3.test.ts`. Changed: `highlights.ts`, `weird.ts`, `textures.ts`, `constants.ts`, `index.ts`, the demo.
