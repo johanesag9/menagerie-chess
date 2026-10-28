@@ -77,7 +77,7 @@ describe('Raid: treasures', () => {
     ok(g, step('land-n-d5', 'd4'));
     expect(lastActed(r).changes).toEqual([
       { step: 0, type: 'move', pieceId: 'land-n-d5', from: 'd5', to: 'd4', how: 'step' },
-      { step: 1, type: 'treasure', owner: 'sea', event: 'score', square: 'd8', carrier: null },
+      { step: 1, type: 'treasure', owner: 'sea', event: 'score', square: 'd8', carrier: null, points: 1 },
     ]);
     expect(g.state.score).toEqual({ land: 1, sea: 0 });
     expect(g.state.treasures[1]).toMatchObject({ square: 'd8', carrier: null });
@@ -91,7 +91,7 @@ describe('Raid: treasures', () => {
     ok(g, step('land-q-b3', 'c3'));
     expect(lastActed(r).changes.slice(1)).toEqual([
       { step: 1, type: 'treasure', owner: 'sea', event: 'pickup', square: null, carrier: 'land-q-b3' },
-      { step: 2, type: 'treasure', owner: 'sea', event: 'score', square: 'd8', carrier: null },
+      { step: 2, type: 'treasure', owner: 'sea', event: 'score', square: 'd8', carrier: null, points: 1 },
     ]);
   });
 
@@ -256,7 +256,7 @@ describe('Raid: the Wheel of Chaos', () => {
     expect(w.changes).toEqual([
       { step: 0, type: 'move', pieceId: 'land-n-c5', from: 'c5', to: 'c4', how: 'swept' },
       { step: 0, type: 'move', pieceId: 'land-q-d5', from: 'd5', to: 'd4', how: 'swept' },
-      { step: 1, type: 'treasure', owner: 'sea', event: 'score', square: 'd8', carrier: null },
+      { step: 1, type: 'treasure', owner: 'sea', event: 'score', square: 'd8', carrier: null, points: 1 },
     ]);
     expect(at(g, 'land-b-f6')).toBe('f6');
     expect(g.state.score.land).toBe(1);
@@ -390,5 +390,77 @@ describe('Raid: quick raids (current defaults)', () => {
       { step: 0, type: 'move', pieceId: 'sea-q-f4', from: 'f4', to: 'f5', how: 'swept' },
       { step: 0, type: 'move', pieceId: 'sea-b-f3', from: 'f3', to: 'f4', how: 'swept' },
     ]);
+  });
+});
+
+describe('Raid: pass and run', () => {
+  it('the carrier throws to a teammate in a straight line up to 2 away, for 1 AP; the catcher carries it', () => {
+    const g = arenaGame('raid');
+    setBoard(g, { a1: 'land-k', h8: 'sea-k', d6: 'land-n', d8: 'land-q', f6: 'land-b', e7: 'land-p', c4: 'land-r' });
+    treasure(g, 'sea', { carrier: 'land-n-d6' });
+    const o = g.pieceOptions('land-n-d6');
+    expect(o.throwCost).toBe(1);
+    expect(new Set(o.throws)).toEqual(new Set(['d8', 'f6', 'e7']));
+    expect(g.pieceOptions('land-q-d8').throws).toBeUndefined();
+    const r = record(g);
+    ok(g, { type: 'throw', pieceId: 'land-n-d6', to: 'f6' });
+    expect(lastActed(r).changes).toEqual([
+      { step: 0, type: 'treasure', owner: 'sea', event: 'throw', square: null, carrier: 'land-b-f6', from: 'd6' },
+    ]);
+    expect(g.state.ap).toBe(3);
+    expect(g.state.treasures[1].carrier).toBe('land-b-f6');
+    expect(g.state.score.land).toBe(0);
+  });
+
+  it('a catch in your own half scores at once', () => {
+    const g = arenaGame('raid');
+    setBoard(g, { a1: 'land-k', h8: 'sea-k', d6: 'land-n', d4: 'land-q' });
+    treasure(g, 'sea', { carrier: 'land-n-d6' });
+    const r = record(g);
+    ok(g, { type: 'throw', pieceId: 'land-n-d6', to: 'd4' });
+    expect(lastActed(r).changes).toEqual([
+      { step: 0, type: 'treasure', owner: 'sea', event: 'throw', square: null, carrier: 'land-q-d4', from: 'd6' },
+      { step: 1, type: 'treasure', owner: 'sea', event: 'score', square: 'd6', carrier: null, points: 2 },
+    ]);
+    expect(g.state.score.land).toBe(2);
+  });
+
+  it('an enemy in between intercepts: the treasure flies home', () => {
+    const g = arenaGame('raid');
+    setBoard(g, { a1: 'land-k', h8: 'sea-k', d6: 'land-n', d4: 'land-q', d5: 'sea-p' });
+    treasure(g, 'sea', { carrier: 'land-n-d6' });
+    const r = record(g);
+    ok(g, { type: 'throw', pieceId: 'land-n-d6', to: 'd4' });
+    expect(lastActed(r).changes).toEqual([
+      { step: 0, type: 'treasure', owner: 'sea', event: 'intercept', square: 'd6', carrier: null, from: 'd6', by: 'sea-p-d5' },
+    ]);
+    expect(g.state.treasures[1]).toMatchObject({ square: 'd6', carrier: null });
+    expect(g.state.score.land).toBe(0);
+  });
+
+  it('no throw without AP, while stunned, or without a teammate in line', () => {
+    const g = arenaGame('raid');
+    setBoard(g, { a1: 'land-k', h8: 'sea-k', d6: 'land-n', e4: 'land-q' }, 'land', 0);
+    treasure(g, 'sea', { carrier: 'land-n-d6' });
+    g.raw.ap = 1;
+    expect(g.pieceOptions('land-n-d6').throws).toEqual([]); // e4 is a knight's jump away, not in line
+    g.raw.board[sqIndex('d4')] = { id: 'land-p-d4', side: 'land', kind: 'p' };
+    expect(g.pieceOptions('land-n-d6').throws).toEqual(['d4']);
+    g.raw.ap = 0;
+    expect(g.pieceOptions('land-n-d6').throws).toEqual([]);
+    g.raw.ap = 3;
+    g.raw.statuses.push({ id: 'land-n-d6', status: 'stunned', turnsLeft: 1 });
+    expect(g.pieceOptions('land-n-d6').throws).toEqual([]);
+  });
+
+  it('grab and bring-home changes carry their points', () => {
+    const g = arenaGame('raid');
+    setBoard(g, { a1: 'land-k', h8: 'sea-k', d5: 'land-n' }, 'land', 10);
+    const r = record(g);
+    ok(g, step('land-n-d5', 'd6'));
+    expect(lastActed(r).changes.at(-1)).toMatchObject({ event: 'pickup', points: 1 });
+    ok(g, step('land-n-d5', 'd5'));
+    ok(g, step('land-n-d5', 'd4'));
+    expect(lastActed(r).changes.at(-1)).toMatchObject({ event: 'score', points: 2 });
   });
 });

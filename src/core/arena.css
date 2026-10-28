@@ -36,3 +36,5 @@
 .rules h3 { margin: 10px 0 4px; font-size: 15px; }
 .rules ul { margin: 0; padding-left: 20px; }
 .sq.falls::after { content: '💦'; position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: flex-end; padding: 2px; font-size: 40%; background: rgba(60, 143, 208, 0.35); pointer-events: none; z-index: 3; }
+.sq.throw::before { content: ''; position: absolute; inset: 4%; border-radius: 50%; border: 4px dashed #e0a800; pointer-events: none; z-index: 2; }
+.sq .cost.throw { background: #b07d00; }

@@ -186,6 +186,11 @@ function render(): void {
         el.append(tag('span', 'cost', `${opts!.hitCosts[hitIdx]} AP`));
       }
       if (aimStep?.squares.includes(sq)) el.classList.add('magic');
+      if (!aim && opts?.throws?.includes(sq)) {
+        const caught = selSq ? interceptAt(selSq, sq) : null;
+        el.classList.add('throw');
+        el.append(tag('span', 'cost throw', caught ? `✋ ${caught}` : `🤾 ${opts.throwCost} AP`));
+      }
 
       for (const t of st.treasures) {
         if (t.home === sq) el.append(tag('span', 'home', HOME_MARK[t.owner]));
@@ -261,6 +266,7 @@ function onSquare(sq: Square): void {
     const o = game.pieceOptions(selected);
     if (o.steps.includes(sq)) return submit({ type: 'step', pieceId: selected, to: sq });
     if (o.hits.includes(sq)) return submit({ type: 'hit', pieceId: selected, target: sq });
+    if (o.throws?.includes(sq)) return submit({ type: 'throw', pieceId: selected, to: sq });
   }
   const p = pieceAt(sq);
   if (p && p.side === st.turn) {
@@ -270,6 +276,23 @@ function onSquare(sq: Square): void {
   }
   hoverHit = null;
   render();
+}
+
+/** The first enemy on a square between a thrower and a catcher (it would intercept the throw), for the board hint. */
+function interceptAt(from: Square, to: Square): Square | null {
+  const df = Math.sign(to.charCodeAt(0) - from.charCodeAt(0));
+  const dr = Math.sign(Number(to[1]) - Number(from[1]));
+  const side = pieceAt(from)?.side;
+  let f = from.charCodeAt(0) + df;
+  let r = Number(from[1]) + dr;
+  while (`${String.fromCharCode(f)}${r}` !== to) {
+    const sq = `${String.fromCharCode(f)}${r}` as Square;
+    const q = pieceAt(sq);
+    if (q && q.side !== side) return sq;
+    f += df;
+    r += dr;
+  }
+  return null;
 }
 
 function submit(a: ArenaAction): void {
@@ -360,6 +383,12 @@ function renderSelection(opts: ReturnType<ArenaController['pieceOptions']> | nul
     tag('span', 'sel-name', `${name(p)}${carrying ? ' (carrying)' : ''}`),
     tag('span', 'sel-help', `Step ${opts.stepCost} AP · ${opts.steps.length} step${opts.steps.length === 1 ? '' : 's'}, ${opts.hits.length} ${st.mode === 'sumo' ? 'shove' : 'tag'}${opts.hits.length === 1 ? '' : 's'}. Power: ${pname}: ${help}`),
   ];
+  if (carrying) {
+    const t = getArenaTuning();
+    lines.push(tag('span', 'sel-help', opts.throws?.length
+      ? `Throw (${opts.throwCost} AP): click a gold-ringed teammate. ✋ = an enemy in between would intercept it and send it home.`
+      : `Throw (${t.throwCost} AP): needs a teammate in a straight line within ${t.throwRange} squares, and the AP.`));
+  }
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.textContent = opts.power.available ? `Use ${pname} (${st.mode === 'raid' && p.kind === 'p' ? 0 : 2} AP)` : `${pname}: ${opts.power.note ?? REASON[opts.power.reason ?? ''] ?? opts.power.reason}`;
@@ -557,13 +586,10 @@ game.on('acted', (a) => {
       const p = pieceById(c.pieceId);
       showBanner(p?.kind === 'k' ? `👑💦 ${p ? name(p) : 'The king'} fell in!` : `💦 ${p ? name(p) : 'Splash'}!`, 1200);
     }
-    if (c.type === 'treasure' && c.event === 'score') showBanner(`⭐ ${cap(c.owner === 'land' ? 'sea' : 'land')} scores!`, 1400);
-    if (c.type === 'treasure' && c.event === 'pickup') {
-      // `st` is still the state from before this action: a grab from home scores.
-      const t = st.treasures.find((x) => x.owner === c.owner);
-      const pts = getArenaTuning().grabPoints;
-      showBanner(`${LOOT[c.owner]} Grabbed!${t && t.square === t.home && pts ? ` +${pts}` : ''}`, 900);
-    }
+    if (c.type === 'treasure' && c.event === 'score') showBanner(`⭐ ${cap(c.owner === 'land' ? 'sea' : 'land')} scores!${c.points ? ` +${c.points}` : ''}`, 1400);
+    if (c.type === 'treasure' && c.event === 'pickup') showBanner(`${LOOT[c.owner]} Grabbed!${c.points ? ` +${c.points}` : ''}`, 900);
+    if (c.type === 'treasure' && c.event === 'throw' && !a.changes.some((x) => x.type === 'treasure' && x.event === 'score')) showBanner(`🤾 ${LOOT[c.owner]} Caught!`, 900);
+    if (c.type === 'treasure' && c.event === 'intercept') showBanner(`✋ Intercepted! ${LOOT[c.owner]} flies home`, 1200);
   }
   fakeAnimation();
 });
@@ -682,7 +708,7 @@ function renderTuning(t: ArenaTuning): void {
     group('AP from the die (faces 1–6)', ...[0, 1, 2, 3, 4, 5].map((k) => field(`Face ${k + 1}`, ['apTable', k]))),
     group('Costs (AP)',
       field('Step', ['stepCost']), field('Carrier step', ['carrierStepCost']), field('Shove', ['shoveCost']),
-      field('Heavy shove', ['heavyShoveCost']), field('Heavy kinds (k,r…)', ['heavyKinds'], 'list'), field('Tag', ['tagCost']),
+      field('Heavy shove', ['heavyShoveCost']), field('Heavy kinds (k,r…)', ['heavyKinds'], 'list'), field('Tag', ['tagCost']), field('Throw', ['throwCost']), field('Throw range', ['throwRange']),
       field('Power', ['powerCost']), field('Raid Sidestep', ['sidestepCost'])),
     group('Sumo',
       field('Sink after rounds', ['sinkRounds'], 'list'), field('Headbutt squares', ['headbuttSquares']), field('Round cap', ['sumoMaxRounds'])),
@@ -754,6 +780,7 @@ function renderRules(): void {
     ul(
       `Steal the other side's treasure (bone ${t.treasureHomes.land}, pearl ${t.treasureHomes.sea}): grabbing it from home scores ${t.grabPoints}, carrying it into your own half ${t.scorePoints} more. First to ${t.pointsToWin}.`,
       `Carrying: steps cost ${t.carrierStepCost} AP and no power. You can't stand on your own home square.`,
+      `Pass and run (${t.throwCost} AP): the carrier throws to a teammate in a straight line up to ${t.throwRange} squares away. A catch in your own half scores at once. An enemy in between intercepts: the treasure flies home.`,
       `Tag (${t.tagCost} AP): in your own half, tag a neighbouring enemy. ${t.tagStuns ? 'It is stunned for its next turn; a carrier is instead sent home and drops the treasure. A stunned animal can\'t be tagged.' : 'It is sent home; a carrier drops the treasure.'}`,
       `Wheel of Chaos every ${t.wheelEvery} rounds (the tide sweeps ${t.tideBothWays ? 'both sides' : 'Land'} back toward home). After round ${t.raidMaxRounds}, more points wins.`,
     ),

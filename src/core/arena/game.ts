@@ -20,7 +20,7 @@ import {
   ANIMAL, actionKey, applyAction, powerLine, powerNote, carriedBy, cloneArena, createArenaState, detectOver, endTurn, findA, hasAnyAction,
   hitCostOf, hitTargets, isSunk, legalActions, maxRoundsOf, nextSinkIn, nextWheelIn, piecesOn, powerBlock, powerName,
   powerOptions, pushLine, roll, roundCapResult, sentHomeSquare, shoveLine, sinkingNext,
-  spinWheel, stepCostOf, stepTargets, stompShoves, stunVictims, wheelDue, type AState,
+  spinWheel, stepCostOf, stepTargets, stompShoves, stunVictims, throwTargets, wheelDue, type AState,
 } from './rules';
 import { getArenaTuning } from './tuning';
 
@@ -105,6 +105,7 @@ export class ArenaGame implements ArenaController {
       stepCost,
       hitCosts: hits.map((h) => h.cost),
       power: block ? { power, available: false, reason: block, ...text, ...(note ? { note } : {}) } : { power, available: true, ...text },
+      ...(carriedBy(s, p.id) ? { throws: throwTargets(s, i).map(sqName), throwCost: s.cfg.throwCost } : {}),
     };
   }
 

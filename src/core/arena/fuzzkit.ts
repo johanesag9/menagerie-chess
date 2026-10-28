@@ -114,6 +114,7 @@ function checkOptions(g: ArenaGame): void {
       continue;
     }
     for (const to of o.steps) offered.add(actionKey({ type: 'step', pieceId: p.id, to }));
+    for (const to of o.throws ?? []) offered.add(actionKey({ type: 'throw', pieceId: p.id, to }));
     o.hits.forEach((target, k) => {
       offered.add(actionKey({ type: 'hit', pieceId: p.id, target }));
       need(o.hitCosts[k] <= s.ap, () => `hit costs ${o.hitCosts[k]} > AP ${s.ap}`);

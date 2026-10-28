@@ -50,6 +50,10 @@ export interface ArenaTuning {
   grabPoints: number;
   /** Raid: points for carrying it into your own half. */
   scorePoints: number;
+  /** Raid "pass and run": a throw from the carrier to a teammate. */
+  throwCost: number;
+  /** Raid: the farthest a throw reaches, in a straight line (an enemy on a square in between intercepts it). */
+  throwRange: number;
   /** Raid: a tag stuns an animal that isn't carrying, where it stands. Off = sent home, like a tagged carrier. */
   tagStuns: boolean;
   /** Raid: the tide also sweeps Sea animals out of Land's half. Off = Land only. */
@@ -86,6 +90,8 @@ export const DEFAULT_ARENA_TUNING: ArenaTuning = {
   treasureHomes: { land: 'e3', sea: 'd6' },
   grabPoints: 1,
   scorePoints: 2,
+  throwCost: 1,
+  throwRange: 2,
   tagStuns: true,
   tideBothWays: true,
   noGuarding: true,

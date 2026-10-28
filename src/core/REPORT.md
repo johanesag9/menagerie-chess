@@ -11,10 +11,12 @@
   - Grabbing the enemy treasure from its home scores 1. Carrying it into your own half scores 2 more. First to 5 wins; the round cap is 12.
   - A tag stuns an animal where it stands for its next turn, and a stunned animal can't be tagged.
   - The tide sweeps both sides back toward their own half.
-  - "Pass and run" (throwing) waits for the contract; see Contract requests.
+  - **Pass and run**: a carrier throws to a teammate in a straight line up to 2 squares away, for 1 AP. A catch in your own half scores the 2 at once. An enemy on a square in between intercepts, and the treasure flies home. Knobs: `throwCost`, `throwRange`.
+  - Treasure changes that score carry `points` (grab, bring home, a catch in your own half).
+  - In the playtest, select a carrier: gold dashed rings mark teammates it can throw to, and ✋ marks a throw that would be intercepted.
 - Every rule number is a knob in `src/core/arena/tuning.ts`, editable in the playtest's Tuning panel.
-- Tests: 60 rules tests (`arena/sumo.test.ts`, `arena/raid.test.ts`) and a fuzz of 200 seeded games per mode (`arena/fuzz.*.test.ts`, about 8 s each). The fuzz checks that options match the legal moves, that the board rebuilt from events matches the state, the event order, and that illegal actions are refused. `ARENA_FUZZ_GAMES=10` runs a quick sample.
-- `npm run typecheck` passes and `npm test` passes (316 tests, Classic/Normal/Crazy included).
+- Tests: 65 rules tests (`arena/sumo.test.ts`, `arena/raid.test.ts`) and a fuzz of 200 seeded games per mode (`arena/fuzz.*.test.ts`, about 8 s each). The fuzz checks that options match the legal moves, that the board rebuilt from events matches the state, the event order, and that illegal actions are refused. `ARENA_FUZZ_GAMES=10` runs a quick sample.
+- `npm run typecheck` passes and `npm test` passes (321 tests, Classic/Normal/Crazy included).
 - Checked in the browser at 1280px and 390px: all four (Sumo/Raid × local/bot) reach game over with no console errors and no sideways scroll.
 
 ### How to run the playtest
@@ -33,6 +35,7 @@ Raid
 - **A tagged carrier is still sent home and drops the treasure** (not stunned in place). If it stayed, it would stand on the dropped treasure. Also, the treasure would go home right next to it, so it could grab again for a free point every other turn. Knob: `tagStuns` (off = every tag sends home).
 - The grab point only counts when the treasure lay at its home; picking up a dropped one scores nothing.
 - A score that jumps past the target (4 + 2) still wins.
+- Throws: a throw flies over teammates and blocks in the way; only an enemy intercepts. A stunned teammate can still catch, and a stunned enemy can still intercept. A catch scores with a separate `score` change (step 1) after the `throw` change (step 0), and `points` sits on the `score` change.
 - Tide and earthquake moves follow the normal arrival rules (pickup, scoring). Sent-home squares skip treasure squares.
 
 Sumo
@@ -45,15 +48,7 @@ Events and log
 - A bonk sends no `acted`; running out of AP ends the turn with no log entry of its own.
 
 ### Contract requests
-- **Throw ("pass and run", approved by Johanes):**
-  - A new action `{ type: 'throw'; pieceId; to: Square }`. Only a carrier can throw, to a teammate in a straight line up to 2 squares away, for 1 AP.
-  - The catcher becomes the carrier, and scores at once if it stands in its own half.
-  - If an enemy stands on the square in between, it intercepts: it owns the treasure, so the treasure flies home.
-  - `ArenaPieceOptions` needs a `throws: Square[]` list.
-  - The treasure change needs new events, `'throw'` and `'intercept'` (or one `'throw'` with `carrier` = the catcher, null when intercepted), so 3D can play a flight.
-  - Core will build it once the contract is in.
-- **Grab points:** a grab from home now adds to `score` with the `pickup` change. 3D can read it from the `state` score diff; a flag on `pickup` (e.g. `points: 1`) would be clearer.
-- Comments in `types.ts` still say bone e1 / pearl d8 and "tagged → sent home". Homes come from `TreasureState.home`, and a tag on a non-carrier now sends a `status` change (stunned), not a `sentHome` move.
+- None open. The throw contract (7cd65fc) is in and built. From that commit I took only `src/contracts/types.ts` and `GAME_SPEC.md`; its `src/app` part isn't on this branch.
 - PowerKind has no `'digIn'`; `PowerInfo.name`/`note` cover it.
 
 ### Open design questions for Johanes
@@ -65,6 +60,7 @@ Events and log
   | Quick raids, level 5 (20 games) | 11 | 9 | 0 | Land 4.7, Sea 3.9 | about 6 |
   | Quick raids, level 8 (16 games) | 11 | 5 | 0 | Land 5.1, Sea 3.4 | about 6 |
 
+  With throwing on, the numbers are the same (level 5: Land 11, Sea 9; level 8: Land 11, Sea 5), and games end about half a round sooner. The bot throws less than once a game: it takes a throw when one is there but doesn't set passes up, and it never threw into an interception.
   Every game now has scoring and a winner. Treasures are grabbed about 5–6 times a game and brought home about 2 times, so there are plenty of chases.
   - Land, which moves first, wins about 60–65%: its first turn can already reach the pearl. A possible fix is fewer AP on Land's first turn; it isn't built yet.
   - Games are short, about 6 rounds. "First to 7" makes them about 8 rounds, but Land then won 14 of 20.
@@ -73,7 +69,7 @@ Events and log
 - Bot levels 1–3 make a random move some of the time on purpose (30% at level 1). Should they feel more playful than that?
 
 ### Known issues
-- GAME_SPEC's Raid section still describes the first version; the orchestrator owns it.
+- The bot hardly uses pass and run (under one throw a game). Teaching it to line up passes is possible if you want the bot to show off the throw.
 - On a heavily loaded machine the bot can take over a second on a turn (normally a few ms), and old time-limited Phase 3 tests can time out. Re-run them alone.
 - The playtest is a flat 2D dev tool with emoji stand-ins, not the game look.
 
