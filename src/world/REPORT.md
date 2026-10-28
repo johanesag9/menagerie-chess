@@ -19,7 +19,7 @@ Branch `claude/p4-world-3e55fc`. New files: `sink.ts`, `treasures.ts`, `splash.t
   - **Shared colours:** bone `#f3e6c8`, pearl `#f7f4ee`, shell `#f2a7b5`, exported as `TREASURE_COLORS`. The exact shapes are exported too (`makeBoneGeometry`, `makePearlGeometry`) if the cast wants them.
 - **`splash(point, big)`:** a jagged water crown shoots up and collapses, a double ripple ring spreads, droplets fly and die when they fall back to the water line, and a puff of mist rises. `big` (a king) is 1.6× bigger with twice the droplets. `point` is world space. Four splashes are pooled, so a whole ring falling in at once is fine.
 - **Reduced motion:** a lower, quicker sink with no crest, spray or tile pop; no wobble (the wet edge stays); a small crown with few droplets; treasures slide instead of arcing, with no bob or spin.
-- **No first-use hitch:** every new shader compiles in the existing warm-up. Frame times while running every Phase 4 effect matched idle in headless Chrome.
+- **No first-use hitch:** every new shader compiles in the existing warm-up. The program count is the same at boot and after running every Phase 4 effect (35 on low, 76 on high), and frame times during the effects matched idle in headless Chrome.
 - **Tests:** ring sizes, ring-sink timing (every tile drops inside the effect, Sea first, Land last, normal and reduced). World tests: 24.
 
 ### Ring-sink timing (for integration)
@@ -63,7 +63,7 @@ Start `world-demo` (port 4412) and open http://localhost:4412/src/world/demo.htm
 ### Known issues
 - **The water spills a little onto the rim** next to sunk edge squares, so the frame looks wet there. That's on purpose, but it shows even while a ring only wobbles.
 - **Warn and the tide/disco:** these never meet (Sumo has no Wheel of Chaos), so they weren't tested together.
-- **Testing:** headless Chrome on this Mac only (load average over 100, so about 30fps overall; no hitches from these effects). No real phone yet.
+- **Testing:** headless Chrome on this Mac only, at 1280×800 and 390×844, with no console errors. It ran at 56–60fps once the machine calmed down (about 30fps while the load average was over 100), with no hitches from these effects. No real phone yet.
 
 ---
 

@@ -21,8 +21,8 @@ import type { Textures } from './textures';
 export const TREASURE_COLORS = { bone: '#f3e6c8', pearl: '#f7f4ee', shell: '#f2a7b5' } as const;
 
 const BOWL = { outer: '#e4574b', inner: '#dfe6ea', rim: '#f6efe4' } as const;
-const SHELL_INSIDE = '#fbdde3';
-const SHELL_RIB = '#e98fa1';
+const SHELL_INSIDE = '#f9c9d3';
+const SHELL_RIB = '#e07f95';
 
 /** A cream cartoon bone along x, about 0.4 long (0.35-0.4 of a square), centred on the origin. */
 export function makeBoneGeometry(): THREE.BufferGeometry {
@@ -265,7 +265,7 @@ export class Treasures {
   private rest(it: Item, sq: Square, out: THREE.Vector3): THREE.Vector3 {
     const { x, z } = squareToXZ(sq);
     const home = sq === it.home;
-    const lift = it.owner === 'land' ? (home ? 0.1 : 0.065) : home ? 0.2 : 0.15;
+    const lift = it.owner === 'land' ? (home ? 0.1 : 0.065) : home ? 0.17 : 0.15;
     return out.set(x, BOARD_TOP + lift, z);
   }
 
@@ -318,7 +318,7 @@ export class Treasures {
     it.body.scale.setScalar(Math.max(0.001, scale));
     // The glow lies on the board under the treasure and breathes.
     it.glow.position.y = BOARD_TOP + 0.008 - pos.y;
-    it.glow.material.opacity = 0.55 * glow * (reduced ? 1 : 0.85 + 0.15 * Math.sin(el * 2.2));
+    it.glow.material.opacity = 0.4 * glow * (reduced ? 1 : 0.85 + 0.15 * Math.sin(el * 2.2));
     if (!reduced && it.square && !a && (it.twinkle -= dt) <= 0) {
       it.twinkle = 0.45 + Math.random() * 0.3;
       const ang = Math.random() * Math.PI * 2;
