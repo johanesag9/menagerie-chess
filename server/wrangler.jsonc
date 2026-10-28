@@ -10,7 +10,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] }],
   "vars": {
     // Comma-separated origins of the real site, e.g. "https://menagerie-chess.pages.dev". Any http://localhost port is always allowed.
-    "ALLOWED_ORIGINS": ""
+    "ALLOWED_ORIGINS": "https://menagerie-chess.pages.dev"
   },
   "observability": { "enabled": true }
 }
