@@ -276,9 +276,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.hud.mode.setPrompt(text);
   }
 
-  /** `ap` (extra, party modes): the AP this roll gives, to show "3 → 3 AP". Without it the UI uses the spec's table. */
-  rollDie(side: Side, value: DieValue, effect: DieEffect, ap?: number): Promise<void> {
-    return this.chaos.rollDie(side, value, effect, ap);
+  /** Party modes: `opts.ap` is the AP this roll gives ("3 → 3 AP"). Without it the UI uses the spec's table. */
+  rollDie(side: Side, value: DieValue, effect: DieEffect, opts?: { ap?: number }): Promise<void> {
+    return this.chaos.rollDie(side, value, effect, opts?.ap);
   }
 
   askLucky(side: Side, opts: { canRecharge: boolean; canStep: boolean }): Promise<'recharge' | 'pawnStep' | 'skip'> {

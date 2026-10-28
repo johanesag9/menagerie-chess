@@ -285,7 +285,10 @@ export class ModeHud {
     const sel = this.sel!;
     const p = sel.power!;
     const mode = this.info?.mode;
+    // Core's own name and line (Phase 4) win over ours; ours stay as the fallback.
     const t = { ...POWER_TEXT[p.power], ...(isArenaMode(mode) ? ARENA_POWER_TEXT[mode][p.power] : undefined) };
+    if (p.name) t.name = p.name;
+    if (p.line) t.line = p.line;
     const name = ANIMAL_NAME[sel.side][sel.kind];
     const use = button(`Use ${t.name}`, { variant: sel.side === 'sea' ? 'sea' : 'primary', class: 'mc-sel__use', onClick: () => this.ctx.emit('powerRequested', { pieceId: sel.pieceId }) });
     this.selPanel.dataset.side = sel.side;
@@ -294,7 +297,7 @@ export class ModeHud {
       h('div', { class: 'mc-sel__text' },
         h('span', { class: 'mc-sel__name' }, h('strong', { text: t.name }), h('span', { text: ` · ${name}` })),
         h('span', { class: 'mc-sel__line', text: t.line })),
-      p.available ? use : h('span', { class: 'mc-sel__why', 'data-reason': p.reason ?? '', text: POWER_BLOCK_TEXT[p.reason ?? 'wrongPhase'] }));
+      p.available ? use : h('span', { class: 'mc-sel__why', 'data-reason': p.reason ?? '', text: p.note ?? POWER_BLOCK_TEXT[p.reason ?? 'wrongPhase'] }));
     this.selPanel.setAttribute('aria-label', `${name}: ${t.name}. ${t.line}`);
   }
 }

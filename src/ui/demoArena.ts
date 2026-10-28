@@ -112,7 +112,7 @@ export class FakeArena {
     this.st.ap = 0;
     this.ui.setTurn(side);
     this.push();
-    await this.ui.rollDie(side, value, 'none', apFromDie(value));
+    await this.ui.rollDie(side, value, 'none', { ap: apFromDie(value) });
     this.st.die = value;
     this.st.ap = apFromDie(value);
     this.push();
@@ -334,9 +334,14 @@ export function addArenaControls(ui: MenagerieUi, section: Section, btn: Btn, no
     f.push();
     ui.setBotThinking((thinking = !thinking));
   });
+  // Core sends the party name and line in PowerInfo; `note` is a plain reason when it can't be used.
   btn(hud, 'Select: Pup (Dig in)', () => {
     if (!fa) stage('sumo');
-    ui.setSelection({ pieceId: 'land-p-g2', side: 'land', kind: 'p', power: { power: 'sidestep', available: true } });
+    ui.setSelection({ pieceId: 'land-p-g2', side: 'land', kind: 'p', power: { power: 'sidestep', available: true, name: 'Dig in', line: "Can't be pushed until the start of your next turn." } });
+  });
+  btn(hud, 'Select: not enough AP', () => {
+    if (!fa) stage('sumo');
+    ui.setSelection({ pieceId: 'land-r-f2', side: 'land', kind: 'r', power: { power: 'stomp', available: false, reason: 'wrongPhase', note: 'Not enough AP' } });
   });
   btn(hud, 'Hide', () => {
     ui.setArenaState(null);

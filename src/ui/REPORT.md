@@ -7,18 +7,18 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 **Setup**
 - A second row, "Party modes · Not chess", with Sumo and Raid and a one-line pitch each. It is one radio group with the chess modes, so the arrow keys run through all five.
 - For Sumo and Raid the clock, Weird Mode and FEN are hidden, and `toGameOptions` sends no clock, `weirdMode: false` and no FEN.
-- "How it works" has tabs for all five modes. The Sumo and Raid text follows GAME_SPEC "Party modes" (`modeText.ts`).
+- "How it works" has tabs for all five modes. The Sumo and Raid text follows GAME_SPEC "Party modes" and its "Fine print" (`modeText.ts`).
 
 **Party HUD (`setArenaState`)**
 - By each player card: the six animals. Fallen ones are crossed out. A gold dot marks each power that's still ready. It also shows duel tokens (2 dots) and status (stunned, frozen, dug in). In Raid it shows where that side's treasure is: "Home", "Dropped on f4" or, in red, "Horse has it!". The carrier's icon wears the treasure.
 - Top chip: "Round 4 / 15". Sumo: "Island sinks in N", which turns red and pulses as "Island sinks this round!". Raid: "Land 1 – 2 Sea (to 3)" and "Wheel in N".
 - Bottom turn bar: the die face, AP pips with "3 AP", and a big **End turn** button. The button emits `endTurn` and plays `endTurn`. It shows only for a human side to move, with AP left and outside a duel. During a duel the bar says "Duel!"; on the bot's turn it shows thinking dots. **E** on the keyboard ends the turn too.
-- The selected-animal panel uses the party power names and lines ("Dig in: Can't be pushed until your next turn.").
+- The selected-animal panel shows core's `PowerInfo.name`, `line` and `note` when they're there ("Dig in", "Not enough AP"). Without them it falls back to the UI's own party text.
 - No clocks and no undo in party games. `setArenaState(null)` hides it all.
 
 **Banners, die, duels, wheel, result**
 - `announce(text, tone)`: a big bouncy banner, about 1.2s. Tones: info (teal), good (green), bad (red). Clicks pass through it; a tap or Space skips it; a new one cuts the old one short. With reduced motion it is a fade.
-- `rollDie` in party modes says "5 → 4 AP" (no banana or lucky).
+- `rollDie(side, value, 'none', { ap })` in party modes says "5 → 4 AP" (no banana or lucky). Without `ap` it uses the spec table.
 - Duel question by `via`:
   - shove: "Sea's Sea Turtle wants to shove your Pug into the sea!" / "Let it go: The Pug falls in".
   - tag: "Sea's Crab tags your Horse! It would drop the pearl." / "The Horse drops it and goes home".
@@ -44,7 +44,6 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 - Call `setArenaState` on every `state`. It also gives the duel and selection panels their animal names. Call it with the final state *before* `showResult`, because the result line reads the score and the animals left from it.
 - `setGameInfo` with `mode: 'sumo' | 'raid'` hides the clocks and undo.
 - `addLog` shows `'move'` records in party modes (chess still uses `addMove`).
-- `rollDie(side, value, 'none', ap)`: the 4th argument is an extra (see contract request 1).
 
 **Tests** (`ui.test.ts`, now 24): party setup (no clock, Weird Mode or FEN), text for every mode, die to AP, shove and tag wording, every party ending, step lines in party mode only, and every Phase 4 cue has a sound. `npm run typecheck` passes.
 
@@ -62,10 +61,8 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 Checked in the browser pane at desktop size and 390×844, with real taps and keys (Start, End turn, E, N). No console errors. Reduced motion works. Normal and Crazy show none of the party HUD.
 
 ## Contract requests
-1. **AP for the die.** `rollDie` doesn't get the AP the roll gives. *Workaround:* `MenagerieUi.rollDie(side, value, effect, ap?)`; without `ap` it uses the spec table. Ask: add `ap?` to the contract.
-2. **How many AP pips.** `ArenaState` has the AP left but not the AP the turn started with, so the HUD counts the highest AP it saw this turn. Ask: add `apStart` (or `apMax`).
-3. **What `nextSinkIn` counts.** I read it as 1 = "sinks at the end of this round", as the brief says. The urgent look also turns on whenever `sinkingNext` isn't empty, so the warning round is right either way. Ask core to confirm.
-4. **Log kind for steps, shoves and tags.** The HUD shows `'move'` records in party modes. Ask core to log them as `'move'` (or tell me the kind).
+Done in b0547e8: the die's AP (`rollDie` opts), `PowerInfo` name/line/note, the log kinds, and what "Island sinks in 1" means. Still open:
+1. **How many AP pips.** `ArenaState` has the AP left but not the AP the turn started with, so the HUD counts the highest AP it saw this turn. Ask: add `apStart` (or `apMax`).
 
 ## Open design questions for Johanes
 - **Treasure icons** are system emoji: 🦴 bone and 🦪 for the pearl (an oyster, the closest one). Draw our own later?
@@ -76,7 +73,7 @@ Checked in the browser pane at desktop size and 390×844, with real taps and key
 - **Sounds:** balanced by numbers only, not heard yet. Please try them on the sound board.
 
 ## Known issues
-- AP pips can undercount if the first state of a turn arrives with AP already spent (see contract request 2).
+- AP pips can undercount if the first state of a turn arrives with AP already spent (see contract request 1).
 - In the demo's free play you can only press End turn, because the stand-in board isn't clickable.
 - The demo drawer's tab covers the left edge of the setup screen at 390px. This happens in the demo only.
 
