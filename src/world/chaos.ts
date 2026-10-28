@@ -4,7 +4,7 @@
  * every running one to its end). Reduced motion makes each one shorter and gentler, with no shake.
  */
 import * as THREE from 'three';
-import type { Square, WheelOutcome } from '../contracts/types';
+import type { Side, Square, WheelOutcome } from '../contracts/types';
 import { type Animator, type Handle, clamp01, ease, lerp } from './anim';
 import type { Board } from './board';
 import type { CameraRig } from './camera';
@@ -43,6 +43,15 @@ export interface ChaosOptions {
   squares?: Square[];
   carry?: THREE.Object3D;
   direction?: 'left' | 'right';
+  /** Phase 4 Raid: the pigeon snatches this treasure at `from` and drops it at `to`. */
+  treasure?: { owner: Side; from: Square; to: Square };
+}
+
+/** What the pigeon needs from the Raid treasures (Phase 4). */
+export interface TreasureHooks {
+  isLyingAt(side: Side, sq: Square): boolean;
+  grabForPigeon(side: Side): THREE.Object3D;
+  dropFromPigeon(side: Side, to: Square): void;
 }
 
 /** Board-local z of the Sea edge the tide starts from (just past the frame) and of the middle line. */
@@ -55,6 +64,8 @@ export class ChaosEffects {
   private wave: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private cracks: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
   private pigeon: Pigeon;
+  /** Phase 4: set by the world once the treasures exist. */
+  treasures: TreasureHooks | null = null;
 
   constructor(private c: ChaosContext) {
     this.particles = new Particles(c.bin, c.tex, c.pxScale);
@@ -94,7 +105,7 @@ export class ChaosEffects {
     let handles: Handle[];
     switch (outcome) {
       case 'tide': handles = [this.tide()]; break;
-      case 'pigeon': handles = [this.pigeonSteal(opts)]; break;
+      case 'pigeon': handles = [opts.treasure ? this.pigeonSnatch(opts.treasure) : this.pigeonSteal(opts)]; break;
       case 'earthquake': handles = [this.quake(opts.direction ?? 'left')]; break;
       case 'disco': handles = [this.c.weird.discoFlash(), this.discoSparkles()]; break;
       default: return Promise.resolve();
@@ -291,6 +302,23 @@ export class ChaosEffects {
     const to = new THREE.Vector3(land.x - dir * 12, land.y + 11, land.z - 9);
     // If the piece isn't on the board any more, there's nothing to grab: just fly past.
     return this.pigeon.carry(this.c.animator, from, land, to, cargo?.parent ? cargo : null, this.c.reducedMotion());
+  }
+
+  /** Phase 4 Raid: the pigeon takes a treasure in its beak and drops it on another square. */
+  private pigeonSnatch(t: NonNullable<ChaosOptions['treasure']>): Handle {
+    const tr = this.treasures;
+    const a = squareToXZ(t.from), b = squareToXZ(t.to);
+    const perch = tr?.isLyingAt(t.owner, t.from) ?? false;
+    // On the ground it lands to peck it up; out of a carrier's mouth it hovers above the animal's head.
+    const grabAt = new THREE.Vector3(a.x, BOARD_TOP + (perch ? 0 : 0.9), a.z);
+    const dropAt = new THREE.Vector3(b.x, BOARD_TOP + 0.9, b.z);
+    const dir = a.x > 0 ? -1 : 1;
+    const from = new THREE.Vector3(grabAt.x + dir * 9, grabAt.y + 4.5, grabAt.z - 5);
+    const to = new THREE.Vector3(dropAt.x - dir * 12, dropAt.y + 10, dropAt.z - 9);
+    return this.pigeon.snatch(this.c.animator, from, grabAt, dropAt, to, perch, {
+      grab: () => tr?.grabForPigeon(t.owner) ?? null,
+      drop: () => tr?.dropFromPigeon(t.owner, t.to),
+    }, this.c.reducedMotion());
   }
 
   // ---------- earthquake: rumble, dust and cracks ----------

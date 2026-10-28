@@ -448,6 +448,8 @@ export class Pigeon {
   readonly group = new THREE.Group();
   /** At the pigeon's feet: a carried piece hangs from here and swings. */
   private hook = new THREE.Group();
+  /** At the beak tip: a snatched treasure (Phase 4) is held here. */
+  private beakHold = new THREE.Group();
   private body = new THREE.Group();
   private head = new THREE.Group();
   private wingL = new THREE.Group();
@@ -490,7 +492,10 @@ export class Pigeon {
       eye.position.set(sx, 0.02, 0.055);
       this.head.add(eye);
     }
-    this.head.add(headBall, beak);
+    // The pigeon flies at 2.6x; this keeps a held treasure at about 80% of its board size.
+    this.beakHold.position.set(0, -0.03, 0.15);
+    this.beakHold.scale.setScalar(0.8 / 2.6);
+    this.head.add(headBall, beak, this.beakHold);
     this.head.position.set(0, 0.36, 0.12);
     this.body.add(this.head);
 
@@ -570,6 +575,106 @@ export class Pigeon {
       }
       if (flapping) {
         const flap = Math.sin(el * (grabbed ? 38 : 28)) * 0.95;
+        this.wingL.rotation.z = flap;
+        this.wingR.rotation.z = -flap;
+        const v = g.position.clone().sub(prev);
+        if (v.x * v.x + v.z * v.z > 1e-6) g.rotation.y = Math.atan2(v.x, v.z);
+      } else {
+        this.wingL.rotation.z = 0.5;
+        this.wingR.rotation.z = -0.5;
+      }
+      const done = t >= total;
+      if (done) end();
+      return done;
+    }, end);
+  }
+
+  /**
+   * Phase 4 Raid snatch: fly in to `grabAt`, take the treasure in the beak (`hooks.grab` hands over a copy and hides the
+   * one on the board), fly over to `dropAt`, let go (`hooks.drop` puts it on its new square) and fly off.
+   * `perch` = it lands to peck the treasure off the ground; else it hovers (snatching it from a carrier's mouth).
+   * Cancelling finishes it: the treasure is always dropped and the beak emptied before the handle resolves.
+   */
+  snatch(
+    animator: Animator, from: THREE.Vector3, grabAt: THREE.Vector3, dropAt: THREE.Vector3, to: THREE.Vector3, perch: boolean,
+    hooks: { grab: () => THREE.Object3D | null; drop: () => void }, reduced: boolean,
+  ): Handle {
+    const g = this.group;
+    const flyIn = 0.75, grab = perch ? 0.45 : 0.3, carry = reduced ? 0.7 : 0.95, flyOut = 0.8;
+    const total = flyIn + grab + carry + flyOut;
+    const up = grabAt.clone().setY(grabAt.y + 0.3);
+    const ctrlIn = from.clone().lerp(grabAt, 0.5).add(new THREE.Vector3(0, 2.2, 0));
+    const ctrlCarry = up.clone().lerp(dropAt, 0.5).add(new THREE.Vector3(0, 1.1, 0));
+    const ctrlOut = dropAt.clone().lerp(to, 0.5).add(new THREE.Vector3(0, 1.5, 0));
+    const bez = (a: THREE.Vector3, c: THREE.Vector3, b: THREE.Vector3, u: number, out: THREE.Vector3) =>
+      out.set(0, 0, 0).addScaledVector(a, (1 - u) ** 2).addScaledVector(c, 2 * (1 - u) * u).addScaledVector(b, u * u);
+    const prev = new THREE.Vector3();
+    let cargo: THREE.Object3D | null = null;
+    let grabbed = false, dropped = false;
+    let t = 0;
+    g.visible = true;
+    g.position.copy(from);
+    g.rotation.set(0, 0, 0);
+    g.scale.setScalar(2.6);
+    const release = () => {
+      if (dropped) return;
+      dropped = true;
+      cargo?.removeFromParent();
+      cargo = null;
+      hooks.drop();
+    };
+    const end = () => {
+      if (!grabbed) {
+        grabbed = true;
+        hooks.grab();
+      }
+      release();
+      g.visible = false;
+      g.rotation.set(0, 0, 0);
+      this.head.rotation.set(0, 0, 0);
+      this.body.scale.set(1, 1, 1);
+    };
+    return animator.process((dt, el) => {
+      t += dt;
+      prev.copy(g.position);
+      let flapping = true;
+      if (t < flyIn) {
+        bez(from, ctrlIn, grabAt, ease.cubicOut(t / flyIn), g.position);
+      } else if (t < flyIn + grab) {
+        const s = t - flyIn;
+        g.position.copy(grabAt);
+        if (perch) {
+          // Land with a squash and peck it up.
+          flapping = false;
+          const squash = Math.exp(-s * 10) * Math.sin(s * 34) * 0.15;
+          this.body.scale.set(1 + squash, 1 - squash, 1 + squash);
+          this.head.rotation.x = Math.sin(Math.PI * clamp01(s / (grab * 0.7))) * 0.9;
+        } else {
+          g.position.y += Math.sin(s * 14) * 0.03;
+        }
+        if (!grabbed && s > grab * 0.4) {
+          grabbed = true;
+          cargo = hooks.grab();
+          if (cargo) {
+            this.beakHold.add(cargo);
+            cargo.rotation.set(0, 0, 0);
+          }
+        }
+      } else if (t < flyIn + grab + carry) {
+        this.body.scale.set(1, 1, 1);
+        this.head.rotation.x = 0;
+        const u = clamp01((t - flyIn - grab) / carry);
+        bez(grabAt, ctrlCarry, dropAt, ease.sineInOut(u), g.position);
+        g.rotation.z = Math.sin(el * 8) * 0.12 * (reduced ? 0.25 : 1);
+        if (cargo) cargo.rotation.z = Math.sin(el * 7) * 0.25 * (reduced ? 0.25 : 1);
+      } else {
+        release();
+        g.rotation.z = 0;
+        const u = clamp01((t - flyIn - grab - carry) / flyOut);
+        bez(dropAt, ctrlOut, to, ease.cubicIn(u), g.position);
+      }
+      if (flapping) {
+        const flap = Math.sin(el * 30) * 0.95;
         this.wingL.rotation.z = flap;
         this.wingR.rotation.z = -flap;
         const v = g.position.clone().sub(prev);

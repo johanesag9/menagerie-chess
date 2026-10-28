@@ -449,6 +449,13 @@ button('sumo', 'Sink 1 square', () => {
   world.setSunk(sunk, warned);
   log(`${sq} sinks on its own (no wave)`);
 });
+let islandOn = false;
+button('sumo', 'Island mode', (b) => {
+  islandOn = !islandOn;
+  world.setIslandMode(islandOn);
+  b.classList.toggle('on', islandOn);
+  log(islandOn ? 'Island mode: the sea rises round the board' : 'Island mode off: the meadow and beach come back');
+});
 button('sumo', 'Restore board', () => {
   sunk = [];
   warned = [];
@@ -504,6 +511,22 @@ button('raid', 'Bone flies home', () => {
   setT('land', 'e1');
   showTreasures('Bone flies home to e1');
 });
+function pigeonSnatch() {
+  const owner: Side = Math.random() < 0.5 ? 'land' : 'sea';
+  const t = treasures[owner];
+  const from = t.square ?? (owner === 'land' ? 'e5' : 'd4');
+  // The spec: a random empty square in the owner's half, never a back rank or a home square.
+  const half = (owner === 'land' ? ['2', '3', '4'] : ['5', '6', '7']);
+  const pool = ALL_SQUARES.filter((sq) => half.includes(sq[1]) && !tokens.has(sq) && sq !== from);
+  const to = pool[Math.floor(Math.random() * pool.length)];
+  if (!t.square) setT(owner, from);
+  showTreasures(`Pigeon snatches the ${owner === 'land' ? 'bone' : 'pearl'} at ${from} and drops it on ${to}`);
+  void world.playChaos('pigeon', { treasure: { owner, from, to } }).then(() => {
+    setT(owner, to);
+    world.setTreasures([treasures.land, treasures.sea]);
+  });
+}
+button('raid', 'Pigeon snatch', pigeonSnatch);
 button('raid', 'Hide treasures', () => {
   treasuresOn = false;
   world.setTreasures([]);
@@ -621,6 +644,7 @@ const clickBtn = (label: string) => [...document.querySelectorAll('button')].fin
 for (let i = 0; i < Number(params.get('sink') ?? 0); i++) setTimeout(() => clickBtn('Sink next ring'), 300 + i * 1500);
 if (params.has('warn')) setTimeout(() => clickBtn('Warn next ring'), 300);
 if (params.has('treasures')) clickBtn('Treasures at home');
+if (params.has('island')) clickBtn('Island mode');
 const autoChaos = params.get('chaos') as WheelOutcome | 'earthquakeRight' | null;
 if (autoChaos) setTimeout(() => void playChaosDemo(autoChaos), 300);
 const autoWeird = params.get('weird') as WeirdEventKind | null;

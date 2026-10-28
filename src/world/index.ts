@@ -33,6 +33,7 @@ import { SquareEffects } from './squareFx';
 import { SinkingIsland } from './sink';
 import { Splashes } from './splash';
 import { Treasures } from './treasures';
+import { IslandMode } from './island';
 
 export { TIDE_TIMING } from './chaos';
 export { SINK_TIMING, sinkDropTimes, ringOf } from './sink';
@@ -56,6 +57,8 @@ export interface ShorelineWorld extends World {
   setReducedMotion(reduced: boolean | null): void;
   readonly reducedMotion: boolean;
   readonly stats: WorldStats;
+  /** Phase 4 (Sumo): built, so not optional here. */
+  setIslandMode(on: boolean): void;
 }
 
 export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
@@ -137,6 +140,8 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   const sink = new SinkingIsland({ board, bin, particles: waterParticles, reducedMotion, shake: (k) => rig.shake(k) });
   const treasures = new Treasures(bin, tex, waterParticles, reducedMotion);
   board.overlay.add(treasures.group);
+  chaos.treasures = treasures;
+  const island = new IslandMode(bin, diorama, reducedMotion);
   const splashes = new Splashes(bin, board.overlay, waterParticles, reducedMotion);
   board.overlay.add(splashes.group);
 
@@ -146,6 +151,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   squareFx.setPrewarm(true);
   sink.setPrewarm(true);
   treasures.setPrewarm(true);
+  island.setPrewarm(true);
   splashes.setPrewarm(true);
   waterParticles.points.visible = true;
   highlights.setAllVisible(true);
@@ -157,6 +163,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   squareFx.setPrewarm(false);
   sink.setPrewarm(false);
   treasures.setPrewarm(false);
+  island.setPrewarm(false);
   splashes.setPrewarm(false);
   waterParticles.points.visible = false;
   highlights.setAllVisible(false);
@@ -181,6 +188,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       elapsed += dt;
       animator.update(dt);
       diorama.update(dt, elapsed);
+      island.update(dt, elapsed);
       highlights.update(dt, elapsed);
       squareFx.update(dt, elapsed);
       chaos.update(dt);
@@ -288,6 +296,10 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       treasures.set(list);
       dirty = true;
     },
+    setIslandMode(on: boolean) {
+      island.set(on);
+      dirty = true;
+    },
     splash(point: THREE.Vector3, big?: boolean) {
       splashes.play(point, big);
       dirty = true;
@@ -308,6 +320,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       squareFx.dispose();
       sink.dispose();
       treasures.dispose();
+      island.dispose();
       splashes.clear();
       weird.dispose();
       animator.clear();

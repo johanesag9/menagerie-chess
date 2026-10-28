@@ -2,8 +2,8 @@
  * Raid treasures (Phase 4). Home markers (a dog bowl at Land's home, an open pink shell at Sea's) show while
  * treasures are set. A treasure lying on the board (at home or dropped) floats there with a soft glow and a slow
  * bob: Land's bone is a cream cartoon bone, Sea's pearl a glossy white pearl. A carried one is the cast's job.
- * Changes animate: a little hop when one appears, an arc when it flies to a new square (home), a lift-and-shrink
- * when it leaves (picked up). Nothing here catches clicks (`noPick`).
+ * Changes animate: a little hop when one appears, a hop out with a sparkle and a hop in at the new square when it
+ * moves (flying home: no flight path, by the spec), a lift-and-shrink when it leaves (picked up). Nothing here catches clicks (`noPick`).
  *
  * Shared look with the cast (carried treasures): bone #f3e6c8, pearl #f7f4ee, pink shell #f2a7b5.
  * `makeBoneGeometry` / `makePearlGeometry` are exported so the cast can use the exact same shapes.
@@ -113,7 +113,7 @@ interface Item {
   /** Where it is drawn (null = hidden). */
   square: Square | null;
   home: Square | null;
-  anim: { kind: 'appear' | 'fly' | 'leave'; t: number; dur: number; from: THREE.Vector3 } | null;
+  anim: { kind: 'appear' | 'swap' | 'leave'; t: number; dur: number; from: THREE.Vector3; sparkled?: boolean } | null;
   twinkle: number;
 }
 
@@ -220,7 +220,8 @@ export class Treasures {
       if (next === it.square) continue;
       const reduced = this.reducedMotion();
       if (next && it.square && it.root.visible) {
-        it.anim = { kind: 'fly', t: 0, dur: reduced ? 0.35 : 0.7, from: it.root.position.clone() };
+        it.anim = { kind: 'swap', t: 0, dur: reduced ? 0.35 : 0.85, from: it.root.position.clone() };
+        if (!reduced) this.burst(it.root.position);
       } else if (next) {
         it.anim = { kind: 'appear', t: 0, dur: reduced ? 0.25 : 0.55, from: new THREE.Vector3() };
       } else if (it.root.visible) {
@@ -255,6 +256,34 @@ export class Treasures {
     return { square: this.items[side].square, marker: this.markers[side].root.visible };
   }
 
+  /** True when this treasure is drawn lying on `sq` (not carried, not leaving). */
+  isLyingAt(side: Side, sq: Square): boolean {
+    const it = this.items[side];
+    return it.square === sq && it.root.visible && it.anim?.kind !== 'leave';
+  }
+
+  /** Raid pigeon: take the treasure off the board and hand back a copy for the beak (same shape and material, real size). */
+  grabForPigeon(side: Side): THREE.Object3D {
+    const it = this.items[side];
+    it.square = null;
+    it.anim = null;
+    it.root.visible = false;
+    const cargo = new THREE.Group();
+    cargo.name = `beak-${it.root.name}`;
+    const body = new THREE.Mesh(it.body.geometry, it.body.material);
+    body.castShadow = true;
+    cargo.add(body);
+    return cargo;
+  }
+
+  /** Raid pigeon: the treasure drops onto `to` with a little hop. A later `set` with the same square changes nothing. */
+  dropFromPigeon(side: Side, to: Square): void {
+    const it = this.items[side];
+    it.square = to;
+    it.root.visible = true;
+    it.anim = { kind: 'appear', t: 0, dur: this.reducedMotion() ? 0.25 : 0.5, from: new THREE.Vector3() };
+  }
+
   dispose(): void {
     this.group.removeFromParent();
   }
@@ -280,22 +309,26 @@ export class Treasures {
     if (a) {
       a.t += dt;
       const k = clamp01(a.t / a.dur);
-      if (a.kind === 'appear') {
+      // A swap hops out at the old square (first 40%), then hops in at the new one like an appear.
+      const inK = a.kind === 'swap' ? clamp01((k - 0.4) / 0.6) : k;
+      if (a.kind === 'swap' && k < 0.4) {
+        const o = k / 0.4;
+        pos.copy(a.from);
+        pos.y += reduced ? 0 : Math.sin(Math.PI * 0.5 * o) * 0.3;
+        scale = 1 - ease.cubicIn(o);
+        glow = 1 - o;
+      } else if (a.kind === 'appear' || a.kind === 'swap') {
+        if (a.kind === 'swap' && !a.sparkled) {
+          a.sparkled = true;
+          if (!reduced) this.burst(target);
+        }
         // Drops in from a little above and lands with a hop.
-        const fall = clamp01(k / 0.6);
-        const hop = k > 0.6 ? Math.sin((Math.PI * (k - 0.6)) / 0.4) * 0.12 : 0;
+        const fall = clamp01(inK / 0.6);
+        const hop = inK > 0.6 ? Math.sin((Math.PI * (inK - 0.6)) / 0.4) * 0.12 : 0;
         pos.copy(target);
         pos.y += reduced ? 0 : (1 - ease.cubicIn(fall)) * 0.6 + hop;
-        scale = reduced ? k : ease.backOut(clamp01(k / 0.35));
-        glow = k;
-      } else if (a.kind === 'fly') {
-        // An arc to the new square (flying home), spinning as it goes.
-        const e = ease.sineInOut(k);
-        pos.lerpVectors(a.from, target, e);
-        const dist = Math.hypot(target.x - a.from.x, target.z - a.from.z);
-        if (!reduced) pos.y += Math.sin(Math.PI * k) * (0.5 + 0.12 * dist);
-        it.body.rotation.y += dt * (reduced ? 0 : 9);
-        glow = 0.4 + 0.6 * Math.abs(1 - 2 * k);
+        scale = reduced ? inK : ease.backOut(clamp01(inK / 0.35));
+        glow = inK;
       } else {
         // Picked up: a quick lift and shrink.
         pos.copy(a.from);
@@ -309,12 +342,11 @@ export class Treasures {
           it.root.visible = false;
           return;
         }
-        if (a.kind === 'fly' && !reduced) this.burst(target);
       }
     } else if (it.square) {
       pos.copy(target);
     }
-    if (!reduced && (!a || a.kind !== 'fly')) it.body.rotation.y += dt * (it.owner === 'land' ? 0.6 : 0.35);
+    if (!reduced) it.body.rotation.y += dt * (it.owner === 'land' ? 0.6 : 0.35);
     it.body.scale.setScalar(Math.max(0.001, scale));
     // The glow lies on the board under the treasure and breathes.
     it.glow.position.y = BOARD_TOP + 0.008 - pos.y;
@@ -329,7 +361,7 @@ export class Treasures {
     }
   }
 
-  /** A puff of sparkles where a flying treasure lands. */
+  /** A puff of sparkles (a treasure leaving or arriving by magic). */
   private burst(at: THREE.Vector3): void {
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2;
