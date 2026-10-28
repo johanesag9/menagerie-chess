@@ -356,3 +356,141 @@ describe('phase 3', () => {
     a.dispose();
   });
 });
+
+describe('phase 4', () => {
+  const world = new THREE.Group();
+  const cast = createCast({ squareSize: 2, quality: 'high' });
+  let n = 0;
+  const make = (side: Side, kind: PieceKind) => {
+    const a = cast.createPiece({ id: `${side}-${kind}-p4-${n++}`, side, kind, square: 'a1' });
+    world.add(a.object);
+    return a;
+  };
+  const extras = (a: Actor) => {
+    let k = 0;
+    a.object.traverse((o) => { if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) k++; });
+    return k;
+  };
+  const ALL = SIDES.flatMap((s) => KINDS.map((k) => [s, k] as [Side, PieceKind]));
+
+  it.each(ALL)('%s %s falls toward dir in about 1s, splashes once below the board, and leaves', async (side, kind) => {
+    const a = make(side, kind);
+    a.setCarrying(side === 'land' ? 'sea' : 'land');
+    const splashes: { id: string; at: THREE.Vector3; intensity: number }[] = [];
+    const off = cast.on('splash', (p) => splashes.push(p));
+    const r = await settle([a], a.fall(new THREE.Vector3(1, 0, 0)), 3);
+    off();
+    expect(r.done).toBe(true);
+    expect(r.t).toBeGreaterThan(0.8);
+    expect(r.t).toBeLessThan(1.45);
+    expect(splashes).toHaveLength(1);
+    expect(splashes[0].id).toBe(a.id);
+    expect(splashes[0].at.x).toBeGreaterThan(1.5); // about one square (2 units) toward +x
+    expect(splashes[0].at.y).toBeLessThan(0);
+    expect(splashes[0].intensity).toBeGreaterThan(0);
+    expect(a.object.parent).toBeNull();
+    // Further actions are no-ops; dispose still frees it.
+    await expect(a.moveTo(new THREE.Vector3(0, 0, 2))).resolves.toBeUndefined();
+    a.dispose();
+  });
+
+  it('kings make the biggest splash; reduced motion falls quicker with zero intensity', async () => {
+    const k: number[] = [];
+    const off = cast.on('splash', (p) => k.push(p.intensity));
+    const full = await settle([], make('sea', 'p').fall(new THREE.Vector3(0, 0, -1)), 3);
+    await settle([], make('land', 'k').fall(new THREE.Vector3(0, 0, -1)), 3);
+    cast.setReducedMotion(true);
+    const short = await settle([], make('land', 'p').fall(new THREE.Vector3(0, 0, -1)), 3);
+    cast.setReducedMotion(false);
+    off();
+    expect(k[1]).toBeGreaterThan(k[0]);
+    expect(k[2]).toBe(0);
+    expect(short.t).toBeLessThan(full.t);
+  });
+
+  it('a fall resolves on skip and still splashes', async () => {
+    const a = make('land', 'r');
+    let hits = 0;
+    const off = cast.on('splash', () => hits++);
+    let done = false;
+    a.fall(new THREE.Vector3(0, 0, 1)).then(() => (done = true));
+    await run([a], () => false, 0.1);
+    cast.skipAll();
+    await Promise.resolve();
+    await Promise.resolve();
+    off();
+    expect(done).toBe(true);
+    expect(hits).toBe(1);
+    expect(a.object.parent).toBeNull();
+    a.dispose();
+  });
+
+  it.each(ALL)('%s %s holds either treasure at a readable size', async (side, kind) => {
+    const a = make(side, kind);
+    for (const owner of SIDES) {
+      a.setCarrying(owner);
+      expect(a.carrying).toBe(owner);
+      await run([a], () => false, 0.5);
+      expect(extras(a)).toBe(owner === 'land' ? 1 : 2); // bone, or shell + pearl
+      a.object.updateWorldMatrix(true, true);
+      const box = new THREE.Box3();
+      a.object.traverse((o) => { if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) box.expandByObject(o); });
+      const size = box.getSize(new THREE.Vector3());
+      const w = Math.max(size.x, size.z) / a.sq;
+      expect(w).toBeGreaterThan(0.18);
+      expect(w).toBeLessThan(0.5);
+      // Held near the animal, not floating off somewhere.
+      const c = box.getCenter(new THREE.Vector3()).sub(a.object.position).divideScalar(a.sq);
+      expect(Math.hypot(c.x, c.z)).toBeLessThan(0.6);
+      expect(c.y).toBeGreaterThan(0.1);
+      expect(c.y).toBeLessThan(a.height + 0.4);
+    }
+    a.setCarrying(null);
+    expect(a.carrying).toBeNull();
+    await run([a], () => false, 0.4);
+    expect(extras(a)).toBe(0);
+    a.dispose();
+  });
+
+  it('the treasure stays through moves, emotes and skins, and the carrier walks heavier', async () => {
+    for (const side of SIDES) {
+      const free = make(side, 'n');
+      // One square (a Raid step).
+      const t0 = await settle([free], free.moveTo(new THREE.Vector3(0, 0, 2)));
+      const a = make(side, 'n');
+      a.setCarrying(side === 'land' ? 'sea' : 'land');
+      const t1 = await settle([a], a.moveTo(new THREE.Vector3(0, 0, 2)));
+      expect(t1.t).toBeGreaterThan(t0.t);
+      expect(t1.t).toBeLessThanOrEqual(1.2);
+      a.emote('laugh');
+      a.setSkin({ palette: PALETTES[side][1].id, accessory: ACCESSORIES[0].id });
+      await settle([a], a.moveTo(new THREE.Vector3(2, 0, 4), { style: 'pushed' }));
+      await run([a], () => false, 0.5);
+      expect(a.carrying).not.toBeNull();
+      expect(extras(a)).toBe((side === 'land' ? 2 : 1) + 1); // treasure + accessory
+      free.dispose();
+      a.dispose();
+    }
+  });
+
+  it('anchored: one ring of dirt or sand, sunk and braced, and it clears', async () => {
+    for (const side of SIDES) {
+      const a = make(side, 'p');
+      await run([a], () => false, 0.2);
+      a.object.updateWorldMatrix(true, true);
+      const y0 = a.bonePoint('body').y;
+      a.setStatus('anchored');
+      expect(a.statusKind).toBe('anchored');
+      await run([a], () => false, 0.6);
+      expect(extras(a)).toBe(1);
+      expect(a.bonePoint('body').y).toBeLessThan(y0 - 0.05);
+      await settle([a], a.moveTo(new THREE.Vector3(0, 0, 2)));
+      expect(extras(a)).toBe(1);
+      a.setStatus(null);
+      await run([a], () => false, 0.6);
+      expect(extras(a)).toBe(0);
+      expect(a.bonePoint('body').y).toBeCloseTo(y0, 1);
+      a.dispose();
+    }
+  });
+});

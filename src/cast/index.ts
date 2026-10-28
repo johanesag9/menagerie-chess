@@ -2,7 +2,7 @@
  * Cast stream: the 12 animals and all their animations.
  *
  * `createCast(opts)` returns the contract `Cast` plus a few extras (see `CastExtras`):
- * - `on('stomp' | 'impact' | 'land' | 'poof', fn)`: hooks for camera shake and sounds.
+ * - `on('stomp' | 'impact' | 'land' | 'poof' | 'power' | 'splash', fn)`: hooks for camera shake and sounds.
  * - `setReducedMotion(on)`: shorter moves, no spins or flips, shake intensity 0.
  * - `preload(renderer, scene, camera)`: builds every animal and compiles shaders up front (no hitch on first reveal).
  * - `skipAll()`: jump every running animation to its end (for "click to skip").
@@ -22,6 +22,7 @@ import { createSlotMaterial } from './material';
 import { instantiate } from './kit';
 import { paletteTable } from './palettes';
 import { fxMaterials } from './fx';
+import { partyMaterials } from './party';
 import { motion, setReducedMotion } from './motion';
 
 export type { CastEventMap } from './actor';
@@ -78,7 +79,7 @@ export function createCast(opts: CastOptions): CastWithExtras {
       const acc = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), createSlotMaterial(paletteTable(getTemplate('land', 'p', opts.quality).def, undefined), lite));
       acc.geometry.setAttribute('slot', new THREE.BufferAttribute(new Float32Array(acc.geometry.attributes.position.count), 1));
       tmp.add(acc);
-      for (const m of fxMaterials()) {
+      for (const m of [...fxMaterials(), ...partyMaterials()]) {
         tmp.add(m instanceof THREE.SpriteMaterial ? new THREE.Sprite(m) : new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), m));
       }
       scene.add(tmp);

@@ -21,6 +21,7 @@ import * as fx from './fx';
 import { STYLES, type Gait, type Style } from './styles';
 import { FLOURISH, genericFlourish, POWER_INTENSITY } from './powers';
 import { travelStyle } from './travels';
+import * as party from './party';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -115,11 +116,13 @@ export class Actor implements PieceActor {
   // Phase 3
   private status: PieceStatusKind | null = null;
   private statusMesh: THREE.Mesh | null = null;
-  /** Droopy eyelids (stunned) and a frosty tint (frozen), eased in and out. */
-  private statusFx = { droop: 0, tint: 0 };
+  /** Droopy eyelids (stunned), a frosty tint (frozen) and the dug-in pose (anchored), eased in and out. */
+  private statusFx = { droop: 0, tint: 0, dig: 0 };
   private hitTl: TL | null = null;
   private hitDone: (() => void) | null = null;
   private temps = new Set<THREE.Object3D>();
+  // Phase 4
+  private carry: party.Carry | null = null;
 
   constructor(state: PieceState, skin: SkinChoice | undefined, private emitFn: Emit, squareSize: number, quality: QualityTier = 'high') {
     this.id = state.id;
@@ -277,9 +280,11 @@ export class Actor implements PieceActor {
       tl.to(body, { sy: 1 + amt * 0.4, sx: 1 - amt * 0.2, sz: 1 - amt * 0.2, duration: 0.1, ease: 'power2.out' }, t);
     }
     const budget = (o.cap ?? 1.15) - (t - at);
-    const D = Math.min(budget, g.dur(n) * (rm ? 0.6 : 1) * (o.durScale ?? 1));
+    // Carrying a treasure: a bit slower and lower, so it reads as heavy.
+    const heavy = this.carry ? 1.2 : 1;
+    const D = Math.min(budget, g.dur(n) * (rm ? 0.6 : 1) * (o.durScale ?? 1) * heavy);
     const hops = rm ? Math.max(1, Math.round(n)) : Math.max(1, Math.round(g.hops(n)));
-    const H = (rm ? Math.min(g.height, 0.08) : g.height) * (o.heightScale ?? 1);
+    const H = (rm ? Math.min(g.height, 0.08) : g.height) * (o.heightScale ?? 1) * (this.carry ? 0.65 : 1);
     const p = { t: 0 };
     let last = 0;
     tl.to(p, {
@@ -330,6 +335,8 @@ export class Actor implements PieceActor {
         this.ib('head').rz += Math.sin(t * 2.3 + 1) * 0.1;
       }
     }
+    if (this.carry) party.carryFrame(this, this.carry, t);
+    party.anchorFrame(this, this.statusFx.dig, t);
 
     // Blinks (sometimes a double blink).
     this.blinkIn -= dt;
@@ -424,7 +431,7 @@ export class Actor implements PieceActor {
       if (b) b.scale.setScalar(Math.max(0.001, f.m[k]));
     }
     const brows = this.bones.get('brows');
-    if (brows) brows.scale.setScalar(Math.max(0.001, f.brows));
+    if (brows) brows.scale.setScalar(Math.max(0.001, f.brows, this.statusFx.dig * 0.6));
   }
 
   setSelected(selected: boolean): void {
@@ -748,14 +755,16 @@ export class Actor implements PieceActor {
     if (this.disposed || status === this.status) return;
     const old = this.statusMesh;
     const wasFrozen = this.status === 'frozen';
+    const wasAnchored = this.status === 'anchored';
     this.status = status;
     this.statusMesh = null;
     if (old) {
       gsap.killTweensOf(old.scale);
       gsap.to(old.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.18, ease: 'back.in(2)', onComplete: () => { old.removeFromParent(); } });
       if (wasFrozen && this.object.parent) fx.shatter(this.fxParent, this.above(0), this.sq, this.height);
+      if (wasAnchored && this.object.parent) fx.clods(this.fxParent, this.above(0), this.sq, this.rm ? 3 : 6, this.side === 'sea');
     }
-    gsap.to(this.statusFx, { droop: status === 'stunned' ? 0.5 : 0, tint: status === 'frozen' ? 0.28 : 0, duration: 0.3, ease: 'power2.out', overwrite: true });
+    gsap.to(this.statusFx, { droop: status === 'stunned' ? 0.5 : 0, tint: status === 'frozen' ? 0.28 : 0, dig: status === 'anchored' ? 1 : 0, duration: 0.3, ease: 'power2.out', overwrite: true });
     if (!status) return;
     // Hang the look on the pedestal bone so it rides along with hops, tumbles and slides.
     const holder = this.bones.get('base') ?? this.object;
@@ -768,6 +777,19 @@ export class Actor implements PieceActor {
       gsap.to(ring.scale, { x: 1, y: 1, z: 1, duration: 0.3, ease: 'back.out(2.5)' });
       this.statusMesh = ring;
       if (this.object.parent) fx.bonkStar(this.fxParent, this.above(h + 0.15), this.sq);
+    } else if (status === 'anchored') {
+      // Dug in: a ring of dirt (or sand) heaped round the feet; the pose sinks it a little and braces its legs or claws.
+      const sea = this.side === 'sea';
+      const ring = party.anchorRing(sea);
+      const rh = party.anchorRingHeight(this.kind);
+      ring.scale.set(1, 0.001, 1);
+      holder.add(ring);
+      gsap.to(ring.scale, { y: rh, duration: this.rm ? 0.2 : 0.35, ease: this.rm ? 'power2.out' : 'back.out(2)' });
+      this.statusMesh = ring;
+      if (this.object.parent) {
+        fx.clods(this.fxParent, this.above(0), this.sq, this.rm ? 4 : 9, sea);
+        fx.dust(this.fxParent, this.above(0), this.sq, 0.6);
+      }
     } else {
       const ice = fx.iceBlock();
       const w = 0.86, ih = h + 0.1;
@@ -846,9 +868,52 @@ export class Actor implements PieceActor {
     return this.promiseAt(tl, 0.8);
   }
 
-  // ---------- Phase 4 stubs (orchestrator, so the branch typechecks). The cast session replaces these. ----------
-  fall(_dir: THREE.Vector3): Promise<void> { this.object.removeFromParent(); return Promise.resolve(); }
-  setCarrying(_owner: Side | null): void {}
+  // ---------- Phase 4 ----------
+
+  fall(dir: THREE.Vector3): Promise<void> {
+    if (this.disposed || this.gone) return Promise.resolve();
+    this.setStatus(null);
+    const tl = this.begin();
+    // `dir` is world space: turn it into the parent's space, flat and unit length.
+    const d = this.object.parent ? this.object.parent.worldToLocal(this.worldPos().add(dir)).sub(this.object.position) : dir.clone();
+    d.y = 0;
+    if (d.lengthSq() < 1e-8) d.set(0, 0, 1);
+    d.normalize();
+    const { splash, end } = party.fall(this, tl, d);
+    tl.call(() => {
+      const p = this.object.position.clone();
+      p.y -= 0.1 * this.sq;
+      const at = this.object.parent ? this.object.parent.localToWorld(p) : p;
+      const k = this.kind === 'k' ? 1 : this.kind === 'r' ? 0.8 : 0.55;
+      this.emit('splash', { id: this.id, at, intensity: this.rm ? 0 : k });
+    }, [], splash);
+    tl.call(() => {
+      this.gone = true;
+      this.object.removeFromParent();
+    }, [], end);
+    return this.promiseAt(tl, end);
+  }
+
+  /** Whose treasure it holds (null = none). */
+  get carrying(): Side | null { return this.carry?.owner ?? null; }
+
+  setCarrying(owner: Side | null): void {
+    if (this.disposed || owner === this.carrying) return;
+    if (this.carry) party.detachCarry(this.carry, this.rm);
+    this.carry = owner ? party.attachCarry(this, owner, (n) => this.restScale(n)) : null;
+    if (this.carry && this.object.parent && !this.rm) fx.stars(this.fxParent, this.bonePoint(this.carry.hold.bone), this.sq, 4, 0.35);
+  }
+
+  /** How much a bone is scaled at rest relative to the actor (the body is scaled to fit its height). */
+  private restScale(name: string): number {
+    let k = 1;
+    let b: THREE.Object3D | null = this.bones.get(name) ?? null;
+    while (b && (b as THREE.Bone).isBone) {
+      k *= this.recs.find((r) => r.b === b)?.s.x ?? b.scale.x;
+      b = b.parent;
+    }
+    return k || 1;
+  }
 
   get selected(): boolean { return this.selT === 1; }
 
@@ -865,6 +930,8 @@ export class Actor implements PieceActor {
     this.hitDone?.();
     gsap.killTweensOf(this.statusFx);
     if (this.statusMesh) gsap.killTweensOf(this.statusMesh.scale);
+    if (this.carry) party.dropCarry(this.carry);
+    this.carry = null;
     this.killBubble?.();
     for (const o of this.temps) o.removeFromParent();
     this.temps.clear();

@@ -2,6 +2,46 @@
 
 The 12 animals and all their animations. Everything is built in code. No downloaded assets, and nothing from `steam-scrape/`.
 
+# Phase 4: party modes (2026-10-28)
+
+## What's done
+New code is in `party.ts`, with small hooks in `actor.ts`.
+- **`fall(dir)`** (Sumo). The animal totters at the edge, tumbles one square toward `dir` and drops into the water. It fires the `splash` cast event once, as it hits the water line, then sinks with a few bubbles and leaves the board. It isn't freed, like `defeat`. It takes about 1.15s (octopus 1.4s).
+  - Land panics: wide eyes, an "O" mouth, a windmill wobble, legs and paws flailing, ears flapping. Then it topples over its feet and somersaults in.
+  - Sea is smug: half-closed eyes, a smirk, a lazy lean back. Then it does a neat head-first dive, like going home. The octopus waves goodbye with a tentacle first.
+  - `splash.at` is just below the board top where it lands. Intensity is 1 for kings, 0.8 for rooks and 0.55 for the rest, or 0 under reduced motion.
+- **`setCarrying(owner)`** (Raid). `'land'` gives the cream bone (`#f3e6c8`). `'sea'` gives the white pearl (`#f7f4ee`) in an open pink shell (`#f2a7b5`). These are the colours from the world brief.
+  - Dogs, horse, goat and cat hold it in the mouth. The crab holds it up high in its right claw. The elephant swings its trunk up and holds it to the side. The octopus lifts it on a front tentacle. The turtle, pufferfish, seahorse and blobfish balance it on the head, with a gentle wobble.
+  - It stays on through moves, emotes, skins and falls. While carrying, every move is 1.2× slower and the hops are lower, so it reads as heavy.
+  - `actor.carrying` reads who's carried (not in the contract).
+- **`setStatus('anchored')`** (Dig in). A lumpy ring of dirt (Land) or sand (Sea) heaps up round the feet, with dirt flying. The animal sinks a little and braces itself: legs out front and back, head down, brows set. The crab digs its claws into the sand and splays its legs. The pawns get the tallest ring, so they look half-buried. Clearing it throws dirt as it climbs out. Like the other statuses, it's one extra mesh.
+- **Skip and reduced motion.** A fall resolves on `skip()`, still fires its splash and leaves the board. Under reduced motion, the fall is a small lean, a slide and a drop (0.7s, no spins, splash intensity 0). The carry and dig-in pops are shorter, and the balance wobble is smaller.
+- **Existing animations are unchanged.** The only shared change is the heavier walk while carrying.
+- **Anchored** stays on until integration calls `setStatus(null)`, at the start of the owner's next turn.
+- **Tests:** 28 new (101 in the cast, all passing): a fall for all 12 animals, carrying both treasures for all 12, plus skip, reduced motion, the heavy walk and anchored. `npm run typecheck` passes.
+
+## How to run the demo
+Start `cast-demo` (port 4413), then open http://localhost:4413/src/cast/demo.html. Look under **Party modes**. The buttons work on a copy of the picked animal in the middle row.
+- **Fall ↑ ↓ ← →** and **All 12 fall**. A blue square and a white ripple are **stand-ins** for the world's water and `world.splash`.
+- **Dig in** toggles anchored. **Clear status** also clears it.
+- **Carry bone**, **Carry pearl**, **Drop it**, **Walk with it** (one step; the log shows how long it took). **All 12 carry** lines everyone up holding the other side's treasure.
+- Checked at 1280×800 and at 390×844: 60fps or more, no console errors. All 12 falls with treasures cost about 3ms a frame (6ms at worst), drawing included.
+
+## Contract requests
+None needed. Notes for integration:
+- **Fall order** matches the clarified contract (b0547e8, cherry-picked here). `fall` starts from the centre of the pre-shove square, totters, travels one square toward `dir` and splashes there. The pusher's shove can play at the same time.
+- Hook `world.splash(at, big)` and the sound to the cast `splash` event. Use `big` when intensity ≥ 0.9 (kings). Dispose the actor when `fall` resolves.
+- Treasure handover: on `pickup`, call `carrier.setCarrying(owner)` and `world.setTreasures` in the same frame. On `drop`, `score` or `snatch`, call `setCarrying(null)`. The cast pops it in and out over 0.2–0.35s.
+
+## Open design questions for Johanes
+1. **Hold positions.** Mouth for the land animals (the cat too, which the brief didn't list), a raised claw for the crab, the trunk swung to one side so the face stays visible, a raised front tentacle for the octopus, and on the head for the other four. Want any of these changed?
+2. **How heavy the carrier walks:** 1.2× slower with lower hops. Should it be heavier still?
+3. **The dig-in ring is fairly big.** It is wider than the pedestal, so it reads at 390px. It could be smaller, or look like a hole instead.
+4. **Only the octopus waves goodbye.** Should other Sea animals get a small wave too?
+
+## Known issues
+- The world's water level isn't known to the cast, so `splash.at.y` is just below the board top (0.1 of a square down).
+
 # Phase 3: powers, travel styles, statuses (2026-10-27)
 
 ## What's done
