@@ -1,14 +1,15 @@
 /**
- * ArenaMatch: Sumo and Raid (the party modes) on the 3D board.
+ * ArenaMatch: Sumo and Raid (the party modes), and Sandcastle King and Stepping Stones (Phase 6 board games), on the 3D board.
  *
  * Same idea as `Match`: every core event becomes one Director task, core stays paused while tasks play, and the
  * `state` snapshot is the source of truth for the HUD, statuses, blocks, sunk squares and treasures.
  * `Match` owns the shared pieces (board, director, camera, settings) and forwards clicks and UI events here
  * while a party game is on.
  */
+import { isBoardMode } from '../contracts/types';
 import type {
   ArenaAction, ArenaController, ArenaEventMap, ArenaPieceOptions, ArenaState, AudioEngine, Cast, DuelInfo, GameOptions, GameOver,
-  PieceActor, PieceId, PieceState, PieceStatusKind, Side, Square, Ui, World,
+  PieceActor, PieceId, PieceKind, PieceState, PieceStatusKind, ShapeOption, Side, Square, Ui, World,
 } from '../contracts/types';
 import type { Director } from './director';
 import type { ModeShow } from './modes';
@@ -16,6 +17,17 @@ import type { PieceBoard } from './pieces';
 
 const other = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const NAME: Record<Side, string> = { land: 'Land', sea: 'Sea' };
+
+/** Sandcastle King traits for the draft cards (GAME_SPEC "Board-game modes"). The same for both sides. */
+const TRAITS: Record<PieceKind, { name: string; line: string }> = {
+  p: { name: 'Digger', line: 'After a dig, it may dig once more.' },
+  n: { name: 'Leaper', line: 'It may move with a knight hop instead of a step.' },
+  b: { name: 'Climber', line: 'It may go up 2 levels in one step.' },
+  r: { name: 'Builder', line: 'A build adds 2 levels.' },
+  q: { name: 'Shover', line: 'Instead of moving, it may push a neighbouring enemy.' },
+  k: { name: 'Zoomer', line: 'Its move may be 2 steps.' },
+};
 
 export interface ArenaMatchDeps {
   arena: ArenaController;
@@ -47,6 +59,10 @@ export class ArenaMatch {
   private firstTurn = true;
   private statuses = new Map<PieceId, PieceStatusKind>();
   private carrying = new Map<PieceId, Side>();
+  // Phase 6: shaping (build/dig, raise/sink) and the castle draft.
+  private shapeDir: 'up' | 'down' = 'up';
+  private shapes: ShapeOption[] = [];
+  private draftAsked = -1;
 
   constructor(private d: ArenaMatchDeps) {
     this.listen();
@@ -69,6 +85,13 @@ export class ArenaMatch {
     world.setSunk([], []);
     world.setTreasures([]);
     world.setIslandMode?.(false);
+    world.setLevels?.({}, { instant: true });
+    world.setFlag?.(null);
+    world.setFresh?.([]);
+    ui.setShapeMode?.(null);
+    this.shapes = [];
+    this.d.show.levels = {};
+    this.d.show.sunk.clear();
     ui.setArenaState(null);
     for (const a of this.d.board.all()) a.setCarrying(null);
     this.carrying.clear();
@@ -103,6 +126,8 @@ export class ArenaMatch {
       a.setStatus(status.get(a.id) ?? null);
       a.setCarrying(carried.get(a.id) ?? null);
     }
+    // Board games: once everything has played, show what the side to move can build/dig or raise/sink.
+    this.refreshShape();
   }
 
   // ---------- core -> everyone ----------
@@ -130,11 +155,21 @@ export class ArenaMatch {
       world.setIslandMode?.(state.mode === 'sumo');
       show.treasures = state.treasures;
       world.setTreasures(state.treasures);
+      show.levels = { ...(state.levels ?? {}) };
+      show.sunk = new Set(state.sunk);
+      world.setLevels?.(show.levels, { instant: true });
+      world.setFlag?.(null);
+      world.setFresh?.(state.fresh ?? []);
+      ui.setShapeMode?.(null);
+      this.shapes = [];
+      this.shapeDir = 'up';
+      this.draftAsked = -1;
       push(() => this.d.playStart(state.pieces));
     });
     a.on('state', (s) => push(() => this.applyState(s)));
     a.on('rolled', ({ side, value, ap }) => push(() => ui.rollDie(side, value, 'none', { ap })));
     a.on('acted', (e) => {
+      this.shapes = [];
       this.clearSelection();
       world.setHighlights({ lastMove: null, check: null });
       push(() => this.playActed(e));
@@ -147,6 +182,11 @@ export class ArenaMatch {
       this.clearSelection();
       push(() => show.wheel(w));
     });
+    a.on('tide', (e) => {
+      this.clearSelection();
+      push(() => this.playTide(e));
+    });
+    a.on('crowned', ({ crowned }) => push(() => this.playCrowned(crowned)));
     a.on('logged', (r) => push(() => ui.addLog(r)));
     a.on('duelOffered', (info) => {
       this.clearSelection();
@@ -201,7 +241,14 @@ export class ArenaMatch {
     }
     show.treasures = s.treasures;
     world.setTreasures(s.treasures);
+    if (isBoardMode(s.mode)) {
+      show.levels = { ...(s.levels ?? {}) };
+      show.sunk = new Set(s.sunk);
+      world.setLevels?.(show.levels);
+      world.setFresh?.(s.fresh ?? []);
+    }
     if (s.phase === 'duel' && this.duel) await this.askThrows(this.duel);
+    if (s.phase === 'draft') await this.askDraft(s);
   }
 
   // ---------- game moments ----------
@@ -213,6 +260,11 @@ export class ArenaMatch {
     const done = () => {
       this.carrying = this.carriedBy({ ...this.state, treasures: show.treasures });
     };
+    if (act.type === 'shape') {
+      await this.playShape(e.side, act);
+      await show.changes(e.changes);
+      return done();
+    }
     if (act.type === 'power' && e.power) {
       await show.power({ side: e.side, pieceId: act.pieceId, power: e.power, targets: act.targets, changes: e.changes, check: false });
       return done();
@@ -225,7 +277,7 @@ export class ArenaMatch {
       const victim = victimId ? board.get(victimId) : undefined;
       if (attacker && victim) {
         const home = board.pointOf(attacker);
-        audio.play(this.state.mode === 'sumo' ? 'shove' : 'tag');
+        audio.play(this.state.mode === 'raid' ? 'tag' : 'shove');
         await attacker.attack(victim);
         await Promise.all([attacker.moveTo(home()), show.changes(e.changes)]);
         return done();
@@ -243,6 +295,127 @@ export class ArenaMatch {
     await wait(this.d.reducedMotion() ? 200 : 700);
     await show.changes(e.changes);
     await banner;
+  }
+
+  // ---------- Phase 6: board games ----------
+
+  /** The animal's build/dig (castle) or raise/sink (stones) gesture; the square itself changes in `show.changes`. */
+  private async playShape(side: Side, act: Extract<ArenaAction, { type: 'shape' }>): Promise<void> {
+    const { board } = this.d;
+    const stones = this.state.mode === 'stones';
+    // Stones has no shaping animal: the nearest animal of that side does it.
+    const id = act.pieceId ?? this.nearest(side, act.square);
+    const worker = id ? board.get(id) : undefined;
+    if (!worker?.work) return;
+    const target = board.point(act.square);
+    worker.lookAt(target);
+    await worker.work(act.dir === 'up' ? 'build' : 'dig', target, stones ? { water: true } : undefined);
+  }
+
+  private nearest(side: Side, sq: Square): PieceId | undefined {
+    const at = (x: Square) => [x.charCodeAt(0), Number(x[1])] as const;
+    const [tf, tr] = at(sq);
+    let best: PieceId | undefined;
+    let bestD = Infinity;
+    for (const p of this.state.pieces) {
+      if (p.side !== side) continue;
+      const [pf, pr] = at(p.square);
+      const dist = Math.max(Math.abs(pf - tf), Math.abs(pr - tr));
+      if (dist < bestD) [best, bestD] = [p.id, dist];
+    }
+    return best;
+  }
+
+  private async playTide(e: ArenaEventMap['tide']): Promise<void> {
+    const { world, ui, show, audio } = this.d;
+    const squares: Square[] = [];
+    for (const c of e.changes) {
+      if (c.type !== 'level') continue;
+      if (c.to) show.levels[c.square] = c.to;
+      else delete show.levels[c.square];
+      squares.push(c.square);
+    }
+    if (!squares.length) return;
+    audio.play('tideWear');
+    world.setLevels?.({ ...show.levels }, { tide: true });
+    await Promise.all([ui.announce('The tide wears the beach down', 'info'), show.ride(squares)]);
+  }
+
+  private async playCrowned(crowned: ArenaState['crowned']): Promise<void> {
+    const { world, ui, audio, board } = this.d;
+    world.setFlag?.(crowned ? { square: crowned.square, side: crowned.side } : null);
+    if (!crowned) return;
+    audio.play('flag');
+    void board.get(crowned.pieceId)?.celebrate();
+    const bot = this.vsBot;
+    const tone = bot ? (crowned.side === bot ? 'bad' : 'good') : 'info';
+    await ui.announce(`${NAME[crowned.side]} holds a castle!`, tone);
+  }
+
+  /** Castle draft: ask the human side to pick (the bot picks by itself when core resumes). */
+  private async askDraft(s: ArenaState): Promise<void> {
+    const draft = s.draft;
+    if (!draft || !this.d.ui.askDraft || s.turn === this.vsBot || !this.d.isActive()) return;
+    const n = draft.picks.land.length + draft.picks.sea.length;
+    if (this.draftAsked === n || this.asking) return;
+    this.draftAsked = n;
+    this.asking = true;
+    try {
+      const kind = await this.d.ui.askDraft(s.turn, { picks: draft.picks, size: draft.size, traits: TRAITS, hotSeat: !this.vsBot });
+      const r = this.arena.act({ type: 'pick', kind });
+      if (!r.ok) {
+        this.draftAsked = -1;
+        this.d.ui.showError(r.reason);
+      }
+    } finally {
+      this.asking = false;
+    }
+  }
+
+  /** While the side to move shapes: highlight what it can raise/build or sink/dig, and show the toggle. */
+  private refreshShape(): void {
+    const s = this.state;
+    const shaping = isBoardMode(s.mode) && (s.stage === 'shape' || s.stage === 'more') && this.canPlay();
+    this.shapes = shaping ? this.arena.shapeOptions?.() ?? [] : [];
+    if (!this.shapes.length) {
+      this.d.ui.setShapeMode?.(null);
+      if (isBoardMode(s.mode) && !this.selected && !this.aim) this.d.world.setHighlights({ targets: [] });
+      return;
+    }
+    const canUp = this.shapes.some((o) => o.up);
+    const canDown = this.shapes.some((o) => o.down);
+    if (this.shapeDir === 'up' && !canUp) this.shapeDir = 'down';
+    if (this.shapeDir === 'down' && !canDown) this.shapeDir = 'up';
+    const upBy = Math.max(1, ...this.shapes.map((o) => o.upBy ?? 1));
+    this.d.ui.setShapeMode?.({ dir: this.shapeDir, canUp, canDown, mode: s.mode as 'castle' | 'stones', upBy });
+    if (!this.selected && !this.aim) {
+      const mover = s.mode === 'castle' && s.mover ? this.pieceSquare(s.mover) ?? null : null;
+      this.d.world.setHighlights({ selected: mover, targets: this.shapeTargets() });
+    }
+  }
+
+  private pieceSquare(id: PieceId): Square | undefined {
+    return this.state.pieces.find((p) => p.id === id)?.square;
+  }
+
+  private shapeTargets(): Square[] {
+    return this.shapes.filter((o) => (this.shapeDir === 'up' ? o.up : o.down)).map((o) => o.square);
+  }
+
+  /** The Build/Dig (Raise/Sink) toggle. */
+  setShapeDir(dir: 'up' | 'down'): void {
+    this.shapeDir = dir;
+    this.refreshShape();
+  }
+
+  private shapeAt(sq: Square): boolean {
+    const o = this.shapes.find((x) => x.square === sq);
+    if (!o) return false;
+    // Use the toggle's direction; a square that only allows the other one still works.
+    const dir = (this.shapeDir === 'up' ? o.up : o.down) ? this.shapeDir : o.up ? 'up' : 'down';
+    const s = this.state;
+    this.submit({ type: 'shape', pieceId: s.mode === 'castle' ? s.mover ?? null : null, square: sq, dir });
+    return true;
   }
 
   private async offerDuel(info: DuelInfo): Promise<void> {
@@ -282,6 +455,8 @@ export class ArenaMatch {
     }
     if (!this.canPlay()) return;
     if (this.aim) return this.onAimSquare(sq);
+    // Build/dig or raise/sink, unless the selected animal can step or push there.
+    if (!(this.opts && (this.opts.steps.includes(sq) || this.opts.hits.includes(sq))) && this.shapeAt(sq)) return;
     const turn = this.state.turn;
     const piece = this.pieceAt(sq);
     const sel = this.selected;
@@ -310,7 +485,8 @@ export class ArenaMatch {
       if (id) board.get(id)?.setHovered(true);
       this.hovered = id;
     }
-    world.renderer.domElement.style.cursor = id || (sq && this.targets.includes(sq)) ? 'pointer' : '';
+    const target = sq && (this.targets.includes(sq) || this.shapes.some((o) => o.square === sq));
+    world.renderer.domElement.style.cursor = id || target ? 'pointer' : '';
     // Hovering a shove or tag shows the line it moves and who would fall in.
     const hit = sq && this.selected && !this.aim && this.opts?.hits.includes(sq) ? sq : null;
     if (hit === this.previewing) return;
@@ -346,9 +522,11 @@ export class ArenaMatch {
     }
     this.d.ui.setSelection(null);
     if (highlights) this.d.world.setHighlights({ selected: null, legal: [], captures: [], targets: [], area: [] });
+    if (highlights && this.shapes.length) this.d.world.setHighlights({ targets: this.shapeTargets() });
   }
 
   private submit(action: ArenaAction): void {
+    this.shapes = [];
     this.clearSelection();
     const r = this.arena.act(action);
     if (!r.ok) {

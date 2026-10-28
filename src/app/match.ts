@@ -609,6 +609,7 @@ export class Match {
     ui.on('undo', () => !this.party && this.game.undo());
     ui.on('resign', () => (this.party ? this.arena.resign() : this.game.resign(this.vsBot ? other(this.vsBot) : this.game.turn)));
     ui.on('endTurn', () => this.party && this.arena.endTurn());
+    ui.on('shapeMode', ({ dir }) => this.party && this.arena.setShapeDir(dir));
     ui.on('emote', ({ emote }) => {
       if (this.party) {
         const bot = this.arena.vsBot;

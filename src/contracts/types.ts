@@ -773,9 +773,10 @@ export interface World extends EventSource<WorldEventMap> {
    * Phase 6 (castle): show exactly these square heights (missing = 0): stacked sand tiers, level 3 a little castle with
    * turrets. Animates each change (a tier pats on with a sand puff, or scoops off). Picking must still hit the square
    * when clicking a tier's top or side. `{}` restores the flat board instantly (new games).
+   * `tide`: play the many-squares-wash-down look. `instant`: no animation (a new game or a resync).
    */
-  setLevels?(levels: Partial<Record<Square, Level>>): void;
-  /** Phase 6 (castle): world-space centre of the walkable top of a square at its current level (= `squareToWorld` at level 0). */
+  setLevels?(levels: Partial<Record<Square, Level>>, opts?: { tide?: boolean; instant?: boolean }): void;
+  /** Phase 6 (castle): centre of the walkable top of a square at its (logical) level, in `pieceLayer` space like `squareToWorld` (= it at level 0). */
   squareTop?(square: Square): Vector3;
   /** Phase 6 (castle): a team flag pops up on the castle an animal holds (null lowers it). */
   setFlag?(flag: { square: Square; side: Side } | null): void;
@@ -842,9 +843,9 @@ export interface PieceActor {
   /**
    * Phase 6: build (pat a sand tier onto `target`) or dig (scoop sand off it), in this animal's style: pup paws, crab claws,
    * elephant trunk, turtle flipper, octopus tentacles, cat swats, etc. Resolves when the sand lands or leaves (the moment
-   * integration calls `world.setLevels`). Stones reuses it: 'build' to raise a stone, 'dig' to sink one. Optional until cast ships it.
+   * integration calls `world.setLevels`). Stones reuses it with `water: true`: 'build' raises a stone (sand splashes into the sea), 'dig' sinks one.
    */
-  work?(kind: 'build' | 'dig', target: Vector3): Promise<void>;
+  work?(kind: 'build' | 'dig', target: Vector3, opts?: { water?: boolean }): Promise<void>;
   /** Phase 4 (Raid): hold the other side's treasure in its mouth, claw or tentacle (`owner` = whose treasure: 'land' bone, 'sea' pearl). null = nothing. */
   setCarrying(owner: Side | null): void;
   /** Phase 4 (Raid), optional: a throwing pose toward `at` (the treasure itself flies with `world.flyTreasure`). Resolves at release. */

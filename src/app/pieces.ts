@@ -22,16 +22,16 @@ export class PieceBoard {
     return [...this.actors.values()];
   }
 
-  /** Position inside the piece layer (board at rest). */
+  /** Position inside the piece layer (board at rest), on top of the square's sand tiers (Sandcastle King). */
   local(sq: Square) {
-    return this.world.squareToWorld(sq);
+    return this.world.squareTop?.(sq) ?? this.world.squareToWorld(sq);
   }
 
   /** Live world point for a square, for cast moveTo/lookAt (the board may be tilting or hopping). */
   point(sq: Square) {
     // Fresh matrices: the cast converts back with them, and Weird Mode may have moved the board since the last frame.
     this.world.pieceLayer.updateWorldMatrix(true, false);
-    return this.world.pieceLayer.localToWorld(this.world.squareToWorld(sq));
+    return this.world.pieceLayer.localToWorld(this.local(sq));
   }
 
   /** Remembers where an actor stands now; call the result later for that spot's live world point (to send it back home). */
