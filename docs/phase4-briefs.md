@@ -31,6 +31,25 @@ The full order is in the `ArenaController` doc comment in `types.ts`. In short:
 - The `state` snapshot is the source of truth. Listeners compare snapshots for statuses, blocks, sunk squares and treasures; no separate "expired" events exist.
 - **The bot** plays its turn one action at a time. While core is `pause()`d, it holds its next action, exactly like Phase 3.
 
+### Clarifications after the contract review (2026-10-28)
+The rule answers are in GAME_SPEC, under "Fine print (party modes)". The contract changes don't break anything:
+- **`fall`**
+  - The falling animal gets no `move`. Its `fall` shares a step with the shove, and `square` is where it stood before.
+  - `dir` is `[dFile, dRank]`. +dFile is +X; +dRank is −Z, toward rank 8.
+  - When a ring sinks, `dir` points outward from the centre.
+  - For a shove, this overrides "Any `fall` comes in the next step" above.
+- **`sank`** now also carries the full `sunk` and `sinkingNext` lists, so integration can pass them straight to `world.setSunk`.
+- **`previewArea`** returns `{ area, falls }`, so the board can mark which animals would fall.
+- **`PowerInfo`** gains optional `name`, `line` and `note`.
+  - Core sets them for mode-specific powers. The Sumo pawn uses power `sidestep` with the name "Dig in".
+  - The ui shows them when present.
+- **`ui.rollDie`** takes an optional 4th argument, `{ ap }`. The ui shows "3 → 3 AP".
+- **`world.playChaos('pigeon', { treasure: { owner, from, to } })`** is the Raid treasure snatch.
+- **`world.setIslandMode?(on)`** is optional. It's a Sumo look: sea all round, with the props tucked away.
+- **Log kinds stay the same** (`move`, `power`, `bonk`, `wheel`, `pass`). The full mapping is in the `ArenaController` doc comment.
+- **`anchored`** ends at the start of the owner's next turn. Core drops it from the next `state`.
+- **`sentHome`** plays as a teleport in integration.
+
 ---
 
 ## core: arena engine, bot, 2D playtest
