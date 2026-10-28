@@ -9,6 +9,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { EmoteKind } from '../contracts/types';
 import { motion } from './motion';
+import { emit, in2, out2, type Kind } from './pool';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -78,18 +79,20 @@ const gone = (m: THREE.Object3D) => () => m.removeFromParent();
 
 // ---------- effects ----------
 
-/** A ring of spinning stars flying out from `at`. */
+/** A ring of spinning stars flying out from `at` (pooled: one draw call however many fly). */
 export function stars(parent: THREE.Object3D, at: THREE.Vector3, sq: number, n = 9, spread = 0.7) {
-  const { star, mats } = res();
-  for (let i = 0; i < n; i++) {
-    const m = spawn(parent, star, mats.star, at, sq * rnd(0.8, 1.3));
-    const a = (i / n) * PI * 2 + rnd(-0.2, 0.2);
-    const r = sq * spread * rnd(0.7, 1.2);
-    const d = rnd(0.5, 0.75);
-    gsap.to(m.position, { x: at.x + Math.cos(a) * r, y: at.y + sq * rnd(0.3, 0.9), z: at.z + Math.sin(a) * r, duration: d, ease: 'power2.out' });
-    gsap.to(m.rotation, { x: rnd(-6, 6), y: rnd(-6, 6), z: rnd(-6, 6), duration: d });
-    gsap.to(m.scale, { x: 0.001, y: 0.001, z: 0.001, duration: d * 0.6, delay: d * 0.4, ease: 'power2.in', onComplete: gone(m) });
-  }
+  const P = Array.from({ length: n }, (_, i) => ({
+    a: (i / n) * PI * 2 + rnd(-0.2, 0.2), r: sq * spread * rnd(0.7, 1.2), y: sq * rnd(0.3, 0.9), d: rnd(0.5, 0.75),
+    s: sq * rnd(0.8, 1.3), rx: rnd(-6, 6), ry: rnd(-6, 6), rz: rnd(-6, 6),
+  }));
+  emit(parent, KINDS.star, n, 0.75, () => 0xffffff, (i, t, o) => {
+    const q = P[i];
+    const k = out2(t / q.d);
+    o.p.set(at.x + Math.cos(q.a) * q.r * k, at.y + q.y * k, at.z + Math.sin(q.a) * q.r * k);
+    const u = Math.min(1, t / q.d);
+    o.r.set(q.rx * u, q.ry * u, q.rz * u);
+    o.s.setScalar(t >= q.d ? 0 : q.s * (u < 0.4 ? 1 : 1 - in2((u - 0.4) / 0.6)));
+  });
 }
 
 /** A cartoon smoke poof (or a burst of bubbles for Sea). */
@@ -109,18 +112,17 @@ export function poof(parent: THREE.Object3D, at: THREE.Vector3, sq: number, size
   if (sea) bubbles(parent, at, sq, 6);
 }
 
-/** Small dust puffs at the feet (landings, stomps). */
-export function dust(parent: THREE.Object3D, at: THREE.Vector3, sq: number, size = 1) {
-  const { ball, mats } = res();
-  for (let i = 0; i < 6; i++) {
-    const m = spawn(parent, ball, mats.puff, at, 0.001);
-    const a = (i / 6) * PI * 2 + rnd(0, 1);
-    const r = sq * 0.42 * size;
-    const s = sq * 0.45 * size * rnd(0.8, 1.2);
-    gsap.to(m.position, { x: at.x + Math.cos(a) * r, y: at.y + sq * 0.06, z: at.z + Math.sin(a) * r, duration: 0.45, ease: 'power2.out' });
-    gsap.to(m.scale, { x: s, y: s, z: s, duration: 0.15, ease: 'power2.out' });
-    gsap.to(m.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.3, delay: 0.15, ease: 'power2.in', onComplete: gone(m) });
-  }
+/** Small dust puffs at the feet (landings, stomps). Pooled. `color` tints them (sand, steam). */
+export function dust(parent: THREE.Object3D, at: THREE.Vector3, sq: number, size = 1, color: THREE.ColorRepresentation = 0xffffff) {
+  const n = motion.reduced ? 4 : 6;
+  const P = Array.from({ length: n }, (_, i) => ({ a: (i / n) * PI * 2 + rnd(0, 1), s: sq * 0.45 * size * rnd(0.8, 1.2) }));
+  const r = sq * 0.42 * size;
+  emit(parent, KINDS.dust, n, 0.45, () => color, (i, t, o) => {
+    const q = P[i];
+    const k = out2(t / 0.45);
+    o.p.set(at.x + Math.cos(q.a) * r * k, at.y + sq * 0.06 * k, at.z + Math.sin(q.a) * r * k);
+    o.s.setScalar(q.s * (t < 0.15 ? out2(t / 0.15) : 1 - in2((t - 0.15) / 0.3)));
+  });
 }
 
 /** Bubbles that wobble up and pop. */
@@ -414,27 +416,38 @@ function make3() {
       peel: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }),
       ice: new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#5cc8ff', emissiveIntensity: 0.18, roughness: 0.08, transparent: true, opacity: 0.55, depthWrite: false }),
       chip: new THREE.MeshStandardMaterial({ color: '#e6faff', emissive: '#7fdcff', emissiveIntensity: 0.3, roughness: 0.1, transparent: true, opacity: 0.8 }),
+      chunk: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9 }),
       puddle: new THREE.MeshStandardMaterial({ color: '#4fb6e8', emissive: '#1a6aa0', emissiveIntensity: 0.25, roughness: 0.05, transparent: true, opacity: 0.7, depthWrite: false }),
     },
   };
 }
 const res3 = () => (R3 ??= make3());
 
-/** Clods of dirt (Land) or sand (Sea) thrown out in arcs. `dir` biases them one way (a digger throws dirt behind). */
+/** Pooled particle kinds built from the shared shapes (lit, like the rest of the effects). */
+export const KINDS = {
+  dust: { key: 'dust', geo: () => res().ball, mat: () => res().mats.puff, cap: 160 } as Kind,
+  star: { key: 'star', geo: () => res().star, mat: () => res().mats.star, cap: 96 } as Kind,
+  drop: { key: 'drop', geo: () => res().drop, mat: () => res().mats.water, cap: 96 } as Kind,
+  chunk: { key: 'chunk', geo: () => res3().clod, mat: () => res3().mats.chunk, cap: 96 } as Kind,
+};
+
+/** Clods of dirt (Land) or sand (Sea) thrown out in arcs. `dir` biases them one way (a digger throws dirt behind). Pooled. */
 export function clods(parent: THREE.Object3D, at: THREE.Vector3, sq: number, n = 6, sea = false, dir?: THREE.Vector3) {
-  const { clod, mats } = res3();
   if (motion.reduced) n = Math.ceil(n / 2);
-  for (let i = 0; i < n; i++) {
-    const m = spawn(parent, clod, sea ? mats.sand : mats.dirt, at.clone().setY(at.y + sq * 0.05), sq * rnd(0.6, 1.2));
-    const a = dir ? Math.atan2(dir.z, dir.x) + rnd(-0.7, 0.7) : rnd(0, TAU);
-    const r = sq * rnd(0.3, 0.7);
-    const d = rnd(0.4, 0.6);
-    gsap.to(m.position, { x: at.x + Math.cos(a) * r, z: at.z + Math.sin(a) * r, duration: d, ease: 'none' });
-    gsap.to(m.position, { y: at.y + sq * rnd(0.25, 0.5), duration: d * 0.45, ease: 'power2.out' });
-    gsap.to(m.position, { y: at.y, duration: d * 0.55, delay: d * 0.45, ease: 'power2.in' });
-    gsap.to(m.rotation, { x: rnd(-6, 6), z: rnd(-6, 6), duration: d });
-    gsap.to(m.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.2, delay: d + 0.1, onComplete: gone(m) });
-  }
+  const base = dir ? Math.atan2(dir.z, dir.x) : 0;
+  const P = Array.from({ length: n }, () => ({
+    a: dir ? base + rnd(-0.7, 0.7) : rnd(0, TAU), r: sq * rnd(0.3, 0.7), d: rnd(0.4, 0.6), h: sq * rnd(0.25, 0.5),
+    s: sq * rnd(0.6, 1.2), rx: rnd(-6, 6), rz: rnd(-6, 6),
+  }));
+  const color = sea ? '#e8c98f' : '#8a5a32';
+  emit(parent, KINDS.chunk, n, 0.9, () => color, (i, t, o) => {
+    const q = P[i];
+    const u = Math.min(1, t / q.d);
+    o.p.set(at.x + Math.cos(q.a) * q.r * u, at.y + sq * 0.05 * (1 - u) + q.h * 4 * u * (1 - u), at.z + Math.sin(q.a) * q.r * u);
+    o.r.set(q.rx * u, 0, q.rz * u);
+    const fade = (t - q.d - 0.1) / 0.2;
+    o.s.setScalar(fade <= 0 ? q.s : Math.max(0, q.s * (1 - fade)));
+  });
 }
 
 /** A little mound of dirt or sand that rises, holds, and sinks away. */

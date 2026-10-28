@@ -9,6 +9,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { POWER_OF, type EmoteKind, type MoveStyle, type PieceKind, type PowerKind, type Side, type SkinChoice } from '../contracts/types';
 import { createCast, type Actor } from './index';
 import { splash as fxSplash } from './fx';
+import { TREASURE_COLORS } from './party';
 
 const SQ = 1;
 const SIDES: Side[] = ['land', 'sea'];
@@ -480,9 +481,73 @@ document.querySelectorAll<HTMLButtonElement>('#falls button').forEach((b) => {
     await fallOnce(await staged(), x, z);
   });
 });
+/**
+ * Stand-in for `world.flyTreasure`: a plain ball (bone or pearl colour) arcs from one square to another.
+ * The game's world flies the real treasure.
+ */
+function flyStandIn(owner: Side, from: THREE.Vector3, to: THREE.Vector3): Promise<void> {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), new THREE.MeshStandardMaterial({ color: owner === 'land' ? TREASURE_COLORS.bone : TREASURE_COLORS.pearl, roughness: 0.4 }));
+  m.castShadow = true;
+  m.userData.noPick = true;
+  table.add(m);
+  const p = { t: 0 };
+  const dist = from.distanceTo(to);
+  const place = () => {
+    m.position.lerpVectors(from, to, p.t);
+    m.position.y = 0.55 + Math.sin(p.t * Math.PI) * (0.35 + dist * 0.25);
+  };
+  place();
+  return new Promise((resolve) => {
+    gsap.to(p, { t: 1, duration: 0.3 + dist * 0.12, ease: 'none', onUpdate: place, onComplete: () => {
+      m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); resolve();
+    } });
+  });
+}
+
+/** Raid "pass and run", as integration plays it: toss, clear the thrower, fly the treasure, hand it to the catcher (the catch). */
+async function tossOnce(a: Actor, catcher: Actor) {
+  const owner: Side = a.side === 'land' ? 'sea' : 'land';
+  if (a.carrying !== owner) { a.setCarrying(owner); await wait(0.6); }
+  const t0 = performance.now();
+  await a.toss(world(catcher.object.position));
+  const t1 = performance.now();
+  a.setCarrying(null);
+  await flyStandIn(owner, a.object.position.clone(), catcher.object.position.clone());
+  catcher.setCarrying(owner);
+  log.textContent = `${cast.displayName(a.side, a.kind)}: toss released at ${((t1 - t0) / 1000).toFixed(2)}s`;
+}
+
+/** A teammate standing at `[x, z]` from the middle square, facing forward. */
+function teammate(a: Actor, x: number, z: number): Actor {
+  return spawn(a.side, a.kind === 'p' ? 'n' : 'p', off(x, z), 0);
+}
+
 document.querySelectorAll<HTMLButtonElement>('#carry button').forEach((b) => {
   b.onclick = () => action(async () => {
     const c = b.dataset.c!;
+    if (c === 'toss' || c === 'tossall') {
+      const one = c === 'toss';
+      if (!one) unstage();
+      const dirs: [number, number][] = [[2, 0], [0, -2], [-2, 0], [0, 2], [1, 0], [-1, 0]];
+      const list = one ? [null] : SIDES.flatMap((side) => KINDS.map((kind) => [side, kind] as const));
+      let i = 0;
+      for (const sk of list) {
+        const a = sk ? spawn(sk[0], sk[1], S, 0) : await staged();
+        const [x, z] = dirs[i++ % dirs.length];
+        const mate = teammate(a, x, z);
+        if (!one) await wait(0.6);
+        await tossOnce(a, mate);
+        await wait(1.1);
+        mate.setCarrying(null);
+        await gsap.to(mate.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+        mate.dispose();
+        if (!one) {
+          await gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+          a.dispose();
+        }
+      }
+      return;
+    }
     if (c === 'all') {
       unstage();
       const row = SIDES.flatMap((side) => KINDS.map((kind) => [side, kind] as const));
@@ -585,12 +650,139 @@ layout();
 
 async function start() {
   await cast.preload(renderer, scene, camera);
-  buildLineup();
-  pick('land-n');
+  if (solo) {
+    void soloLoop(solo);
+  } else {
+    buildLineup();
+    pick('land-n');
+  }
   renderer.setAnimationLoop((now) => {
     timer.update(now);
     frame(Math.min(timer.getDelta(), 1 / 20), timer.getElapsed());
   });
+}
+
+// ---------- Solo mode (for the before/after compare page) ----------
+
+/**
+ * `?solo=land-r` plays one animal's power on a loop, close up, with no panel.
+ * `&act=` plays something else instead: attack, hit, pushed, jump, bonked, fall, digin, toss, any travel style, or none.
+ * `&look=clean|cartoon` (impact look), `&view=front|back`, `&rm=1` (reduced motion), `&label=` (caption), `&once=1` (no loop).
+ */
+const qs = new URLSearchParams(location.search);
+const solo = qs.get('solo');
+if (solo) {
+  document.body.classList.add('solo');
+  spinning = false;
+  const look = qs.get('look');
+  // Older builds of the cast have no setLook (the "before" copy): skip it there.
+  if (look === 'clean' || look === 'cartoon') (cast as { setLook?: (l: string) => void }).setLook?.(look);
+  if (qs.get('rm') === '1') cast.setReducedMotion(true);
+  const back = qs.get('view') === 'back';
+  camTarget.set(0, 0.55, 0.5);
+  camBase.set(0, 3.3, back ? 0.5 - 5.9 : 0.5 + 5.9);
+  fitCamera();
+  controls.target.copy(camTarget);
+  controls.update();
+  const cap = document.createElement('div');
+  cap.id = 'soloCap';
+  cap.innerHTML = `<b></b><span></span>`;
+  cap.querySelector('b')!.textContent = qs.get('label') ?? '';
+  cap.querySelector('span')!.appendChild(log);
+  document.body.appendChild(cap);
+}
+
+async function soloAct(a: Actor, act: string) {
+  const enemy: Side = a.side === 'land' ? 'sea' : 'land';
+  const t0 = performance.now();
+  const took = (what: string) => { log.textContent = `${what} ${((performance.now() - t0) / 1000).toFixed(2)}s`; };
+  switch (act) {
+    case 'power': await playPower(a); return;
+    case 'attack': {
+      const vAt = off(1, 0);
+      const v = spawn(enemy, 'p', vAt, -Math.PI / 2);
+      await wait(0.6);
+      await a.attack(v);
+      took('impact at');
+      const gone = v.defeat(a).then(() => v.dispose());
+      await a.moveTo(world(vAt));
+      await gone;
+      await wait(0.3);
+      await a.moveTo(world(S));
+      return;
+    }
+    case 'hit': await a.hit(); took('hit'); return;
+    case 'pushed': {
+      void a.hit();
+      await a.moveTo(world(off(1, 0)), { style: 'pushed' });
+      took('pushed');
+      await wait(0.5);
+      await a.moveTo(world(S));
+      return;
+    }
+    case 'jump': {
+      await a.moveTo(world(off(2, 1)), { style: 'jump' });
+      await a.moveTo(world(off(1, -1)), { style: 'jump' });
+      took('two hops');
+      await wait(0.4);
+      await a.moveTo(world(S));
+      return;
+    }
+    case 'bonked': {
+      await a.hit();
+      await a.moveTo(world(off(0, -1)), { style: 'bonked' });
+      took('bonk + walk');
+      await wait(0.3);
+      await a.moveTo(world(S));
+      return;
+    }
+    case 'fall': await fallOnce(a, 1, 0); return;
+    case 'toss': {
+      const mate = teammate(a, 1, 0);
+      await wait(0.6);
+      await tossOnce(a, mate);
+      await wait(1);
+      mate.setCarrying(null);
+      await gsap.to(mate.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+      mate.dispose();
+      return;
+    }
+    case 'digin': {
+      await a.powerUp('sidestep');
+      a.setStatus('anchored');
+      took('dig in');
+      await wait(1.4);
+      a.setStatus(null);
+      await wait(0.4);
+      return;
+    }
+    default: {
+      const style = act as Exclude<MoveStyle, 'normal'>;
+      const [x, z] = STYLE_TO[style] ?? [1, 0];
+      await a.moveTo(world(off(x, z)), { style });
+      took(act);
+      await wait(0.4);
+      await a.moveTo(world(S));
+    }
+  }
+}
+
+async function soloLoop(key: string) {
+  const [side, kind] = key.split('-') as [Side, PieceKind];
+  const act = qs.get('act') ?? 'power';
+  const once = qs.get('once') === '1';
+  // `act=none`: an empty stage (for scripted checks from the console).
+  if (act === 'none') return;
+  for (;;) {
+    const a = spawn(side, kind, S, 0);
+    await wait(0.8);
+    await soloAct(a, act);
+    await wait(0.7);
+    if (a.object.parent) await gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+    a.dispose();
+    if (once) return;
+    await wait(0.3);
+  }
 }
 
 let simT = 0;

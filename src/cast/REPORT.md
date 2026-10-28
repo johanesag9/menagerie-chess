@@ -2,6 +2,113 @@
 
 The 12 animals and all their animations. Everything is built in code. No downloaded assets, and nothing from `steam-scrape/`.
 
+# Raid "pass and run": toss and catch (2026-10-28)
+
+## What's done
+- **`toss(at)`** (the optional contract method, `toss.ts`). The animal turns to face `at`, winds up, lets go at **0.3s** (when the promise resolves), then follows through and turns back to its home facing (about 0.9s in all). Each throw fits how the animal holds the treasure:
+  - Dogs, horse, goat, cat: a mouth flick. The head scoops down, then flicks up and forward. The cat bats it with a paw too, and the goat's beard swings.
+  - Elephant: the trunk curls back, then whips forward joint by joint.
+  - Crab: the raised claw cocks back as it leans away, then flings over and snaps open.
+  - Octopus: the holding tentacle curls back, then whips out level toward the catcher.
+  - Seahorse, pufferfish, turtle, blobfish: a head-bob launch. They crouch with the chin up, then pop up and nod it off.
+- **At the release**, the animal's own treasure disappears (the world flies the real one) with a few sparkles and short speed lines. Integration's `setCarrying(null)` right after then removes it without a pop, and the holding pose (raised trunk, claw or tentacle) eases back down instead of snapping. Every drop now eases that pose down this way.
+- **The catch.** The first other animal given a treasure (`setCarrying(owner)`) within 2.5s of a toss does a happy hop with its arms up: front legs, paws, claws, flippers, fins, or four tentacles. It plays on the emote layer, so it never cuts an action.
+- **Skip and reduced motion.** `skip()` resolves a toss at once and still lets go. Under reduced motion it runs 1.3× faster with small poses and no speed lines, and the catch hop is small.
+- If nobody clears a thrown treasure, it shows again in the mouth when the animal next acts.
+- **Tests**: 15 new (116 in the cast, all passing): every animal releases at 0.25–0.4s facing the target, hides and then removes the treasure, and settles back home. Also the catch (only once, only after a toss), skip, reduced motion, and a toss nobody clears. `npm run typecheck` passes.
+
+## How to run the demo
+Cast demo, **Party modes → Raid**: **Toss to a teammate** (the picked animal throws to a teammate two squares away, who catches it) and **All 12 toss** (in turn, in four directions). The flying ball is a **stand-in** for the world's `flyTreasure`. Solo mode also takes `act=toss`.
+
+## Contract requests
+None. Integration order (as in `src/app/modes.ts` on phase3): `await thrower.toss(catcherPoint)`, then `thrower.setCarrying(null)`, then `await world.flyTreasure(...)`, then `catcher.setCarrying(owner)`. The catch plays by itself.
+
+## Open design questions for Johanes
+1. **Catch for every pickup?** Right now only a pickup straight after a toss gets the hop. A normal grab from the ground keeps the small star pop.
+
+## Known issues
+- The release point is where the treasure sits in the animal's mouth, claw, trunk, tentacle or on its head. The world's flight should start from about there; not checked together yet.
+
+---
+
+# Animation polish (2026-10-28)
+
+## What changed
+- **All six powers, both sides, are re-animated** (`powers.ts`). Each one now has a wind-up, a clear key pose, a hit (freeze or squash), a follow-through and a touch of the animal's character:
+
+  | Power | Land | Sea |
+  |---|---|---|
+  | Sidestep | Pup: play bow with the tail a blur, a sniff, then digs like mad with dirt flying behind | Crab: snip-snip with claws in a V, legs splay, leans away from where it is going |
+  | Double jump | Horse: rears up tall pawing the air with a snort, drops into a crouch | Seahorse: coils its tail like a spring, blows a bubble, the pop launches it |
+  | Headbutt | Goat: weight back, paws and kicks, rears up with horns tucked and **holds**; `attack()` then charges straight out of that pose | Pufferfish: sucks in, puffs up in two gulps, leans back trembling and holds; the charge flies like a let-go balloon |
+  | Stomp | Elephant: crouch, rears up with trunk high and ears out, trumpets, slams. Freeze on the squash, shock ring, pebbles | Turtle: tucks into its shell, spins up, hangs, slams shell-first. Splash ring, droplets, pops back out dazed |
+  | Block | Cat: low crouch with a bum wiggle, swat with a smear, sparkles on the square, smug paw-lick | Octopus: big breath with tentacles curling, ink arc onto the square while it jets back from the recoil |
+  | Escape | Pug: paws scrabble on the spot kicking dust, spins up with whirl lines | Blobfish: wobbles harder and harder, sweats, sighs, melts |
+
+  Dig in (Sumo) reuses sidestep: the pup and crab dig down instead of leaning off.
+- **Supporting moves.**
+  - `attack()`: an impact frame at the contact point, a short freeze (hit-stop), then the victim flinches. The freeze carries over: a `hit()`, `defeat()`, push or move started during it waits for it to end.
+  - `hit()`: squash, tremble through the freeze, spring back, gold sparkles.
+  - `pushed`: tips, flails, skids with speed lines and dust, overshoots and settles.
+  - `jump`: a real arc with a crouch, peak sparkles and a squash landing. A second hop straight after a landing (double jump) skips the crouch, so the two hops chain.
+  - `teleport` (Land dash) gets speed lines and a dust kick. `sidestep` for the crab and pawns scuttles with sand puffs. `bonked` sweats. `fall` (Sumo): Land sweats and kicks dust, Sea gives a smug eye twinkle.
+- **Pooled effects** (`pool.ts`, `vfx.ts`). Dust, stars, drops, clods, sparkles, impact bursts, speed lines, shock rings, debris, steam and the ink arc are all code-built, one instanced mesh per kind (one draw call each, hidden when idle). The old one-mesh-per-puff dust, stars and clods now use the same pools. Their shaders are compiled in `preload`, so first use doesn't stall.
+- **Two impact looks**, switchable with `cast.setLook('clean' | 'cartoon')` (also readable as `cast.look`). **A, clean**: a small white flash and sparkles, 0.045s freeze. **B, cartoon**: a jagged orange and gold comic burst with radial lines, 0.08s freeze. **Johanes picked B (2026-10-28); it is the default.** A stays available through `setLook('clean')`.
+- **Reduced motion**: no hit-stop, no spins or flips, lower jumps, fewer particles, and impact/stomp events at intensity 0, as before.
+- **Tests**: the existing 101 cast tests all pass unchanged. `npm run typecheck` passes.
+
+## Timings
+Time to effect (when `powerUp` resolves) and time until the animal is fully settled, at 60fps. "Settled" includes the follow-through, which the next action cuts short anyway.
+
+| Animal · power | Effect before | Effect now | Settled before | Settled now |
+|---|---|---|---|---|
+| Pup · sidestep | 0.73 | 0.67 | 1.23 | 1.17 |
+| Horse · double jump | 0.67 | 0.58 | 1.17 | 1.08 |
+| Goat · headbutt | 0.75 | 0.68 | 1.25 | 1.48 (held pose) |
+| Elephant · stomp | 0.55 | 0.58 | 1.35 | 1.57 |
+| Cat · block | 0.60 | 0.62 | 1.65 | 1.90 |
+| Pug · escape | 0.70 | 0.70 | 1.20 | 1.20 |
+| Crab · sidestep | 0.55 | 0.50 | 1.05 | 1.00 |
+| Seahorse · double jump | 0.55 | 0.48 | 1.05 | 0.98 |
+| Pufferfish · headbutt | 0.68 | 0.68 | 1.18 | 1.48 (held pose) |
+| Turtle · stomp | 0.60 | 0.58 | 1.40 | 1.45 |
+| Octopus · block | 0.85 | 0.75 | 1.75 | 1.70 |
+| Blobfish · escape | 0.73 | 0.70 | 1.23 | 1.20 |
+
+- Every power takes effect within 0.1s of before, all under 0.8s.
+- **Longer:** the goat and pufferfish hold their wind-up for up to 0.45s so the charge can start from it (integration calls `attack()` right after, which cuts the hold). The elephant's ears and trunk settle 0.2s longer. The cat's paw-lick adds 0.25s.
+- **Captures and headbutts** are 0.045s (A) or 0.08s (B) longer, from the freeze. The headbutt charge freezes 1.25× longer.
+- **Double jump**: the second hop is about 0.15s shorter, since it skips the crouch.
+
+## How to run the demo
+- **Before/after page:** http://localhost:4408/ (launch configs `anim-before` on 4406, `anim-after` on 4407, `anim-compare` on 4408; the "before" copy and the compare page live in this session's scratchpad, not in the repo). Pick an animal and a move; three boxes loop it: Before, A clean, B cartoon. Front/Back, Reduced motion, and Show before toggle. Drag in a box to orbit.
+- **Solo mode** in the cast demo, for one animal close up: `src/cast/demo.html?solo=land-r&act=power&look=clean&view=back&rm=1`. `act` can be power, attack, hit, pushed, jump, bonked, fall, digin, any travel style, or none (an empty stage).
+- The normal cast demo (`cast-demo`, port 4413) still works as before.
+- Checked at desktop size and at 390×844, with no console errors and no sideways scroll. A scripted run of all 12 animals × power, capture, defeat, every travel style, dig in and fall, in both looks: no failures, no leftover pieces, at most 83 draw calls (51 is the demo's idle baseline). No shader compiled on first use.
+
+## Contract requests
+None needed. Notes for integration:
+- **Headbutt**: keep the order `await powerUp('headbutt', victimPoint); await attack(victim);`. The attack now charges out of the held wind-up. If anything else is called on the attacker in between, it just does a normal attack.
+- **Camera shake**: hook it to the cast `impact` event (intensity 0–1) as well as `stomp`. Both fire on the frame of contact, when the freeze starts, so the camera shakes while the pieces hold still. That is the intended feel.
+- **Hit-stop**: start `victim.hit()`, `victim.defeat()` and the pushed `moveTo` straight away, as now. They wait out the freeze by themselves.
+- **Look**: nothing to do. The cartoon look (B, Johanes's pick) is the default.
+
+## Open design questions for Johanes
+1. ~~**A or B?**~~ Decided 2026-10-28: **B, cartoon** (comic burst, 0.08s freeze).
+2. **Burst size**: about two-thirds of a square. Bigger reads better at 390px, but it starts hiding both animals.
+3. **Rear-ups lift the pedestal** a little off the board (goat, horse, elephant) so the pose reads from the front camera. OK, or keep the base planted?
+4. **Freeze length**: 0.08s. Longer feels punchier but slows a capture.
+5. **Held headbutt wind-up**: the goat and pufferfish hold the reared pose until the charge. Should the pose also hold if the player cancels?
+
+## Known issues
+- The B burst draws on top of everything (no depth test), so it can show through a piece in front of the hit.
+- The compare page's three boxes aren't synced. Each loops on its own clock, so use Restart all to line them up.
+- The before/after setup (servers 4406–4408, the old copy) is temporary and lives outside the repo. `.claude/launch.json` has three extra entries for it that are **not committed**.
+- One 78ms spike on the first animal spawn showed up once in a scripted run. Spawning every animal and accessory again added no new shaders, so I couldn't reproduce it. Worth a recheck in the real game.
+- Not seen in the real game yet: the real camera, the world's shake and integration's call order.
+
+---
+
 # Phase 4: party modes (2026-10-28)
 
 ## What's done
