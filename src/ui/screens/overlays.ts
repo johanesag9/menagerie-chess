@@ -1,9 +1,10 @@
 /** Pause, result and the promotion picker: dialogs that sit over the game. */
-import type { GameOver, PieceKind, Side } from '../../contracts/types';
+import type { ArenaState, GameOver, PieceKind, Side } from '../../contracts/types';
 import { ANIMAL_NAME, PROMOTION_KINDS, REASON_TEXT, SIDE_NAME, botName } from '../config';
 import type { UiCtx, View } from '../ctx';
 import { button, h } from '../dom';
 import { animalIcon } from '../icons';
+import { TREASURE } from '../modeText';
 
 type PromoKind = Exclude<PieceKind, 'p' | 'k'>;
 
@@ -91,9 +92,9 @@ export class ResultView implements View {
       mood = 'win';
     }
     this.title.textContent = title;
-    this.sub.textContent = r.winner === null
+    this.sub.textContent = partyLine(r, this.ctx.arenaState, this.ctx.gameInfo?.mode) ?? (r.winner === null
       ? r.reason === 'stalemate' ? 'No legal moves, but no check either.' : reason
-      : `${SIDE_NAME[r.winner]} wins ${reason}.`;
+      : `${SIDE_NAME[r.winner]} wins ${reason}.`);
     this.el.dataset.mood = mood;
     const w: Side = r.winner ?? 'land';
     this.art.innerHTML = r.winner === null
@@ -101,6 +102,13 @@ export class ResultView implements View {
       : animalIcon(w, 'k', { disc: true });
     // Crazy: the bonked king lies dizzy beside the winner.
     if (r.reason === 'kingCaptured' && r.winner) this.art.append(h('span', { class: 'mc-result__bonked', html: animalIcon(r.winner === 'land' ? 'sea' : 'land', 'k', { disc: true }) }, h('span', { class: 'mc-result__stars', text: '💫' })));
+    // Sumo: the king that went overboard bobs in the waves. Raid: the winner holds up the stolen treasure.
+    if (r.reason === 'kingOverboard') {
+      const sunk: Side[] = r.winner ? [r.winner === 'land' ? 'sea' : 'land'] : ['land', 'sea'];
+      if (!r.winner) this.art.replaceChildren();
+      for (const s of sunk) this.art.append(h('span', { class: 'mc-result__overboard', html: animalIcon(s, 'k', { disc: true }) }, h('span', { class: 'mc-result__waves', text: '🌊' })));
+    }
+    if (r.reason === 'treasure' && r.winner) this.art.append(h('span', { class: 'mc-result__loot', text: TREASURE[r.winner === 'land' ? 'sea' : 'land'].icon }));
     this.el.dataset.reason = r.reason;
     this.confetti.replaceChildren();
     if (mood === 'win' && !this.ctx.settings.reducedMotion) {
@@ -114,6 +122,33 @@ export class ResultView implements View {
 
   focusTarget(): HTMLElement {
     return this.rematch;
+  }
+}
+
+/** Phase 4: the result line for the party modes' own endings, else null (the chess wording applies). */
+export function partyLine(r: GameOver, st: ArenaState | null, mode: string | undefined): string | null {
+  const other = (x: Side): Side => (x === 'land' ? 'sea' : 'land');
+  const score = (w: Side) => (st ? ` ${st.score[w]}–${st.score[other(w)]}` : '');
+  switch (r.reason) {
+    case 'kingOverboard':
+      return r.winner
+        ? `${SIDE_NAME[r.winner]} wins: ${SIDE_NAME[other(r.winner)]}'s ${ANIMAL_NAME[other(r.winner)].k} fell into the sea!`
+        : 'Both kings fell into the sea at the same moment.';
+    case 'treasure':
+      return r.winner ? `${SIDE_NAME[r.winner]} wins${score(r.winner)} by raiding the ${TREASURE[other(r.winner)].name}!` : null;
+    case 'rounds': {
+      const sumo = (st?.mode ?? mode) === 'sumo';
+      const cap = st ? `Round ${st.maxRounds} is over` : 'The last round is over';
+      if (sumo) {
+        const left = (x: Side) => (st ? st.pieces.filter((p) => p.side === x).length : 0);
+        if (!r.winner) return `${cap}, with the same number of animals left${st ? ` (${left('land')} each)` : ''}.`;
+        return `${cap}. ${SIDE_NAME[r.winner]} wins with more animals left${st ? ` (${left(r.winner)} to ${left(other(r.winner))})` : ''}.`;
+      }
+      if (!r.winner) return `${cap}, level on points${st ? ` (${st.score.land}–${st.score.sea})` : ''}.`;
+      return `${cap}. ${SIDE_NAME[r.winner]} wins on points${score(r.winner)}.`;
+    }
+    default:
+      return null;
   }
 }
 

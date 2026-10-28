@@ -1249,3 +1249,128 @@
 
 .mc-ui[data-motion='reduced'] .mc-fan__card { transform: none; }
 .mc-ui[data-motion='reduced'] .mc-result__stars { animation: none !important; }
+
+/* =====================================================================
+   Phase 4: party modes (Sumo, Raid). Chess modes never show any of this.
+   ===================================================================== */
+
+/* Side strip: the six animals (fallen ones crossed out, ⚡ on a ready power), tokens, the side's treasure. */
+.mc-arena__animals { display: flex; gap: 1px; }
+.mc-ani { position: relative; display: grid; place-items: center; width: 26px; height: 26px; transition: opacity 0.3s, filter 0.3s; }
+.mc-ani__icon { width: 22px; height: 22px; }
+.mc-ani.has-power::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 1.5px #fff, 0 1px 0 1.5px var(--gold-deep);
+}
+.mc-ani.is-out { opacity: 0.4; filter: grayscale(1); }
+.mc-ani.is-out::before {
+  content: '';
+  position: absolute;
+  inset: 11px -1px auto;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--coral-deep);
+  transform: rotate(-35deg);
+  z-index: 1;
+}
+.mc-ani.is-out.is-new { animation: mc-sink 0.7s ease-in; }
+.mc-ani[data-status='stunned'] .mc-ani__icon, .mc-ani[data-status='frozen'] .mc-ani__icon { filter: saturate(0.4) brightness(1.15); }
+.mc-ani[data-status='anchored'] { border-bottom: 3px solid #a8713f; border-radius: 0 0 6px 6px; }
+.mc-ani__carry { position: absolute; left: -4px; bottom: -4px; font-size: 13px; line-height: 1; filter: drop-shadow(0 1px 0 #fff); }
+.mc-arena__treasure { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 4px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.mc-arena__ticon { font-size: 15px; }
+.mc-arena__treasure[data-state='dropped'] { background: #fff0c2; color: #6b4a07; }
+.mc-arena__treasure[data-state='carried'] { background: var(--coral-deep); color: #fff; animation: mc-pulse 1.4s ease-in-out infinite; }
+
+/* Chip: round / cap, the sinking island, the Raid score */
+.mc-chip__sink.is-urgent { background: var(--coral-deep); border-color: var(--coral-deep); color: #fff; animation: mc-pulse 1s ease-in-out infinite; }
+.mc-chip__score { gap: 0; }
+.mc-chip__score small { font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.mc-chip__score[data-lead='land'] [data-side='land'], .mc-chip__score[data-lead='sea'] [data-side='sea'] { color: var(--coral-deep); }
+.mc-chip__dash { white-space: pre; }
+
+/* Turn bar in the dock: die, AP pips, End turn */
+.mc-dock--arena { flex-direction: column; align-items: center; gap: 8px; }
+.mc-turnbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 22px;
+  background: rgba(255, 250, 240, 0.97);
+  border: 3px solid var(--edge);
+  box-shadow: 0 4px 0 var(--edge-deep), 0 10px 22px rgba(59, 42, 30, 0.18);
+}
+.mc-turnbar[data-side='land'] { border-color: var(--gold); }
+.mc-turnbar[data-side='sea'] { border-color: var(--aqua); }
+.mc-turnbar__die .mc-pips { width: 34px; height: 34px; padding: 4px; border-radius: 9px; background: #fff; box-shadow: inset 0 0 0 2px var(--edge-deep), 0 2px 0 var(--edge-deep); }
+.mc-turnbar__mid { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mc-turnbar__who { font-size: 15px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+.mc-turnbar__ap { display: flex; align-items: center; gap: 5px; }
+.mc-turnbar__ap i { width: 16px; height: 16px; border-radius: 50%; background: var(--edge); box-shadow: inset 0 -2px 0 rgba(59, 42, 30, 0.15); transition: background-color 0.2s, transform 0.3s var(--spring); }
+.mc-turnbar__ap i.on { background: var(--gold); box-shadow: inset 0 -3px 0 var(--gold-deep); }
+.mc-turnbar[data-side='sea'] .mc-turnbar__ap i.on { background: var(--aqua); box-shadow: inset 0 -3px 0 var(--teal); }
+.mc-turnbar__ap b { margin-left: 3px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mc-turnbar__right { display: flex; align-items: center; min-width: 0; }
+.mc-turnbar__right:empty { display: none; }
+.mc-turnbar__end { min-height: 52px; padding: 0 22px; font-size: 19px; }
+.mc-turnbar[data-side='sea'] .mc-turnbar__end { --bg: var(--teal-deep); --fg: #fff; --lip: #0b3f46; }
+.mc-turnbar.is-out-of-ap .mc-turnbar__end { animation: mc-pulse 1.2s ease-in-out infinite; }
+.mc-turnbar__note { padding: 0 12px; font-size: 17px; font-weight: 700; color: var(--coral-deep); }
+.mc-turnbar .mc-dots { padding: 0 12px; }
+
+/* Announce: big, short, bouncy, over the board, never in the way of clicks */
+.mc-announce {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  max-width: calc(100% - 32px);
+  padding: 10px 26px 12px;
+  border-radius: 26px;
+  background: var(--teal-deep);
+  color: #fff;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 6px 0 #0b3f46, 0 18px 40px rgba(59, 42, 30, 0.35);
+  pointer-events: none;
+}
+.mc-announce[data-tone='good'] { background: #3f8a2e; box-shadow: 0 6px 0 #2a5e1e, 0 18px 40px rgba(59, 42, 30, 0.35); }
+.mc-announce[data-tone='bad'] { background: var(--coral-deep); box-shadow: 0 6px 0 #8c2a1c, 0 18px 40px rgba(59, 42, 30, 0.35); }
+.mc-announce__text { display: block; font-size: 40px; font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; text-wrap: balance; }
+
+/* Die in the party modes: "3 → 3 AP" */
+.mc-dieroll[data-party] .mc-dieroll__call { font-size: 30px; color: var(--ink); }
+.mc-dieroll[data-party] .mc-dieroll__line { display: block; }
+
+/* Result art */
+.mc-result__overboard { position: relative; align-self: flex-end; width: 72px; height: 72px; transform: rotate(-24deg) translateY(14px); filter: saturate(0.7); }
+.mc-result__overboard .mc-icon { width: 72px; height: 72px; animation: none; clip-path: inset(0 0 34% 0); }
+.mc-result__waves { position: absolute; left: 50%; bottom: 8px; font-size: 40px; transform: translateX(-50%) rotate(24deg); }
+.mc-result__loot { align-self: center; font-size: 56px; animation: mc-bob 2.4s ease-in-out infinite; }
+
+@media (max-width: 600px) {
+  .mc-ani { width: 22px; height: 22px; }
+  .mc-ani__icon { width: 19px; height: 19px; }
+  .mc-arena__treasure { font-size: 12px; }
+  .mc-turnbar { gap: 8px; min-height: 54px; padding: 4px 4px 4px 8px; border-radius: 18px; }
+  .mc-turnbar__die .mc-pips { width: 28px; height: 28px; }
+  .mc-turnbar__who { font-size: 13px; }
+  .mc-turnbar__ap i { width: 13px; height: 13px; }
+  .mc-turnbar__ap b { font-size: 16px; }
+  .mc-turnbar__end { min-height: 46px; padding: 0 16px; font-size: 17px; }
+  .mc-announce { padding: 8px 18px 10px; }
+  .mc-announce__text { font-size: 30px; }
+  .mc-dieroll[data-party] .mc-dieroll__call { font-size: 24px; }
+}
+
+.mc-ui[data-motion='reduced'] .mc-arena__treasure[data-state='carried'], .mc-ui[data-motion='reduced'] .mc-chip__sink.is-urgent { animation: none !important; }
+
+@keyframes mc-sink { 0% { transform: none; opacity: 1; filter: none; } 40% { transform: translateY(-4px) rotate(-10deg); } 100% { transform: none; } }

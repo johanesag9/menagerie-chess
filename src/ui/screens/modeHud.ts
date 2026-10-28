@@ -4,13 +4,13 @@
  * the card hand, the selected piece's power, or the aiming prompt. `setModeState(null)` hides all of it (Classic).
  */
 import type { Card, DieValue, GameOptions, ModeState, PieceId, PieceKind, PieceState, SelectionInfo, Side } from '../../contracts/types';
-import { POWER_OF } from '../../contracts/types';
+import { POWER_OF, isArenaMode } from '../../contracts/types';
 import { ANIMAL_NAME, SIDE_NAME } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
 import { POWER_ORDER, otherSide, powerCounts } from '../format';
 import { animalIcon } from '../icons';
-import { POWER_BLOCK_TEXT, POWER_TEXT, SUIT, kindFromId } from '../modeText';
+import { ARENA_POWER_TEXT, POWER_BLOCK_TEXT, POWER_TEXT, SUIT, kindFromId } from '../modeText';
 
 /** Pips of a die face, for the chip and the big die. */
 export function dieFace(value: DieValue): HTMLElement {
@@ -56,6 +56,8 @@ export class ModeHud {
   private kinds = new Map<PieceId, PieceKind>();
   private seenCards = new Set<string>();
   private activeCard: string | null = null;
+  /** Phase 4: a party-mode game is showing (no ModeState; the turn bar sits in the dock). */
+  private arenaOn = false;
 
   constructor(private ctx: UiCtx) {
     this.strip = { land: this.makeStrip('land'), sea: this.makeStrip('sea') };
@@ -96,6 +98,18 @@ export class ModeHud {
 
   setTurn(turn: Side): void {
     this.turn = turn;
+    this.render();
+  }
+
+  /** Phase 4: put the party turn bar at the top of the dock, and show it (with the selected animal's power) while on. */
+  setArena(bar: HTMLElement, on: boolean): void {
+    if (bar.parentElement !== this.dock) this.dock.prepend(bar);
+    if (on === this.arenaOn) return;
+    this.arenaOn = on;
+    if (!on) {
+      this.sel = null;
+      this.prompt = null;
+    }
     this.render();
   }
 
@@ -229,7 +243,7 @@ export class ModeHud {
   private renderDock(st: ModeState | null, crazy: boolean): void {
     // One thing at a time: aiming prompt > selected piece > card hand.
     const showPrompt = this.prompt !== null;
-    const showSel = !showPrompt && !!this.sel?.power && !!st;
+    const showSel = !showPrompt && !!this.sel?.power && (!!st || this.arenaOn);
     const handSide = this.handSide();
     const hand = crazy && st ? st[handSide].hand : [];
     const showFan = !showPrompt && !showSel && crazy && hand.length > 0;
@@ -263,13 +277,15 @@ export class ModeHud {
       }));
       hand.forEach((c) => this.seenCards.add(c.id));
     }
-    this.dock.hidden = !showPrompt && !showSel && !showFan;
+    this.dock.hidden = !showPrompt && !showSel && !showFan && !this.arenaOn;
+    this.dock.classList.toggle('mc-dock--arena', this.arenaOn);
   }
 
   private renderSel(): void {
     const sel = this.sel!;
     const p = sel.power!;
-    const t = POWER_TEXT[p.power];
+    const mode = this.info?.mode;
+    const t = { ...POWER_TEXT[p.power], ...(isArenaMode(mode) ? ARENA_POWER_TEXT[mode][p.power] : undefined) };
     const name = ANIMAL_NAME[sel.side][sel.kind];
     const use = button(`Use ${t.name}`, { variant: sel.side === 'sea' ? 'sea' : 'primary', class: 'mc-sel__use', onClick: () => this.ctx.emit('powerRequested', { pieceId: sel.pieceId }) });
     this.selPanel.dataset.side = sel.side;

@@ -57,10 +57,10 @@ export const WEIRD_TEXT: Record<WeirdEventKind, { title: string; body: string; i
 export const REASON_TEXT: Record<GameOverReason, string> = {
   checkmate: 'by checkmate',
   kingCaptured: 'by bonking the king',
-  // Phase 4 stubs (orchestrator); the ui session words these.
-  kingOverboard: 'by pushing the king into the sea',
-  treasure: 'by stealing the treasure',
-  rounds: 'when time ran out',
+  // Phase 4 (the result screen words these in full from the arena state; see partyLine in screens/overlays.ts).
+  kingOverboard: 'by shoving the king into the sea',
+  treasure: 'by raiding the treasure',
+  rounds: 'on the round cap',
   resign: 'by resignation',
   timeout: 'on time',
   stalemate: 'Stalemate',

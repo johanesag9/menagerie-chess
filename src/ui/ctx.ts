@@ -1,4 +1,4 @@
-import type { AudioEngine, GameOptions, Screen, Settings, Side, UiEventMap } from '../contracts/types';
+import type { ArenaState, AudioEngine, GameOptions, Screen, Settings, Side, UiEventMap } from '../contracts/types';
 import type { SkinCatalog } from './config';
 import type { KeyValueStore } from './settings';
 
@@ -9,6 +9,8 @@ export interface UiCtx {
   readonly settings: Settings;
   /** Options of the game in progress (from setup, or setGameInfo). */
   readonly gameInfo: GameOptions | null;
+  /** Phase 4: the latest party-mode snapshot (null outside Sumo and Raid). */
+  readonly arenaState: ArenaState | null;
   emit<K extends keyof UiEventMap>(name: K, payload: UiEventMap[K]): void;
   show(screen: Screen): void;
   /** Leave settings/customize to wherever they were opened from. */
