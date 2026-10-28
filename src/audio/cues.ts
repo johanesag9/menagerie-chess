@@ -460,7 +460,33 @@ const party: Record<'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 
   },
 };
 
-const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos, ...party };
+// ---------- Phase 5: online with a friend ----------
+
+const online: Record<'friendJoined' | 'friendLeft' | 'timeLow', CueFn> = {
+  // Your friend is here: a bubbly pop, then a bright two-note ding.
+  friendJoined: (o, t) => {
+    tone(o, { t, dur: 0.07, f: 420, f2: 980, gain: 0.22 });
+    noise(o, { t, dur: 0.03, f: 3000, q: 1.2, gain: 0.08 });
+    tone(o, { t: t + 0.07, dur: 0.5, f: midi(84), gain: 0.14 });
+    tone(o, { t: t + 0.07, dur: 0.35, f: midi(84) * 2.76, gain: 0.025 }); // bell shimmer
+    tone(o, { t: t + 0.17, dur: 0.7, f: midi(91), gain: 0.14 });
+    tone(o, { t: t + 0.17, dur: 0.45, f: midi(91) * 2.76, gain: 0.02 });
+  },
+  // They dropped out: a soft, short down-blip. Not alarming, just "hm".
+  friendLeft: (o, t) => {
+    tone(o, { t, dur: 0.16, f: midi(76), f2: midi(69), type: 'triangle', gain: 0.16 });
+    tone(o, { t: t + 0.14, dur: 0.26, f: midi(69), f2: midi(62), type: 'triangle', gain: 0.13 });
+  },
+  // 10 seconds left: a light wooden tick-tock, a touch brighter than the chess clock's tick.
+  timeLow: (o, t) => {
+    tone(o, { t, dur: 0.05, f: 2100, f2: 1700, type: 'triangle', gain: 0.12 });
+    noise(o, { t, dur: 0.025, f: 5000, type: 'highpass', gain: 0.08 });
+    tone(o, { t: t + 0.16, dur: 0.05, f: 1500, f2: 1250, type: 'triangle', gain: 0.1 });
+    noise(o, { t: t + 0.16, dur: 0.025, f: 4000, type: 'highpass', gain: 0.06 });
+  },
+};
+
+const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos, ...party, ...online };
 for (const p of Object.keys(powers) as PowerKind[]) table[`power:${p}`] = powers[p];
 for (const w of Object.keys(wheel) as WheelOutcome[]) table[`chaos:${w}`] = wheel[w];
 for (const side of ['land', 'sea'] as const) {

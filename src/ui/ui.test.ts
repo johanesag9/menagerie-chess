@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionRecord, ArenaState, AudioCue, DuelInfo, MoveResult, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
+import type { ActionRecord, ArenaState, AudioCue, DuelInfo, GameOptions, MoveResult, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
 import { cueFn } from '../audio/cues';
-import { formatClock, listRows, moveRows, powerCounts, tallyCaptures, tallyFromCaptured } from './format';
-import { ALL_MODES, HOW_TO, MODE_TEXT, apFromDie, kindFromId, sideFromId } from './modeText';
+import { playerName } from './config';
+import { formatClock, formatSeconds, isOnline, youSide, listRows, moveRows, powerCounts, tallyCaptures, tallyFromCaptured } from './format';
+import { ALL_MODES, HOW_TO, HOW_TO_ONLINE, MODE_TEXT, apFromDie, kindFromId, sideFromId } from './modeText';
 import { partyLine } from './screens/overlays';
 import { duelWords } from './screens/chaos';
 import {
@@ -68,7 +69,7 @@ describe('setup', () => {
   });
 
   it('ignores a stale saved setup', () => {
-    const s = loadSetup(memStore({ 'menagerie.setup.v1': JSON.stringify({ level: 42, timeId: 'gone', opponent: 'online' }) }), ['none']);
+    const s = loadSetup(memStore({ 'menagerie.setup.v1': JSON.stringify({ level: 42, timeId: 'gone', opponent: 'stranger' }) }), ['none']);
     expect(s).toMatchObject({ level: 3, timeId: 'none', opponent: 'bot' });
   });
 
@@ -249,5 +250,45 @@ describe('Phase 4: party modes', () => {
   it('has a sound for every Phase 4 cue', () => {
     const want = ['step', 'shove', 'tag', 'splash', 'sinkWarn', 'sink', 'anchor', 'pickup', 'drop', 'treasureHome', 'score', 'endTurn'] as AudioCue[];
     for (const c of want) expect(cueFn(c), c).toBeTypeOf('function');
+  });
+});
+
+describe('online (Phase 5)', () => {
+  it('builds online options: you on your side, untimed, no Weird Mode or FEN', () => {
+    const c = { ...defaultSetup(), opponent: 'online' as const, side: 'sea' as const, timeId: '5+0', weirdMode: true };
+    const o = toGameOptions(c, { initialMs: 300_000, incrementMs: 2000 }, '8/8/8/8/8/8/8/K6k w - - 0 1');
+    expect(o).toEqual({ mode: 'classic', opponent: { type: 'online', you: 'sea' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false });
+    expect(toGameOptions({ ...c, side: 'random' }, { initialMs: null, incrementMs: 0 }, undefined, () => 0.9).opponent).toEqual({ type: 'online', you: 'sea' });
+  });
+
+  it('remembers Friend online', () => {
+    const store = memStore();
+    saveSetup(store, { ...defaultSetup(), opponent: 'online' });
+    expect(loadSetup(store, ['none']).opponent).toBe('online');
+  });
+
+  it('works out your side and the names', () => {
+    const online: GameOptions = { opponent: { type: 'online', you: 'sea' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false };
+    const bot: GameOptions = { opponent: { type: 'bot', level: 5, botSide: 'sea' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false };
+    const local: GameOptions = { opponent: { type: 'local' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false };
+    expect([youSide(online), youSide(bot), youSide(local), youSide(null)]).toEqual(['sea', 'land', null, null]);
+    expect([playerName(online, 'sea'), playerName(online, 'land')]).toEqual(['You', 'Friend']);
+    expect([playerName(bot, 'land'), playerName(bot, 'sea')]).toEqual(['You', 'Sly Fox']);
+    expect(playerName(local, 'land')).toBe('Land');
+    expect([isOnline(online), isOnline(bot)]).toEqual([true, false]);
+  });
+
+  it('counts whole seconds for the turn timer and the away countdown', () => {
+    expect(formatSeconds(120_000)).toBe('2:00');
+    expect(formatSeconds(101_200)).toBe('1:42');
+    expect(formatSeconds(9_001)).toBe('0:10');
+    expect(formatSeconds(400)).toBe('0:01');
+    expect(formatSeconds(-5)).toBe('0:00');
+  });
+
+  it('has an Online page in How it works and the three new sounds', () => {
+    expect(HOW_TO_ONLINE.sections.length).toBeGreaterThan(0);
+    expect(HOW_TO_ONLINE.sections.flatMap((x) => x.items).join(' ')).toContain('60-second');
+    for (const c of ['friendJoined', 'friendLeft', 'timeLow'] as AudioCue[]) expect(cueFn(c), c).toBeTypeOf('function');
   });
 });
