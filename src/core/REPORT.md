@@ -2,15 +2,51 @@
 
 ## Phase 4: party modes (Sumo, Raid)
 
+### What's done
+- `createArena()` in `src/core/index.ts`: the Sumo and Raid engine behind `ArenaController`, following the clarified contract (b0547e8): `previewArea` gives `{area, falls}`, `sank` lists `sunk` and `sinkingNext`, falls share their shove's step, PowerInfo has `name`/`line`/`note`, anchored ends at the start of the owner's next turn.
+- Both modes play start to finish, local and vs bot.
+- Bot: a beam search over up to 4 actions per turn, levels 1–8, in a Web Worker. It answers duels and throws at random.
+- Every rule number is a knob in `src/core/arena/tuning.ts`, editable in the playtest's Tuning panel.
+- Tests: 54 rules tests (`arena/sumo.test.ts`, `arena/raid.test.ts`) and a fuzz of 200 seeded games per mode (`arena/fuzz.*.test.ts`, about 8 s each). The fuzz checks that options match the legal moves, that the board rebuilt from events matches the state, the event order, and that illegal actions are refused. `ARENA_FUZZ_GAMES=10` runs a quick sample.
+- `npm run typecheck` passes and `npm test` passes (310 tests, Classic/Normal/Crazy included).
+- Checked in the browser at 1280px and 390px: all four (Sumo/Raid × local/bot) reach game over with no console errors and no sideways scroll.
+
 ### How to run the playtest
 - Start the `core-demo` launch config (port 4411), then open http://localhost:4411/src/core/arena.html.
 - Pick **Sumo** or **Raid**, local or vs bot, a bot level, and an optional **seed** (same seed = same dice and wheel). Press **New game**.
-- Click one of your animals: dots are its steps, red rings its shoves (Sumo) or tags (Raid) with their AP cost. Hover a red ring to see the shove line. The panel under the board has its power button.
+- Click one of your animals: dots are its steps, red rings its shoves (Sumo) or tags (Raid) with their AP cost. Hover a red ring to see the shove line; 💦 marks who would fall. The panel under the board has the power button.
 - The pips show the AP left; **End turn** gives up the rest. Water is blue; squares that sink at the end of this round wobble with a dashed outline.
 - `window.arena` is the controller, for the console. The Phase 3 page (`/src/core/demo.html`) still works.
 
-### Status
-Work in progress: Sumo and Raid are both playable, local and vs bot. Tests and the final report come next.
+### Rules choices where the spec was silent
+Raid
+- The enemy home is closed while its treasure is away (you can only enter it to grab the treasure).
+- A headbutt or escape that would land on your own home is refused, same as "stays put".
+- Block can't go on a home or a treasure square.
+- A headbutt needs a free square behind the target.
+- Tide and earthquake moves follow the normal arrival rules (pickup, scoring). Sent-home squares skip treasure squares.
+
+Sumo
+- An anchored (Dig in) animal can still act; it just can't be shoved.
+- The heavy shove cost (3 AP) depends on the victim only (king, rook).
+
+Events and log
+- The sink log entry has kind `'wheel'`.
+- A game that ends mid-turn sends no `turnChanged`.
+- A bonk sends no `acted`; running out of AP ends the turn with no log entry of its own.
+
+### Contract requests
+- None blocking. PowerKind has no `'digIn'`; `PowerInfo.name`/`note` now cover it.
+
+### Open design questions for Johanes
+- **Raid hardly scores.** Bot vs bot at level 6 with the defaults: 0 points per game, 8 of 8 draws at the round cap. With `carrierStepCost` 1, about 2 points per game, but Sea won nearly every game. Small samples; needs a playtest. Easy knobs: carrier step cost, tag cost, round cap.
+- **Sumo seems to favour Sea** (the spec already flags that Sea moves last before each sink). In a small sample the level 8 bot won 6/6 as Sea, 3/6 as Land.
+- The tide only sweeps Land, as the spec says. Together with the first point, Raid leans Sea too.
+- Bot levels 1–3 make a random move some of the time on purpose (30% at level 1). Should they feel more playful than that?
+
+### Known issues
+- On a heavily loaded machine the bot can take over a second on a turn (normally a few ms), and old time-limited Phase 3 tests can time out. Re-run them alone.
+- The playtest is a flat 2D dev tool with emoji stand-ins, not the game look.
 
 # Phase 3 report (Normal and Crazy, unchanged)
 
