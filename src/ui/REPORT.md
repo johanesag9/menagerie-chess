@@ -1,8 +1,68 @@
 # ui + audio stream report
 
-Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and Phase 1 work is unchanged (reports further down).
+Status: **Phase 6 done** (2026-10-28), branch `claude/p6-ui-4d2bbc` (cut from `phase6`). Phase 4, 3 and 1 work is unchanged (reports further down).
 
-## What's done (Phase 4: Sumo and Raid)
+## Phase 6: board-game modes (Sandcastle King, Stepping Stones)
+
+### What's done
+- **Setup:** a third row, "Board games" (tag "No luck"), with Sandcastle King 🏰 and Stepping Stones 🪨 and a one-line pitch each. Clock, Weird Mode and FEN hide for them, as for the party modes. The choice is remembered.
+- **How it works:** both modes, from GAME_SPEC "Board-game modes": win, draft, turn, tide, the trait table (castle); the sea, turn, fresh squares, the powers table (stones). Words live in `boardText.ts`.
+- **Draft picker** (`askDraft`, `screens/draft.ts`): a sheet over the board with your 6 animals as cards (animal, trait name, one line; core's `traits` words win over ours), both sides' picks so far with empty slots, and the slot being picked glowing. "Land, your pick" in a local game, "Pick your animals" vs the bot. Keys 1–6, arrows, Tab stays inside. Plays `draftPick` and emits `draftPicked`. Leaving the game or a result answers an open question with the first free animal.
+- **Board HUD** (`hud/board.ts`, `hud/board.css`). `setArenaState` sends 'castle' and 'stones' here and Sumo/Raid to the old party HUD. No AP pips, no die, no duel tokens.
+  - Turn bar in the bottom dock: whose turn and the stage in plain words ("Move an animal", "Build or dig next to your Mountain Goat", "Dig again or end turn", "Raise or sink a square, or use a power"; "Building or digging" on the bot's turn). In castle the animal that shapes sits beside the words.
+  - **End turn only in stage 'more'**, only for a human side. E works too.
+  - Strips by the player cards. Castle: each drafted animal with its trait name, its height (a small number) and a crown on a castle; empty slots during the draft. Stones: the six animals with a dot on each unused power, and "⚡N" left.
+  - Chip: "Round N / cap" (or "Draft: pick 3 of 4"); castle "🌊 Tide in N" (red "Tide after this round!" at 1); stones "Your path 3 · Theirs 4" vs the bot, "Path: Land 3 · Sea 4" locally, "–" when there is no path, and a number of 1 pulses red.
+  - **Crown warning:** a big coral banner under the chips while someone is crowned: "Sea's Octopus holds a castle: dig under it or push it off!" (only "dig under it!" when the answering side has no Shover). Gold when it's yours: "Your Mountain Goat holds a castle! Keep it there through their turn to win." It pops in once and is read out (role alert).
+- **Build/Dig toggle** (`setShapeMode`): a two-way switch under the turn bar with a sliding thumb, 56–58px tall and full width at 390px. Build / Dig (castle), Raise / Sink (stones), "Build ×2" when `upBy` is 2, a side greys out when it can't be used. Tap, arrow keys, or B/D (castle) and R/S (stones). It flips at once and emits `shapeMode`.
+- **Selected animal panel** in castle shows the trait with "Always on" instead of a "Use" button (core sends `available: true` for traits; there is no power action in castle).
+- **Result:** `castle` "Sea wins by holding the castle: the Octopus stood its ground!", `crossed` "Land wins by crossing the sea: the Pug reached the far shore!", `rounds` is a draw ("Round 30 is over and nobody held a castle." / "...nobody got across."). The art shows the animal that won (not the king, which may not be in the game) with 🏰 or 🪨.
+- **Sounds** (`audio/boardCues.ts`, all synthesized): `build` (pat-pat of damp sand), `dig` (scrape and tossed grains), `raise` (a heave, water pouring off, drips), `sinkStone` (glug glug, plop), `climb` (springy hop up), `flag` (ta-ta-taaa with a flutter), `tideWear` (a long wash in and out), `draftPick` (slap and pling). Levels trimmed to the existing targets (board actions about −20 dBFS).
+- **Tests** (`board.test.ts`, 6): setup memory, stage words, crown words from each side, tide countdown, every ending, every Phase 6 cue. `npm run typecheck` and `npm test` (all 368) pass.
+
+### How to run
+1. Start the `ui-demo` launch config (port 4414, or the next free port) and open `/src/ui/demo.html`.
+2. In **setup**, pick Sandcastle King and press Start: the real draft picker runs (the demo bot picks after a pause), then the animals enter. Stepping Stones starts with the Raise/Sink toggle.
+3. **Demo controls** on the left, new sections:
+   - **Sandcastle King:** draft vs bot, draft for 2 players, Sea's 2nd pick, stage move, build or dig, Builder ×2, stage 'more' (End turn works), crowned theirs / yours / no Shover, the tide wearing the beach, and a **scripted turn** (move, shape by the toggle, the bot's turn, then you climb onto the castle).
+   - **Stepping Stones:** start, stage move (with a fresh square), 2-player midgame, their path is 1, only sink possible, bot thinking, hide toggle.
+   - **Board-game results:** castle win and loss, round 30, crossed, round 25.
+   - **Board-game sounds**, also on the full sound board.
+4. The stand-in board draws levels (1–3, 🏰), water, fresh squares (dashed) and animals. It is a CSS stand-in, not the world, and the demo does not run the rules: the states are hand-made to follow the spec (start squares, draft order, round caps). Stones path lengths are worked out on the fake board.
+
+Checked in the browser pane at desktop size and at 390×844 with clicks and keys (setup Start, draft picks with 1–6 and taps, B/D, the toggle, End turn). No console errors. Sumo, Raid and a chess game still show their own HUD and none of this.
+
+### Contract requests
+None blocking. To confirm:
+1. **`nextTideIn`:** I read it like Sumo's `nextSinkIn`: 1 = the tide comes at the end of this round ("Tide after this round!"). Core, please match or tell me.
+2. **Who plays which sound:** the UI plays `draftPick` when a human picks, `endTurn` on End turn, and `uiClick` on the toggle. Integration plays the board sounds (`build`, `dig`, `raise`, `sinkStone`, `climb`, `flag`, `tideWear`) with the animations, and `draftPick` for the bot's picks only.
+3. **The toggle** flips by itself when tapped and emits `shapeMode`. Integration should answer with `setShapeMode` (new options); until then the UI keeps the player's choice.
+4. **Traits in the HUD:** strips use core's trait words from the last `askDraft`, else ours. If core's names ever differ from the spec, a way to pass them without a draft would help (e.g. in `ArenaState.draft`).
+
+### Open design questions for Johanes
+- **Setup colours:** Sandcastle King turns sand brown when picked, Stepping Stones slate blue. The tag says "No luck". OK?
+- **The toggle** sits under the turn bar at the bottom, full width on phones. Build thumb is sand, Dig dark earth; Raise slate grey, Sink sea teal. Arrows plus words. OK, or icons (pail and spade)?
+- **Crown warning** stays up the whole time someone is crowned, red when it's against you and gold when it's yours. Too loud?
+- **Path chip:** "Your path 3 · Theirs 4", "–" for no path. Would "steps to cross" read better?
+- **Trait icons** are emoji (⛏️ 🦘 🧗 🧱 👐 💨). Draw our own later?
+- **Draft:** no secrecy cover in a local game, since both sides see all picks anyway. OK?
+- **A draw with nothing to do for a whole round:** if core reports it as `stalemate`, the title reads "Stalemate!" (a chess word) with "Nobody could do anything for a whole round." Change the title to "It's a draw"?
+- **Sounds:** balanced by numbers only, not heard yet. Please try them on the sound board.
+
+### Known issues
+- **How it works tabs** wrap to three rows on a phone now that there are seven modes. It works, but takes space.
+- The demo's stand-in board isn't clickable, so the demo shows states and short scripts, not a playable game.
+- The draft sheet covers the bottom player card on a phone while it's open (on purpose: it says whose pick it is).
+- Not in my brief, found in passing: the Phase 4 cues `toss`, `catch` and `intercept` have no sound yet (they play silence).
+
+### Merge notes (Phase 5 ui is on another branch)
+New files: `boardText.ts`, `hud/board.ts`, `hud/board.css`, `screens/draft.ts`, `demoBoard.ts`, `board.test.ts`, `audio/boardCues.ts`.
+Small edits to shared files: `index.ts` (a Phase 6 block of two methods just above the Phase 5 stubs, the draft picker set-up, `draft.cancel()` in three places, the Tab trap line, `arenaState` getter), `screens/hud.ts` (create and place the board HUD, route `setArenaState`), `screens/setup.ts` (third row), `screens/modeHud.ts` (one line: "Always on"), `screens/overlays.ts` (result line and art), `modeText.ts`, `config.ts`, `settings.ts` (mode lists and stub words), `audio/cues.ts` (two spreads), `demo.ts` (routing).
+
+
+## Phase 4 report (Sumo and Raid, unchanged)
+
+### What's done
 
 **Setup**
 - A second row, "Party modes · Not chess", with Sumo and Raid and a one-line pitch each. It is one radio group with the chess modes, so the arrow keys run through all five.
@@ -47,7 +107,7 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 
 **Tests** (`ui.test.ts`, now 24): party setup (no clock, Weird Mode or FEN), text for every mode, die to AP, shove and tag wording, every party ending, step lines in party mode only, and every Phase 4 cue has a sound. `npm run typecheck` passes.
 
-## How to run the demo
+### How to run the demo
 1. Start the `ui-demo` launch config (port 4414; it moves to 4415 if 4414 is busy) and open `/src/ui/demo.html`.
 2. Open **Demo controls** on the left. New sections:
    - **Party HUD:** Sumo start, sinks this round, round 8 (two rings gone, fallen animals, a dug-in crab, bot's turn), Raid start, pearl carried, Raid 2-player, out of AP, bot thinking, Pup selected.
@@ -60,11 +120,11 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 
 Checked in the browser pane at desktop size and 390×844, with real taps and keys (Start, End turn, E, N). No console errors. Reduced motion works. Normal and Crazy show none of the party HUD.
 
-## Contract requests
+### Contract requests
 Done in b0547e8: the die's AP (`rollDie` opts), `PowerInfo` name/line/note, the log kinds, and what "Island sinks in 1" means. Still open:
 1. **How many AP pips.** `ArenaState` has the AP left but not the AP the turn started with, so the HUD counts the highest AP it saw this turn. Ask: add `apStart` (or `apMax`).
 
-## Open design questions for Johanes
+### Open design questions for Johanes
 - **Treasure icons** are system emoji: 🦴 bone and 🦪 for the pearl (an oyster, the closest one). Draw our own later?
 - **Setup colours:** Sumo turns coral red when picked, Raid a deep amber. OK?
 - **End turn** hides at 0 AP, because the turn ends by itself then. Should it stay visible?
@@ -72,7 +132,7 @@ Done in b0547e8: the die's AP (`rollDie` opts), `PowerInfo` name/line/note, the 
 - **Fallen animals** are crossed out in the strip; the capture trays stay empty in party modes. Show fallen enemies as trophies too?
 - **Sounds:** balanced by numbers only, not heard yet. Please try them on the sound board.
 
-## Known issues
+### Known issues
 - AP pips can undercount if the first state of a turn arrives with AP already spent (see contract request 1).
 - In the demo's free play you can only press End turn, because the stand-in board isn't clickable.
 - The demo drawer's tab covers the left edge of the setup screen at 390px. This happens in the demo only.

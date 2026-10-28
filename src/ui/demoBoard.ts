@@ -310,7 +310,6 @@ export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, no
     const my = gen;
     endTurnWaiter = () => {
       if (my !== gen) return;
-      note('endTurn', {});
       ui.setShapeMode(null);
       f.st.turn = 'land';
       f.st.stage = 'move';
