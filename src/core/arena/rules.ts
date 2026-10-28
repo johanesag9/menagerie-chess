@@ -83,8 +83,6 @@ const TEAM: [PieceKind, number][] = [['n', 1], ['b', 2], ['q', 3], ['k', 4], ['r
 const KNIGHT = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
 /** Diagonals first: a stomp shoves the farthest neighbours first. */
 const NEIGHBOURS = [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]];
-export const BONE_HOME = 4; // e1
-export const PEARL_HOME = 59; // d8
 
 // ---------- set-up ----------
 
@@ -98,7 +96,10 @@ export function createArenaState(mode: ArenaMode, cfg: ArenaTuning, seed: number
     tokens: { land: cfg.duelTokens, sea: cfg.duelTokens },
     sunkRings: 0,
     treasures: mode === 'raid'
-      ? [{ owner: 'land', home: BONE_HOME, sq: BONE_HOME, carrier: null }, { owner: 'sea', home: PEARL_HOME, sq: PEARL_HOME, carrier: null }]
+      ? (['land', 'sea'] as Side[]).map((owner) => {
+          const home = sqIndexOf(cfg.treasureHomes[owner]);
+          return { owner, home, sq: home, carrier: null };
+        })
       : [],
     score: { land: 0, sea: 0 },
     rng: seed >>> 0,
@@ -285,6 +286,9 @@ export function stunVictims(s: AState, i: number): number[] {
   return neighbours(i).filter(([j]) => s.board[j] && s.board[j]!.side !== p.side && s.board[j]!.kind !== 'k').map(([j]) => j);
 }
 
+/** A tag stuns the victim where it stands (an animal not carrying, when `tagStuns` is on); otherwise it is sent home. */
+const tagStuns = (s: AState, victim: APiece) => s.cfg.tagStuns && !carriedBy(s, victim.id);
+
 /** Where a tagged animal goes: the nearest free square of its back rank (then the next rank in, if the row is full). */
 export function sentHomeSquare(s: AState, p: APiece, from: number): number | null {
   const ranks = p.side === 'land' ? [0, 1, 2, 3] : [7, 6, 5, 4];
@@ -322,8 +326,9 @@ function drop(s: AState, i: number, step: number, changes: BoardChange[]): boole
 }
 
 /**
- * An animal arrived on square i (Raid): it sends its own dropped treasure home, picks up the enemy's,
- * and scores when it carries the enemy treasure in its own half. Each event gets its own step. Returns the next step.
+ * An animal arrived on square i (Raid): it sends its own dropped treasure home, picks up the enemy's (grab points when
+ * it lay at home), and scores when it carries the enemy treasure in its own half. Each event gets its own step.
+ * Returns the next step.
  */
 function arrive(s: AState, i: number, step: number, changes: BoardChange[]): number {
   if (s.mode !== 'raid') return step;
@@ -336,6 +341,7 @@ function arrive(s: AState, i: number, step: number, changes: BoardChange[]): num
     changes.push(treasureChange(own, 'return', step++));
   }
   if (enemy.sq === i && !enemy.carrier) {
+    if (i === enemy.home) s.score[p.side] += s.cfg.grabPoints;
     enemy.sq = null;
     enemy.carrier = p.id;
     changes.push(treasureChange(enemy, 'pickup', step++));
@@ -343,7 +349,7 @@ function arrive(s: AState, i: number, step: number, changes: BoardChange[]): num
   if (enemy.carrier === p.id && halfOf(i) === p.side) {
     enemy.carrier = null;
     enemy.sq = enemy.home;
-    s.score[p.side]++;
+    s.score[p.side] += s.cfg.scorePoints;
     changes.push(treasureChange(enemy, 'score', step++));
   }
   return step;
@@ -370,7 +376,7 @@ export function hitTargets(s: AState, i: number): Hit[] {
     if (s.ap < cost) continue;
     if (s.mode === 'sumo') {
       if (shoveLine(s, i, j)) out.push({ target: j, cost });
-    } else if (halfOf(i) === p.side && halfOf(j) === p.side && sentHomeSquare(s, q, j) !== null) {
+    } else if (halfOf(i) === p.side && halfOf(j) === p.side && !statusOf(s, q.id) && (tagStuns(s, q) || sentHomeSquare(s, q, j) !== null)) {
       out.push({ target: j, cost });
     }
   }
@@ -535,6 +541,10 @@ export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
     if (s.mode === 'sumo') {
       applyLine(s, shoveLine(s, i, v)!, 0, changes);
       label = `${name(p)} shoved ${name(victim)} on ${a.target}`;
+    } else if (tagStuns(s, victim)) {
+      s.statuses.push({ id: victim.id, status: 'stunned', turnsLeft: s.cfg.stunTurns });
+      changes.push({ step: 0, type: 'status', pieceId: victim.id, status: 'stunned' });
+      label = `${name(p)} tagged ${name(victim)} on ${a.target}: stunned`;
     } else {
       const dropped = drop(s, v, 0, changes);
       const home = sentHomeSquare(s, victim, v)!;
@@ -780,10 +790,18 @@ export function spinWheel(s: AState, forced?: WheelOutcome): WheelResult {
   };
   switch (outcome) {
     case 'tide': {
-      // Closest to the meadow first, so an animal can follow the one in front of it.
+      // Visitors are swept back one rank toward their own half, the ones nearest the middle line first,
+      // so an animal can follow the one in front of it.
       const order: number[] = [];
-      for (let r = 4; r <= 7; r++) for (let f = 0; f < 8; f++) order.push(idx(f, r));
-      moveAll(order, (i) => (s.board[i]!.side === 'land' ? i - 8 : null), 'swept');
+      for (let k = 0; k < 4; k++) {
+        for (let f = 0; f < 8; f++) order.push(idx(f, 4 + k));
+        if (s.cfg.tideBothWays) for (let f = 0; f < 8; f++) order.push(idx(f, 3 - k));
+      }
+      moveAll(order, (i) => {
+        const p = s.board[i]!;
+        if (halfOf(i) === p.side) return null;
+        return p.side === 'land' ? i - 8 : i + 8;
+      }, 'swept');
       break;
     }
     case 'pigeon': {

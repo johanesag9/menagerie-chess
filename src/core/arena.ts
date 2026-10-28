@@ -558,7 +558,12 @@ game.on('acted', (a) => {
       showBanner(p?.kind === 'k' ? `👑💦 ${p ? name(p) : 'The king'} fell in!` : `💦 ${p ? name(p) : 'Splash'}!`, 1200);
     }
     if (c.type === 'treasure' && c.event === 'score') showBanner(`⭐ ${cap(c.owner === 'land' ? 'sea' : 'land')} scores!`, 1400);
-    if (c.type === 'treasure' && c.event === 'pickup') showBanner(`${LOOT[c.owner]} Grabbed!`, 900);
+    if (c.type === 'treasure' && c.event === 'pickup') {
+      // `st` is still the state from before this action: a grab from home scores.
+      const t = st.treasures.find((x) => x.owner === c.owner);
+      const pts = getArenaTuning().grabPoints;
+      showBanner(`${LOOT[c.owner]} Grabbed!${t && t.square === t.home && pts ? ` +${pts}` : ''}`, 900);
+    }
   }
   fakeAnimation();
 });
@@ -633,7 +638,7 @@ game.on('botThinking', (b) => {
 
 type Path = (string | number)[];
 const tuningEl = $('tuning');
-const fields: { path: Path; input: HTMLInputElement; kind: 'num' | 'bool' | 'list' }[] = [];
+const fields: { path: Path; input: HTMLInputElement; kind: 'num' | 'bool' | 'list' | 'text' }[] = [];
 
 function getAt(obj: unknown, path: Path): unknown {
   return path.reduce<unknown>((o, k) => (o as Record<string | number, unknown>)[k], obj);
@@ -650,7 +655,7 @@ function renderTuning(t: ArenaTuning): void {
     fs.append(tag('legend', '', title), ...items);
     return fs;
   };
-  const field = (label: string, path: Path, kind: 'num' | 'bool' | 'list' = 'num') => {
+  const field = (label: string, path: Path, kind: 'num' | 'bool' | 'list' | 'text' = 'num') => {
     const l = document.createElement('label');
     const input = document.createElement('input');
     const v = getAt(t, path);
@@ -682,7 +687,10 @@ function renderTuning(t: ArenaTuning): void {
     group('Sumo',
       field('Sink after rounds', ['sinkRounds'], 'list'), field('Headbutt squares', ['headbuttSquares']), field('Round cap', ['sumoMaxRounds'])),
     group('Raid',
-      field('Points to win', ['pointsToWin']), field('Round cap', ['raidMaxRounds']), field('No guarding', ['noGuarding'], 'bool'),
+      field('Points to win', ['pointsToWin']), field('Grab points', ['grabPoints']), field('Bring-home points', ['scorePoints']),
+      field('Round cap', ['raidMaxRounds']), field('Bone home', ['treasureHomes', 'land'], 'text'), field('Pearl home', ['treasureHomes', 'sea'], 'text'),
+      field('No guarding', ['noGuarding'], 'bool'), field('Tag stuns (else sends home)', ['tagStuns'], 'bool'),
+      field('Tide sweeps both sides', ['tideBothWays'], 'bool'),
       field('Wheel every N rounds', ['wheelEvery']), field('Tide odds', ['wheelOdds', 'tide']), field('Pigeon odds', ['wheelOdds', 'pigeon']),
       field('Earthquake odds', ['wheelOdds', 'earthquake']), field('Disco odds', ['wheelOdds', 'disco']), field('Stun turns', ['stunTurns'])),
     group('Both', field('Duel tokens', ['duelTokens']), field('Ties before attacker wins', ['tieLimit']), field('Block plies', ['blockPlies'])),
@@ -694,6 +702,10 @@ function readTuning(): ArenaTuning {
   const t = getArenaTuning();
   for (const f of fields) {
     if (f.kind === 'bool') setAt(t, f.path, f.input.checked);
+    else if (f.kind === 'text') {
+      const v = f.input.value.trim().toLowerCase();
+      if (/^[a-h][1-8]$/.test(v)) setAt(t, f.path, v);
+    }
     else if (f.kind === 'list') {
       const items = f.input.value.split(',').map((x) => x.trim()).filter(Boolean);
       setAt(t, f.path, f.path[0] === 'heavyKinds' ? items : items.map(Number).filter((n) => Number.isFinite(n)));
@@ -740,10 +752,10 @@ function renderRules(): void {
     ),
     h('Raid'),
     ul(
-      `Steal the other side's treasure and carry it into your own half: first to ${t.pointsToWin}.`,
+      `Steal the other side's treasure (bone ${t.treasureHomes.land}, pearl ${t.treasureHomes.sea}): grabbing it from home scores ${t.grabPoints}, carrying it into your own half ${t.scorePoints} more. First to ${t.pointsToWin}.`,
       `Carrying: steps cost ${t.carrierStepCost} AP and no power. You can't stand on your own home square.`,
-      `Tag (${t.tagCost} AP): in your own half, send a neighbouring enemy home. A carrier drops the treasure.`,
-      `Wheel of Chaos every ${t.wheelEvery} rounds. After round ${t.raidMaxRounds}, more points wins.`,
+      `Tag (${t.tagCost} AP): in your own half, tag a neighbouring enemy. ${t.tagStuns ? 'It is stunned for its next turn; a carrier is instead sent home and drops the treasure. A stunned animal can\'t be tagged.' : 'It is sent home; a carrier drops the treasure.'}`,
+      `Wheel of Chaos every ${t.wheelEvery} rounds (the tide sweeps ${t.tideBothWays ? 'both sides' : 'Land'} back toward home). After round ${t.raidMaxRounds}, more points wins.`,
     ),
   );
 }

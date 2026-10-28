@@ -6,9 +6,15 @@
 - `createArena()` in `src/core/index.ts`: the Sumo and Raid engine behind `ArenaController`, following the clarified contract (b0547e8): `previewArea` gives `{area, falls}`, `sank` lists `sunk` and `sinkingNext`, falls share their shove's step, PowerInfo has `name`/`line`/`note`, anchored ends at the start of the owner's next turn.
 - Both modes play start to finish, local and vs bot.
 - Bot: a beam search over up to 4 actions per turn, levels 1–8, in a Web Worker. It answers duels and throws at random.
+- **Raid "quick raids" (Johanes, 2026-10-28)**, now the default. These differ from GAME_SPEC; the old values are still knobs.
+  - Treasures sit at e3 (bone) and d6 (pearl).
+  - Grabbing the enemy treasure from its home scores 1. Carrying it into your own half scores 2 more. First to 5 wins; the round cap is 12.
+  - A tag stuns an animal where it stands for its next turn, and a stunned animal can't be tagged.
+  - The tide sweeps both sides back toward their own half.
+  - "Pass and run" (throwing) waits for the contract; see Contract requests.
 - Every rule number is a knob in `src/core/arena/tuning.ts`, editable in the playtest's Tuning panel.
-- Tests: 54 rules tests (`arena/sumo.test.ts`, `arena/raid.test.ts`) and a fuzz of 200 seeded games per mode (`arena/fuzz.*.test.ts`, about 8 s each). The fuzz checks that options match the legal moves, that the board rebuilt from events matches the state, the event order, and that illegal actions are refused. `ARENA_FUZZ_GAMES=10` runs a quick sample.
-- `npm run typecheck` passes and `npm test` passes (310 tests, Classic/Normal/Crazy included).
+- Tests: 60 rules tests (`arena/sumo.test.ts`, `arena/raid.test.ts`) and a fuzz of 200 seeded games per mode (`arena/fuzz.*.test.ts`, about 8 s each). The fuzz checks that options match the legal moves, that the board rebuilt from events matches the state, the event order, and that illegal actions are refused. `ARENA_FUZZ_GAMES=10` runs a quick sample.
+- `npm run typecheck` passes and `npm test` passes (316 tests, Classic/Normal/Crazy included).
 - Checked in the browser at 1280px and 390px: all four (Sumo/Raid × local/bot) reach game over with no console errors and no sideways scroll.
 
 ### How to run the playtest
@@ -24,6 +30,9 @@ Raid
 - A headbutt or escape that would land on your own home is refused, same as "stays put".
 - Block can't go on a home or a treasure square.
 - A headbutt needs a free square behind the target.
+- **A tagged carrier is still sent home and drops the treasure** (not stunned in place). If it stayed, it would stand on the dropped treasure. Also, the treasure would go home right next to it, so it could grab again for a free point every other turn. Knob: `tagStuns` (off = every tag sends home).
+- The grab point only counts when the treasure lay at its home; picking up a dropped one scores nothing.
+- A score that jumps past the target (4 + 2) still wins.
 - Tide and earthquake moves follow the normal arrival rules (pickup, scoring). Sent-home squares skip treasure squares.
 
 Sumo
@@ -36,15 +45,35 @@ Events and log
 - A bonk sends no `acted`; running out of AP ends the turn with no log entry of its own.
 
 ### Contract requests
-- None blocking. PowerKind has no `'digIn'`; `PowerInfo.name`/`note` now cover it.
+- **Throw ("pass and run", approved by Johanes):**
+  - A new action `{ type: 'throw'; pieceId; to: Square }`. Only a carrier can throw, to a teammate in a straight line up to 2 squares away, for 1 AP.
+  - The catcher becomes the carrier, and scores at once if it stands in its own half.
+  - If an enemy stands on the square in between, it intercepts: it owns the treasure, so the treasure flies home.
+  - `ArenaPieceOptions` needs a `throws: Square[]` list.
+  - The treasure change needs new events, `'throw'` and `'intercept'` (or one `'throw'` with `carrier` = the catcher, null when intercepted), so 3D can play a flight.
+  - Core will build it once the contract is in.
+- **Grab points:** a grab from home now adds to `score` with the `pickup` change. 3D can read it from the `state` score diff; a flag on `pickup` (e.g. `points: 1`) would be clearer.
+- Comments in `types.ts` still say bone e1 / pearl d8 and "tagged → sent home". Homes come from `TreasureState.home`, and a tag on a non-carrier now sends a `status` change (stunned), not a `sentHome` move.
+- PowerKind has no `'digIn'`; `PowerInfo.name`/`note` cover it.
 
 ### Open design questions for Johanes
-- **Raid hardly scores.** Bot vs bot at level 6 with the defaults: 0 points per game, 8 of 8 draws at the round cap. With `carrierStepCost` 1, about 2 points per game, but Sea won nearly every game. Small samples; needs a playtest. Easy knobs: carrier step cost, tag cost, round cap.
+- **Raid balance, after quick raids.** Bot vs bot, Raid:
+
+  | Rules | Land wins | Sea wins | Draws | Points per game | Ends in round |
+  |---|---|---|---|---|---|
+  | First version, level 8 (16 games) | 0 | 0 | 16 | 0 | 20 (the cap) |
+  | Quick raids, level 5 (20 games) | 11 | 9 | 0 | Land 4.7, Sea 3.9 | about 6 |
+  | Quick raids, level 8 (16 games) | 11 | 5 | 0 | Land 5.1, Sea 3.4 | about 6 |
+
+  Every game now has scoring and a winner. Treasures are grabbed about 5–6 times a game and brought home about 2 times, so there are plenty of chases.
+  - Land, which moves first, wins about 60–65%: its first turn can already reach the pearl. A possible fix is fewer AP on Land's first turn; it isn't built yet.
+  - Games are short, about 6 rounds. "First to 7" makes them about 8 rounds, but Land then won 14 of 20.
+  - Same-rules tag that sends home (`tagStuns` off) played almost the same in the bot games.
 - **Sumo seems to favour Sea** (the spec already flags that Sea moves last before each sink). In a small sample the level 8 bot won 6/6 as Sea, 3/6 as Land.
-- The tide only sweeps Land, as the spec says. Together with the first point, Raid leans Sea too.
 - Bot levels 1–3 make a random move some of the time on purpose (30% at level 1). Should they feel more playful than that?
 
 ### Known issues
+- GAME_SPEC's Raid section still describes the first version; the orchestrator owns it.
 - On a heavily loaded machine the bot can take over a second on a turn (normally a few ms), and old time-limited Phase 3 tests can time out. Re-run them alone.
 - The playtest is a flat 2D dev tool with emoji stand-ins, not the game look.
 

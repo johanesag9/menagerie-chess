@@ -99,7 +99,7 @@ function checkState(s: ArenaState): void {
     }
     if (t.square && t.square !== t.home) need(!on.has(t.square) || s.phase === 'over', () => `dropped treasure under ${on.get(t.square!)}`);
   }
-  need(s.score.land <= s.target && s.score.sea <= s.target, () => 'score past the target');
+  if (s.mode === 'raid') need(Math.max(s.score.land, s.score.sea) < s.target || s.phase === 'over', () => 'reached the target but the game goes on');
 }
 
 /** Every option the controller offers must be in the legal list, and the other way round. */
