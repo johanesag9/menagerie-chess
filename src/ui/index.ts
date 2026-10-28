@@ -19,6 +19,7 @@ import { Emitter } from '../contracts/emitter';
 import { FALLBACK_SKINS, type SkinCatalog } from './config';
 import type { UiCtx, View } from './ctx';
 import { focusables, h } from './dom';
+import { isOnline, youSide } from './format';
 import { Chaos } from './screens/chaos';
 import { DraftPicker } from './screens/draft';
 import { Hud } from './screens/hud';
@@ -361,8 +362,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
 
   askDraft(side: Side, opts: { picks: Record<Side, PieceKind[]>; size: number; traits: Record<PieceKind, { name: string; line: string }>; hotSeat: boolean }): Promise<PieceKind> {
     this.hud.board.setTraits(opts.traits);
-    const o = this._gameInfo?.opponent;
-    return this.draft.ask(side, opts, o?.type === 'bot' ? (o.botSide === 'land' ? 'sea' : 'land') : null);
+    // Online each player picks on their own screen: never the hot-seat wording.
+    const online = isOnline(this._gameInfo);
+    return this.draft.ask(side, online ? { ...opts, hotSeat: false } : opts, youSide(this._gameInfo));
   }
 
 
@@ -389,13 +391,14 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   }
 
   /**
-   * Close any open question (duel, throw, lucky 6, revive, promotion) without the player answering: its promise
+   * Close any open question (duel, throw, lucky 6, revive, promotion, castle draft pick) without the player answering: its promise
    * resolves with the safe default and the overlay goes away. Running shows keep playing. Harmless when nothing is open.
    * Online, the room answers for you when your timer runs out.
    */
   closeQuestion(): void {
     this.chaos.closeQuestion();
     this.promo.cancel();
+    this.draft.cancel(true); // Phase 6: a random free animal
   }
 
   /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */

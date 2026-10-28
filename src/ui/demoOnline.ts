@@ -1,9 +1,11 @@
 /**
  * Phase 5 demo controls: the invite and join overlays and every online HUD state, with fake data.
+ * Phase 6 adds the board games online: the castle draft (your pick, friend picking) and the board strips with the timer.
  * Nothing here talks to a server. The "room" is a made-up code and the friend is a timer.
  */
 import type { GameOptions, PlayMode, Side } from '../contracts/types';
 import type { OnlineHud } from '../contracts/net';
+import { FakeBoard, TRAITS } from './demoBoard';
 import { FakeMode } from './demoModes';
 import type { MenagerieUi } from './index';
 
@@ -55,6 +57,7 @@ export function addOnlineControls(
     push();
     if (quiet) {
       stop();
+      ui.closeQuestion(); // a question left open by an earlier fake game
       return;
     }
     autoTimer = true;
@@ -133,6 +136,64 @@ export function addOnlineControls(
   btn(games, 'Close question now', () => ui.closeQuestion());
   btn(games, 'Sumo, you Sea', () => begin(online('sumo', 'sea')));
   btn(games, 'Raid, you Land', () => begin(online('raid', 'land')));
+
+  // Phase 6: the board games online. The draft asks only for your picks; the friend's arrive on their own.
+  let board: FakeBoard | null = null;
+  const draftAt = (picks: NonNullable<FakeBoard['st']['draft']>): FakeBoard => {
+    begin(online('castle', 'land'), true);
+    const f = new FakeBoard(ui, 'castle');
+    f.st.draft!.picks = picks.picks;
+    f.st.turn = picks.picks.land.length > picks.picks.sea.length ? 'sea' : 'land';
+    ui.setTurn(f.st.turn);
+    f.push();
+    return (board = f);
+  };
+  const bg = section('Online: board games', '"Playing" runs the fake draft: the friend picks after about 2s. Stones lets you move both sides (the fake has no friend moves).');
+  btn(bg, 'Castle, you Land (playing)', () => begin(online('castle', 'land')));
+  btn(bg, 'Castle, you Sea (playing)', () => begin(online('castle', 'sea')));
+  btn(bg, 'Draft: friend is picking', () => void draftAt({ size: 2, picks: { land: ['b'], sea: [] } }));
+  btn(bg, "Draft: friend's pick comes in", () => {
+    const d = board?.st.draft;
+    if (!board || !d || board.st.phase !== 'draft' || ui.gameInfo?.opponent.type !== 'online') return;
+    const friend = other(you());
+    const kind = (['q', 'p', 'r', 'n'] as const).find((k) => !d.picks[friend].includes(k));
+    if (!kind || d.picks[friend].length >= d.size) return;
+    d.picks[friend].push(kind);
+    board.st.turn = you();
+    ui.setTurn(you());
+    board.push();
+  });
+  btn(bg, 'Draft: your pick', () => {
+    const f = draftAt({ size: 2, picks: { land: ['b'], sea: ['q'] } });
+    // hotSeat: true on purpose: online the picker must still skip the "pass the device" wording.
+    void ui.askDraft('land', { picks: structuredClone(f.st.draft!.picks), size: 2, traits: TRAITS, hotSeat: true }).then((k) => note('askDraft →', k));
+  });
+  btn(bg, 'Draft pick, time runs out', () => {
+    const f = draftAt({ size: 2, picks: { land: ['b'], sea: ['q'] } });
+    void ui.askDraft('land', { picks: structuredClone(f.st.draft!.picks), size: 2, traits: TRAITS, hotSeat: false }).then((k) => note('askDraft → (random)', k));
+    window.setTimeout(() => ui.closeQuestion(), 1500);
+  });
+  btn(bg, 'Castle mid-game', () => {
+    const f = draftAt({ size: 2, picks: { land: ['b', 'r'], sea: ['q', 'p'] } });
+    f.enter();
+    Object.assign(f.st, { round: 4, nextTideIn: 2, levels: { d3: 1, d4: 2, e4: 3, e5: 1, c6: 2, f5: 1, f3: 1 } });
+    f.piece('land-b-c2').square = 'e4';
+    f.st.crowned = { pieceId: 'land-b-c2', side: 'land', square: 'e4' };
+    f.st.turn = 'sea';
+    ui.setTurn('sea');
+    f.push();
+  });
+  btn(bg, 'Stones, you Sea (playing)', () => begin(online('stones', 'sea')));
+  btn(bg, 'Stones mid-game', () => {
+    begin(online('stones', 'land'), true);
+    const f = new FakeBoard(ui, 'stones');
+    f.st.round = 6;
+    f.st.sunk = f.st.sunk.filter((s) => !['a3', 'a4', 'a5', 'a6', 'b4', 'h3', 'h4', 'h5', 'g5', 'd4'].includes(s));
+    f.st.stage = 'move';
+    ui.setTurn('land');
+    f.push();
+    board = f;
+  });
 
   const st = section('Online: HUD states');
   btn(st, 'All good', () => {

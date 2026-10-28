@@ -38,7 +38,7 @@ export class DraftPicker {
     return this.resolve !== null;
   }
 
-  /** `you` is the human side vs a bot (null in a local game). */
+  /** `you` is your side vs a bot or a friend online (null in a local game). */
   ask(side: Side, o: DraftOpts, you: Side | null): Promise<PieceKind> {
     this.cancel(); // a new question replaces an unanswered one
     const taken = new Set(o.picks[side]);
@@ -52,7 +52,7 @@ export class DraftPicker {
       const t = o.traits[k] ?? TRAIT_TEXT[k];
       const picked = taken.has(k);
       const b = h('button', {
-        type: 'button', class: 'mc-ask__opt mc-draft__opt', 'data-sfx': 'none', disabled: picked, style: `--i:${i}`,
+        type: 'button', class: 'mc-ask__opt mc-draft__opt', 'data-sfx': 'none', 'data-kind': k, disabled: picked, style: `--i:${i}`,
         'aria-label': `${ANIMAL_NAME[side][k]}, ${t.name}: ${t.line}${picked ? ' Already picked.' : ''}`,
       },
       h('span', { class: 'mc-draft__art', html: animalIcon(side, k, { disc: true }) }),
@@ -136,11 +136,15 @@ export class DraftPicker {
     else (document.activeElement as HTMLElement | null)?.blur?.();
   }
 
-  /** Close an open question with a default answer (first free animal), e.g. when the game ends or is left. */
-  cancel(): void {
+  /**
+   * Close an open question with a default answer, e.g. when the game ends or is left: the first free animal, or a random
+   * free one (`random`, Phase 6 online: the room picked for you on a timeout and integration ignores this answer).
+   */
+  cancel(random = false): void {
     if (!this.resolve) return;
     const r = this.resolve;
+    const free = Array.from(this.sheet.querySelectorAll<HTMLButtonElement>('.mc-draft__opt:not(:disabled)')).map((b) => b.dataset.kind as PieceKind);
     this.close();
-    r(this.fallback);
+    r(random && free.length ? free[Math.floor(Math.random() * free.length)] : this.fallback);
   }
 }

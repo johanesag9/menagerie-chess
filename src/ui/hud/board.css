@@ -33,6 +33,8 @@
 }
 .mc-bani__crown { position: absolute; right: -6px; top: -9px; font-size: 14px; line-height: 1; filter: drop-shadow(0 1px 0 #fff); }
 .mc-bani.is-crowned .mc-ani { animation: mc-bob 1.6s ease-in-out infinite; }
+/* Online: the friend's draft pick just arrived. */
+.mc-bani.is-fresh { animation: mc-pop-in 0.45s var(--spring); }
 .mc-bani.is-mover .mc-ani { border-radius: 50%; box-shadow: 0 0 0 2px var(--gold); }
 .mc-strip--board[data-side='sea'] .mc-bani.is-mover .mc-ani { box-shadow: 0 0 0 2px var(--aqua); }
 .mc-bani--empty .mc-ani { border-radius: 50%; border: 2px dashed var(--edge-deep); }
