@@ -1,8 +1,73 @@
 # ui + audio stream report
 
-Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and Phase 1 work is unchanged (reports further down).
+Status: **Phase 5 done** (2026-10-28), branch `claude/p5-ui-2d8a97`. Phase 4, 3 and 1 work is unchanged (reports further down).
 
-## What's done (Phase 4: Sumo and Raid)
+## Phase 5: online with a friend
+
+### What's done
+**Setup**
+- Opponent has a third choice, **Friend online** ("Send them a link"). With it: "Play as" shows; bot level, time, Weird Mode and the FEN box hide. A short line says there's no clock but a 60-second turn timer, with a "How online works" link.
+- Start says **Invite a friend**. It emits `startGame` with `opponent: { type: 'online', you }`, untimed and `weirdMode: false` (Random side is flipped here). The UI stays on setup and the button says "Making your link…" until `showInvite`, `hideInvite`, `showError` or 15 seconds.
+
+**Invite (`showInvite`)**: over the setup screen. Your king, three pulsing dots and a bobbing "?" for the friend. "Invite a friend", then "Crazy · You play Sea", the link in a box (tap selects it), **Copy link** (turns green: "Copied! ✓"; if the browser blocks it, the link gets selected with "copy it by hand"), **Share** (only where `navigator.share` exists), "Waiting for your friend…", "Keep this screen open. The game starts when they join." and **Cancel**. Cancel or Esc emits `cancelInvite`. `hideInvite()` or any `show(...)` closes it without an event.
+
+**Join (`askJoin`)**: the mode's icon with your king, "Your friend invited you to **Sumo**." "You play **Sea**." and the mode's pitch. **Join** (true) and **Not now** (false, also Esc). With `null`: "This invite is closed" / "This invite has expired or the game is full." and **OK** (false).
+
+**Online HUD (`setOnline`)**
+- Pills under the friend's card: "Reconnecting…" / "Connecting…" (spinner) or "Offline", only when not `online`. "Friend is away · 1:42", counting down to `graceEndsAt`. "Friend left". Waiting never shows in game.
+- The friend's card greys out while away; when they left, the name is crossed out too.
+- Turn timer by the side to move: a ring around the avatar that empties, and a stopwatch countdown where the clock goes. Under 10s it turns red and pulses, and `timeLow` plays once (your own timer only).
+- `setOnline(null)` hides it all. An offline `setGameInfo` clears it too.
+
+**Result (online)**: Rematch emits `rematchOnline` and does not switch screens (the room starts the game). After you ask: button greyed, "Waiting for your friend…". When they ask first: a gold "🔁 Your friend wants a rematch!" and the button says "Rematch!" and pulses. If the friend left: "Your friend left, so no rematch this time." Titles: "You win!" / "Friend wins".
+
+**"You" online**: one helper (`youSide`, `playerName`) now drives every place that used to look only at the bot: card names ("You", "Friend"), you at the bottom, "Your move", "Friend's turn" in party modes, duel and lucky wording, the big card fan for your hand. Online there's no undo (HUD and pause), the throw never uses the hot-seat cover, the friend's Crazy hand shows card backs, and the friend's drawn card stays face down ("Friend draws a card"). Pause is called "Menu" online ("The game keeps going online while this is open"), and Quit warns "It counts as resigning."
+
+**How it works**: a sixth tab, **Online**, with "Play a friend online" and "Turns and leaving" (all from GAME_SPEC "Online play").
+
+**Audio**: `friendJoined` (pop and a bright two-note ding, −19 dB), `friendLeft` (soft down-blip, −23 dB), `timeLow` (light tick-tock, −27 dB). Peaks stay under −9 dBFS.
+
+**Who plays which sound (Phase 5).** All from the UI: `friendJoined` when the invite closes into the game (`show('game')` while it's open) or when the friend comes back (`opponent` away/left → here); `friendLeft` when they go away or leave; `timeLow` as above. Integration plays nothing new.
+
+**Tests**: 5 new in `ui.test.ts` (29 in all): online options (your side, untimed, no Weird Mode or FEN), Friend online is remembered, `youSide`/`playerName` for bot, online and local, the m:ss countdown text, the Online help page and the three cues. `npm run typecheck` and all 286 tests pass.
+
+### How to run the demo
+1. Start `ui-demo` (port 4414, or 4415 if busy) and open `/src/ui/demo.html`. Open **Demo controls**.
+2. Setup → Friend online → **Invite a friend** shows the invite after a fake 0.7s. New drawer sections:
+   - **Online: invite and join**: invite (Sumo/Land, Crazy/Sea), Friend joins, Hide invite, Room error, Join good link, Join dead link.
+   - **Online: games**: Classic (playing, the timer follows each turn), Crazy with the friend's hand, Friend draws a card, a duel throw (no cover), Sumo as Sea, Raid as Land.
+   - **Online: HUD states**: all good, reconnecting, offline, friend away (2:00), back, left, timer yours / urgent 12s / friend's / off / follows turns.
+   - **Online: result and rematch**: you win, friend wins, you asked, friend asked, friend left. Pressing Rematch: the fake friend accepts after 2.5s and sides swap.
+3. Everything is fake: no server, a made-up room code, and the friend is a timer.
+
+Checked in the browser pane at desktop size and 390×844: setup, invite, join (both), every HUD state, Crazy card backs, result and rematch, How it works. No console errors. A bot game still shows "Sly Fox", clocks and undo, with no online bits.
+
+### Contract requests
+None blocking. Notes for integration:
+1. Online `startGame` does not switch to the game screen. On `started`, call `setGameInfo(options)` then `show('game')`: that closes the invite and plays `friendJoined`. Then `setOnline(...)`.
+2. If `createRoom` fails, call `showError(...)` (or `hideInvite()`): it frees the Start button.
+3. Nice to have: the turn's full length in `OnlineHud.timer` (e.g. `totalMs`). The ring now assumes 60s (or the most it has seen).
+
+### Open design questions for Johanes
+- Start says **Invite a friend** online instead of "Start game". OK?
+- The FEN box is hidden online (custom start positions only offline).
+- `timeLow` plays once at 10s, and only on your own turn. The spec says "the last 10s tick": tick every second instead, like the chess clock?
+- The online pills sit under the friend's card (top left), not in the middle. OK?
+- Away = greyed card; left = greyed and crossed out. Too strong?
+- No sound when the friend asks for a rematch (only the gold line). Add a ding?
+- The dead link says "This invite is closed". Other wording?
+- Sounds are balanced by numbers, not heard yet: try them on the sound board.
+
+### Known issues
+- **Copy** couldn't be proven in the browser pane: scripted clicks have no clipboard permission, so it showed the "copy it by hand" fallback (which works). Real taps should copy; not tried on a phone. **Share** was only checked for layout (stubbed).
+- Found while levelling `timeLow`: the noise helper (`synth.ts`) can spike when a burst starts later than the cue's start. `timeLow` avoids it. Older cues with late noise bursts may peak higher than measured; not changed.
+- Not tried with the real net client or server (that's integration).
+
+---
+
+## Phase 4 report (Sumo and Raid, unchanged)
+### What's done
+
 
 **Setup**
 - A second row, "Party modes · Not chess", with Sumo and Raid and a one-line pitch each. It is one radio group with the chess modes, so the arrow keys run through all five.
@@ -47,7 +112,7 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 
 **Tests** (`ui.test.ts`, now 24): party setup (no clock, Weird Mode or FEN), text for every mode, die to AP, shove and tag wording, every party ending, step lines in party mode only, and every Phase 4 cue has a sound. `npm run typecheck` passes.
 
-## How to run the demo
+### How to run the demo
 1. Start the `ui-demo` launch config (port 4414; it moves to 4415 if 4414 is busy) and open `/src/ui/demo.html`.
 2. Open **Demo controls** on the left. New sections:
    - **Party HUD:** Sumo start, sinks this round, round 8 (two rings gone, fallen animals, a dug-in crab, bot's turn), Raid start, pearl carried, Raid 2-player, out of AP, bot thinking, Pup selected.
@@ -60,11 +125,11 @@ Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and
 
 Checked in the browser pane at desktop size and 390×844, with real taps and keys (Start, End turn, E, N). No console errors. Reduced motion works. Normal and Crazy show none of the party HUD.
 
-## Contract requests
+### Contract requests
 Done in b0547e8: the die's AP (`rollDie` opts), `PowerInfo` name/line/note, the log kinds, and what "Island sinks in 1" means. Still open:
 1. **How many AP pips.** `ArenaState` has the AP left but not the AP the turn started with, so the HUD counts the highest AP it saw this turn. Ask: add `apStart` (or `apMax`).
 
-## Open design questions for Johanes
+### Open design questions for Johanes
 - **Treasure icons** are system emoji: 🦴 bone and 🦪 for the pearl (an oyster, the closest one). Draw our own later?
 - **Setup colours:** Sumo turns coral red when picked, Raid a deep amber. OK?
 - **End turn** hides at 0 AP, because the turn ends by itself then. Should it stay visible?
@@ -72,7 +137,7 @@ Done in b0547e8: the die's AP (`rollDie` opts), `PowerInfo` name/line/note, the 
 - **Fallen animals** are crossed out in the strip; the capture trays stay empty in party modes. Show fallen enemies as trophies too?
 - **Sounds:** balanced by numbers only, not heard yet. Please try them on the sound board.
 
-## Known issues
+### Known issues
 - AP pips can undercount if the first state of a turn arrives with AP already spent (see contract request 1).
 - In the demo's free play you can only press End turn, because the stand-in board isn't clickable.
 - The demo drawer's tab covers the left edge of the setup screen at 390px. This happens in the demo only.
