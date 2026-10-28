@@ -1,3 +1,3 @@
 import { determinismSuite } from './determinism';
 
-determinismSuite('classic');
+determinismSuite('classic', 51, 100);

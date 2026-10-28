@@ -13,8 +13,9 @@ import { Match } from '../src/logic/match';
 import { Harness, randomInput, type Socket } from './harness';
 
 const GAMES = 100;
-const CHUNK = 20;
-const MAX_INPUTS = 300;
+const CHUNK = 10;
+/** Inputs per game before one side resigns. Classic is shorter: chess.js re-checks threefold over the whole history on every move. */
+const MAX_INPUTS = (mode: PlayMode) => (mode === 'classic' ? 150 : 300);
 
 function playOne(mode: PlayMode, seed: number): { inputs: number; autos: number; wakes: number } {
   const rnd = seeded(seed * 31 + 7);
@@ -22,7 +23,7 @@ function playOne(mode: PlayMode, seed: number): { inputs: number; autos: number;
   const [a, b] = h.pair(mode, rnd() < 0.5 ? 'land' : 'sea', true);
   const bySide = (side: Side): Socket => (a.you === side ? a : b);
   let wakes = 0;
-  for (let n = 0; n < MAX_INPUTS && a.mirror!.need(); n++) {
+  for (let n = 0; n < MAX_INPUTS(mode) && a.mirror!.need(); n++) {
     const roll = rnd();
     if (roll < 0.03) {
       h.advance(70_000); // nobody moved: the room plays for the slow side
@@ -58,22 +59,24 @@ function playOne(mode: PlayMode, seed: number): { inputs: number; autos: number;
   return { inputs: stored.length, autos: stored.filter((s) => s.auto).length, wakes };
 }
 
-/** One test file per mode (they run in parallel), in chunks so no single test blocks the worker for long. */
-export function determinismSuite(mode: PlayMode): void {
-  describe(`determinism (${mode}): replaying the stored inputs matches the live game`, () => {
+/** One test file per mode (Classic: two; they run in parallel), in chunks so no single test blocks the worker for long. */
+export function determinismSuite(mode: PlayMode, first = 1, last = GAMES): void {
+  describe(`determinism (${mode}, games ${first}-${last}): replaying the stored inputs matches the live game`, () => {
+    const games = last - first + 1;
     const totals = { inputs: 0, autos: 0, wakes: 0 };
-    for (let from = 1; from <= GAMES; from += CHUNK) {
-      it(`games ${from}-${from + CHUNK - 1}`, { timeout: 120_000 }, () => {
+    for (let from = first; from <= last; from += CHUNK) {
+      it(`games ${from}-${from + CHUNK - 1}`, { timeout: 120_000 }, async () => {
         for (let g = from; g < from + CHUNK; g++) {
           const r = playOne(mode, g);
           totals.inputs += r.inputs;
           totals.autos += r.autos;
           totals.wakes += r.wakes;
+          await new Promise((r) => setTimeout(r, 0)); // let vitest talk to its worker
         }
       });
     }
     it('the mix really happened: plenty of inputs, some made by the room, some wake-ups', () => {
-      expect(totals.inputs).toBeGreaterThan(GAMES * 10);
+      expect(totals.inputs).toBeGreaterThan(games * 10);
       expect(totals.autos).toBeGreaterThan(0);
       expect(totals.wakes).toBeGreaterThan(0);
     });

@@ -3,7 +3,7 @@
   // Online play by invite link (GAME_SPEC "Online play"). Free plan: SQLite Durable Objects, hibernating WebSockets, alarms.
   "name": "menagerie-chess-online",
   "main": "src/index.ts",
-  "compatibility_date": "2026-06-01",
+  "compatibility_date": "2026-05-01",
   "durable_objects": {
     "bindings": [{ "name": "ROOMS", "class_name": "RoomObject" }]
   },
