@@ -82,6 +82,29 @@
         "index.html"
       ],
       "port": 4402
+    },
+    {
+      "name": "modes-playtest",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        ".claude/worktrees/stream-cast-67e337",
+        "--port",
+        "4403",
+        "--strictPort"
+      ],
+      "port": 4403
+    },
+    {
+      "name": "modes-3d",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "4404",
+        "--strictPort"
+      ],
+      "port": 4404
     }
   ]
 }

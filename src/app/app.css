@@ -9,7 +9,7 @@ html, body {
 
 #app { position: fixed; inset: 0; }
 
-.mc-stage { position: fixed; inset: 0; }
+.mc-world { position: fixed; inset: 0; }
 
 .mc-stats {
   position: fixed;

@@ -3,12 +3,16 @@
  *
  * Flow of a move: core emits `moved` -> core pauses (clocks stop, a bot reply is held) ->
  * the Director plays the animation, then the check / turn / result moments in order -> core resumes.
+ * Normal and Crazy add powers, cards, the die, duels and the wheel: same idea, one Director task per event
+ * (animations in `modes.ts`), and questions to the player (lucky bonus, duel, throws) are tasks too.
  */
 import gsap from 'gsap';
 import type {
-  AudioEngine, Cast, EmoteKind, GameController, GameOptions, GameOver, MoveResult, PieceState, Settings, Side, Square, Ui, World,
+  ActionInput, AudioEngine, Cast, DuelInfo, EmoteKind, GameController, GameOptions, GameOver, ModeState, MoveResult, PendingAction,
+  PieceId, PieceState, PieceStatusKind, Settings, Side, Square, Ui, World,
 } from '../contracts/types';
 import { Director } from './director';
+import { ModeShow } from './modes';
 import { PieceBoard } from './pieces';
 
 const other = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
@@ -45,13 +49,27 @@ export class Match {
   private hovered: string | null = null;
   private promoting = false;
   private appliedQuality: World['quality'];
+  // Normal and Crazy
+  private show: ModeShow;
+  private aim: PendingAction | null = null;
+  private duel: DuelInfo | null = null;
+  private statuses = new Map<PieceId, PieceStatusKind>();
+  private reduced = false;
 
   constructor(private deps: MatchDeps) {
     ({ game: this.game, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio } = deps);
     this.appliedQuality = deps.world.quality;
     const s = this.ui.settings;
     this.board = new PieceBoard(this.world, this.cast, { land: s.landSkin, sea: s.seaSkin });
-    this.director = new Director({ busy: () => this.hold('anim', true), idle: () => this.hold('anim', false) });
+    this.director = new Director({
+      busy: () => this.hold('anim', true),
+      idle: () => {
+        // Safety net: once everything has played, the animals stand exactly where core says (core is still paused here).
+        if (this.active) this.board.sync(this.game.pieces, true);
+        this.hold('anim', false);
+      },
+    });
+    this.show = new ModeShow({ board: this.board, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio, reducedMotion: () => this.reduced });
 
     this.ui.setSkinCatalog('land', this.cast.listSkins('land'));
     this.ui.setSkinCatalog('sea', this.cast.listSkins('sea'));
@@ -90,8 +108,15 @@ export class Match {
     return bot ? other(bot) : 'land';
   }
 
+  private get modes(): boolean {
+    return this.game.mode !== 'classic';
+  }
+
   private canPlay(): boolean {
-    return this.active && !this.game.isOver() && this.game.turn !== this.vsBot && !this.director.busy && !this.promoting;
+    if (!(this.active && !this.game.isOver() && this.game.turn !== this.vsBot && !this.director.busy && !this.promoting)) return false;
+    if (!this.modes) return true;
+    // A lucky 6 waits for the bonus; everything else waits for an action.
+    return this.game.modeState?.phase === (this.aim?.type === 'bonus' ? 'bonus' : 'action');
   }
 
   private pieceAt(sq: Square): PieceState | undefined {
@@ -116,6 +141,13 @@ export class Match {
       this.options = options;
       this.director.cancel();
       this.clearSelection();
+      this.duel = null;
+      this.statuses.clear();
+      for (const a of this.board.all()) a.setStatus(null);
+      if ((options.mode ?? 'classic') === 'classic') {
+        this.ui.setModeState(null);
+        this.world.setSquareEffects([]);
+      }
       this.director.push(() => this.playStart(pieces));
     });
     g.on('moved', (m) => {
@@ -155,15 +187,180 @@ export class Match {
       this.board.sync(pieces, true);
       const history = this.game.history;
       this.ui.resetMoves();
-      for (const m of history) this.ui.addMove(m);
+      if (this.modes) {
+        // The log has every line in order; moves come from history.
+        let i = 0;
+        for (const r of this.game.log) {
+          if (r.kind === 'move') {
+            const m = history[i++];
+            if (m) this.ui.addMove(m);
+          } else this.ui.addLog(r);
+        }
+        if (this.game.modeState) this.director.push(() => this.applyModeState(this.game.modeState!));
+      } else for (const m of history) this.ui.addMove(m);
       const last = history[history.length - 1];
       this.world.setHighlights({ selected: null, legal: [], captures: [], check: null, lastMove: last ? [last.from, last.to] : null });
     });
+    this.listenModes();
     g.on('emote', ({ side, emote }) => {
       this.ui.showEmote(side, emote);
       const king = this.game.pieces.find((p) => p.side === side && p.kind === 'k');
       if (king) this.board.get(king.id)?.emote(emote);
     });
+  }
+
+  // ---------- Normal and Crazy ----------
+
+  private listenModes(): void {
+    const g = this.game;
+    const push = (fn: () => unknown) => this.director.push(fn);
+    g.on('modeState', (s) => push(() => this.applyModeState(s)));
+    g.on('powerUsed', (r) => {
+      this.clearSelection();
+      this.world.setHighlights({ lastMove: null, check: null });
+      push(() => this.show.power(r));
+    });
+    g.on('cardPlayed', (r) => {
+      this.clearSelection();
+      this.world.setHighlights({ lastMove: null, check: null });
+      push(() => this.show.card(r));
+    });
+    g.on('bonusUsed', (r) => {
+      this.clearSelection();
+      push(() => this.show.changes(r.changes));
+    });
+    g.on('dieRolled', (e) => push(() => this.ui.rollDie(e.side, e.value, e.effect)));
+    g.on('cardDrawn', (e) => push(() => this.ui.showCardDrawn(e.side, e.card)));
+    g.on('wheelSpun', (w) => {
+      this.clearSelection();
+      push(() => this.show.wheel(w));
+    });
+    g.on('logged', (r) => {
+      if (r.kind !== 'move') push(() => this.ui.addLog(r));
+    });
+    g.on('duelOffered', (info) => {
+      this.clearSelection();
+      this.duel = info;
+      push(() => this.offerDuel(info));
+    });
+    g.on('duelRound', (r) => push(() => this.ui.showDuelRound(r)));
+    g.on('duelEnded', () => push(() => (this.duel = null)));
+    g.on('bonked', ({ info }) => push(() => this.show.bonk(info)));
+  }
+
+  /** HUD, blocked squares and status looks from a snapshot; then any question the snapshot asks. */
+  private async applyModeState(s: ModeState): Promise<void> {
+    this.ui.setModeState(s);
+    (this.ui as Partial<{ setPieces(p: PieceState[]): void }>).setPieces?.(this.game.pieces);
+    this.world.setSquareEffects(s.squares);
+    const want = new Map(s.statuses.map((x) => [x.pieceId, x.status]));
+    for (const a of this.board.all()) {
+      const next = want.get(a.id) ?? null;
+      if ((this.statuses.get(a.id) ?? null) === next) continue;
+      a.setStatus(next);
+      if (next) this.statuses.set(a.id, next);
+      else this.statuses.delete(a.id);
+    }
+    // Phase 'duel' arrives at the start of every throw round.
+    if (s.phase === 'duel' && this.duel) await this.askThrows(this.duel);
+    else if (s.phase === 'bonus') await this.askLucky();
+  }
+
+  private async offerDuel(info: DuelInfo): Promise<void> {
+    this.show.faceOff(info);
+    if (info.defender === this.vsBot) return; // the bot answers by itself once core resumes
+    this.game.answerDuel(await this.ui.askDuel(info));
+  }
+
+  private async askThrows(info: DuelInfo): Promise<void> {
+    const bot = this.vsBot;
+    if (bot === info.defender) this.audio.play('duelCall');
+    for (const side of [info.attacker, info.defender]) {
+      if (side === bot) continue;
+      this.game.throwHand(side, await this.ui.askThrow(side, { hotSeat: !bot }));
+    }
+  }
+
+  /** A lucky 6 for a human side: pick a bonus (then aim it on the board) or skip. */
+  private async askLucky(): Promise<void> {
+    const g = this.game;
+    if (g.modeState?.phase !== 'bonus' || g.turn === this.vsBot || g.isOver()) return;
+    const can = (choice: 'recharge' | 'pawnStep') => g.targets({ type: 'bonus', choice, targets: [] }).squares.length > 0;
+    const choice = await this.ui.askLucky(g.turn, { canRecharge: can('recharge'), canStep: can('pawnStep') });
+    if (choice === 'skip') g.act({ type: 'bonus', choice: 'skip' });
+    else this.startAim({ type: 'bonus', choice, targets: [] });
+  }
+
+  private startAim(pending: PendingAction): void {
+    this.aim = pending;
+    this.refreshAim();
+  }
+
+  /** Show the squares the half-built power, card or bonus can pick next; submit once nothing more is needed. */
+  private refreshAim(): void {
+    const aim = this.aim;
+    if (!aim) return;
+    const step = this.game.targets(aim);
+    if (step.complete && !step.squares.length) return this.submitAim();
+    if (!step.squares.length) {
+      this.audio.play('illegal');
+      this.ui.showError(step.prompt);
+      return this.cancelAim();
+    }
+    this.targets = step.squares;
+    this.world.setHighlights({ legal: [], captures: [], targets: step.squares, area: this.game.previewArea(aim) });
+    this.ui.setPrompt(step.prompt);
+  }
+
+  private onAimSquare(sq: Square): void {
+    const aim = this.aim!;
+    if (!this.targets.includes(sq)) {
+      this.audio.play('deselect');
+      return this.cancelAim();
+    }
+    this.audio.play('select');
+    this.aim = { ...aim, targets: [...aim.targets, sq] } as PendingAction;
+    this.refreshAim();
+  }
+
+  private submitAim(): void {
+    const input = this.aim as ActionInput;
+    this.clearSelection();
+    const r = this.game.act(input);
+    if (!r.ok) {
+      this.audio.play('illegal');
+      this.ui.showError(r.reason);
+    }
+  }
+
+  /** Back out of aiming. A lucky bonus asks again, since it still has to be taken or skipped. */
+  private cancelAim(): void {
+    const wasBonus = this.aim?.type === 'bonus';
+    this.clearSelection();
+    if (wasBonus) this.director.push(() => this.askLucky());
+  }
+
+  private async playCard(cardId: string): Promise<void> {
+    const side = this.game.turn;
+    const state = this.game.modeState;
+    if (!this.canPlay() || this.aim?.type === 'bonus' || !state || !this.game.canPlayCard(side, cardId)) {
+      this.audio.play('illegal');
+      return;
+    }
+    this.clearSelection();
+    const card = state[side].hand.find((c) => c.id === cardId);
+    if (card?.suit === 'hearts') {
+      this.promoting = true; // blocks board input while the picker is open
+      let pieceId: PieceId | null;
+      try {
+        pieceId = await this.ui.askRevive(side, state[side].captured.filter((p) => p.kind !== 'k'));
+      } finally {
+        this.promoting = false;
+      }
+      if (!pieceId) return;
+      return this.startAim({ type: 'card', cardId, pieceId, targets: [] });
+    }
+    this.startAim({ type: 'card', cardId, targets: [] });
   }
 
   // ---------- game moments ----------
@@ -204,9 +401,11 @@ export class Match {
     } else {
       await actor.moveTo(to());
     }
+    // Crazy banana peel: slip one more square.
+    if (m.slide) await this.show.slip(actor, this.board.point(m.slide.to));
     if (m.promotion && m.promotedId) {
       this.board.remove(m.pieceId);
-      const fresh = this.board.spawn({ id: m.promotedId, side: m.side, kind: m.promotion, square: m.to }, true);
+      const fresh = this.board.spawn({ id: m.promotedId, side: m.side, kind: m.promotion, square: m.slide?.to ?? m.to }, true);
       this.audio.play('promote');
       await this.board.popsDone();
       void fresh.celebrate();
@@ -262,6 +461,7 @@ export class Match {
       return;
     }
     if (!this.canPlay()) return;
+    if (this.aim) return this.onAimSquare(sq);
     const turn = this.game.turn;
     const piece = this.pieceAt(sq);
 
@@ -290,6 +490,7 @@ export class Match {
     });
     this.world.setHighlights({ selected: p.square, legal: this.targets.filter((t) => !captures.includes(t)), captures });
     this.board.get(p.id)?.setSelected(true);
+    if (this.modes) this.ui.setSelection({ pieceId: p.id, side: p.side, kind: p.kind, power: this.game.powerInfo(p.id) });
     this.audio.play('select');
     this.audio.play(`voice:${p.side}:${p.kind}`);
   }
@@ -301,7 +502,12 @@ export class Match {
     }
     this.selected = null;
     this.targets = [];
-    if (highlights) this.world.setHighlights({ selected: null, legal: [], captures: [] });
+    if (this.aim) {
+      this.aim = null;
+      this.ui.setPrompt(null);
+    }
+    this.ui.setSelection(null);
+    if (highlights) this.world.setHighlights({ selected: null, legal: [], captures: [], targets: [], area: [] });
   }
 
   private async tryMove(from: Square, to: Square): Promise<void> {
@@ -314,7 +520,9 @@ export class Match {
         this.promoting = false;
       }
     }
-    if (!this.game.move({ from, to, promotion })) {
+    // act(), not move(): in Crazy a capture can wait on a duel, which move() would report as null.
+    const r = this.game.act({ type: 'move', from, to, ...(promotion ? { promotion } : {}) });
+    if (!r.ok) {
       this.audio.play('illegal');
       this.clearSelection();
     }
@@ -364,6 +572,21 @@ export class Match {
       }
     });
     ui.on('settingsChanged', (s) => this.applySettings(s));
+    ui.on('powerRequested', ({ pieceId }) => {
+      const p = this.game.pieces.find((x) => x.id === pieceId);
+      if (!p || !this.canPlay() || this.aim?.type === 'bonus' || !this.game.powerInfo(pieceId).available) {
+        this.audio.play('illegal');
+        return;
+      }
+      const square = this.selected;
+      this.clearSelection(false);
+      this.selected = square;
+      this.world.setHighlights({ selected: p.square });
+      this.board.get(p.id)?.setSelected(true);
+      this.startAim({ type: 'power', pieceId, targets: [] });
+    });
+    ui.on('cardRequested', ({ cardId }) => void this.playCard(cardId));
+    ui.on('cancelAction', () => this.cancelAim());
     ui.on('screenChanged', ({ screen }) => {
       if (screen === 'title' || screen === 'setup') this.active = false;
       if (screen === 'game') this.active = true;
@@ -386,6 +609,7 @@ export class Match {
     this.world.setCoordinatesVisible(s.showCoordinates);
     this.world.setReducedMotion(s.reducedMotion);
     this.cast.setReducedMotion(s.reducedMotion);
+    this.reduced = s.reducedMotion || matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.board?.setSkin('land', s.landSkin);
     this.board?.setSkin('sea', s.seaSkin);
   }

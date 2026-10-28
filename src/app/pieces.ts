@@ -2,6 +2,7 @@
  * The animals on the board: one PieceActor per live PieceId, kept in step with core's pieces.
  */
 import gsap from 'gsap';
+import type { Vector3 } from 'three';
 import type { Cast, PieceActor, PieceId, PieceState, Side, SkinChoice, Square, World } from '../contracts/types';
 
 export class PieceBoard {
@@ -31,6 +32,15 @@ export class PieceBoard {
     // Fresh matrices: the cast converts back with them, and Weird Mode may have moved the board since the last frame.
     this.world.pieceLayer.updateWorldMatrix(true, false);
     return this.world.pieceLayer.localToWorld(this.world.squareToWorld(sq));
+  }
+
+  /** Remembers where an actor stands now; call the result later for that spot's live world point (to send it back home). */
+  pointOf(a: PieceActor): () => Vector3 {
+    const local = a.object.position.clone();
+    return () => {
+      this.world.pieceLayer.updateWorldMatrix(true, false);
+      return this.world.pieceLayer.localToWorld(local.clone());
+    };
   }
 
   spawn(state: PieceState, pop = false): PieceActor {

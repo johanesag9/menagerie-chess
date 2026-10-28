@@ -91,6 +91,8 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   board.overlay.add(highlights.group);
 
   const rig = new CameraRig(camera, stage.canvas, animator, () => stage.aspect, reducedMotion);
+  // Declared before the resize hook: a resize can land while the world is still loading.
+  let dirty = true;
   stage.onResize = () => {
     rig.onResize();
     dirty = true;
@@ -138,7 +140,6 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
 
   let paused = false;
   let disposed = false;
-  let dirty = true;
   let elapsed = 0;
   let introStarted = false;
   let introSkipped = opts.autoIntro === false;

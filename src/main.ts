@@ -11,7 +11,7 @@ import type { GameOptions } from './contracts/types';
 async function boot(): Promise<void> {
   const app = document.getElementById('app')!;
   const stage = document.createElement('div');
-  stage.className = 'mc-stage';
+  stage.className = 'mc-world';
   app.append(stage);
 
   // The UI comes up first, so the title shows while the world compiles its shaders.
