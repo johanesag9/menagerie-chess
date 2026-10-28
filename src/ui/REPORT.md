@@ -1,6 +1,38 @@
 # ui + audio stream report
 
-Status: **Phase 5 done** (2026-10-28), branch `claude/p5-ui-2d8a97`. Phase 4, 3 and 1 work is unchanged (reports further down).
+Status: **Phase 6 online done** (2026-10-28), branch `claude/p5-ui-2d8a97`, on top of `phase3` (Phase 5 online and the Phase 6 board games are both merged in). Phase 6 itself was built on `claude/p6-ui-4d2bbc`. Earlier phases are unchanged (reports further down).
+
+## Phase 6 online: board games with a friend
+
+### What's done
+- **Setup:** Friend online works for Sandcastle King and Stepping Stones: Play as, no bot level, no clock, no Weird Mode or FEN (it already did after the merge; checked).
+- **Castle draft online:** the picker only opens for your own picks. It never shows the hot-seat cover or "pass the device" wording, even if `hotSeat: true` is passed. While the friend picks, the turn bar says **"Friend is picking…"** with "Their picks show up as they come in" and the waiting dots. Each friend pick pops into their strip (spring pop-in) with the `draftPick` sound.
+- **askDraft** works out your side for online too (`opponent.you`), so the picker's wording says "your" picks.
+- **closeQuestion()** now also closes an open draft pick, answering with a random free animal (the room picks on timeout; integration ignores the stale answer).
+- **Online HUD with the board strips:** checked at 390px and 1280px: castle levels strip, stones "Your path · Theirs", the turn timer in the player card, no overflow.
+- **Merge fix:** `screens/setup.ts` had a leftover `syncBot()` from the merge. It ran before the Start button existed and crashed the whole UI on load ("Cannot access 'start' before initialization"). This is on `phase3` too, so the app there doesn't load. Removed.
+
+### How to run the demo
+`ui-demo` launch config, then `/src/ui/demo.html` → Demo controls → **Online: board games**:
+- *Castle, you Land / you Sea (playing)*: the full fake draft. The friend picks after about 2s; you pick in the picker. Then the castle game starts.
+- *Draft: friend is picking* and *Draft: friend's pick comes in*: the waiting state, then their pick popping in.
+- *Draft: your pick*: your picker, with `hotSeat: true` passed on purpose (no cover must show).
+- *Draft pick, time runs out*: `closeQuestion()` after 1.5s; the log shows the random pick.
+- *Castle mid-game*, *Stones mid-game*, *Stones, you Sea (playing)*: the strips with the timer. Use *Online: HUD states* for the timer, away and offline states.
+
+### Contract requests
+- None. Note for integration: the UI plays `draftPick` itself when the friend's pick count grows online (integration plays no sound for remote picks). If integration starts playing one, tell me and I'll drop mine.
+
+### Open design questions for Johanes
+- Wording while the friend picks: "Friend is picking…" / "Their picks show up as they come in". OK?
+- On timeout the draft picks a random free animal for you. Should it say so ("Time's up: we picked the Goat")? Today it just closes.
+
+### Known issues
+- `npm test` has 16 failures outside ui, also on `phase3`: `src/cast/phase6.test.ts` (12) and `server/test/determinism.raid.test.ts` (4, raid replays reject a move). Not touched here.
+- Stones "playing" in the demo lets you move both sides (the fake has no friend moves).
+- Not tried with the real net client or server.
+
+---
 
 ## Phase 5: online with a friend
 
@@ -66,12 +98,6 @@ None blocking. Notes for integration:
 - Not tried with the real net client or server (that's integration).
 
 ---
-
-## Phase 4 report (Sumo and Raid, unchanged)
-### What's done
-
-
-Status: **Phase 6 done** (2026-10-28), branch `claude/p6-ui-4d2bbc` (cut from `phase6`). Phase 4, 3 and 1 work is unchanged (reports further down).
 
 ## Phase 6: board-game modes (Sandcastle King, Stepping Stones)
 

@@ -9,10 +9,10 @@
  */
 import './board.css';
 import type { ArenaState, BoardMode, GameOptions, PieceKind, PieceState, Side } from '../../contracts/types';
-import { ANIMAL_NAME, SIDE_NAME, botName } from '../config';
+import { ANIMAL_NAME, SIDE_NAME, playerName } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
-import { otherSide } from '../format';
+import { isOnline, otherSide, youSide } from '../format';
 import { animalIcon } from '../icons';
 import { STONES_POWER_TEXT, TRAIT_TEXT, crownWords, stageWords, tideWords } from '../boardText';
 import { POWER_OF } from '../../contracts/types';
@@ -57,6 +57,8 @@ export class BoardHud {
   private downBtn: HTMLButtonElement;
   private crown: HTMLElement;
   private state: ArenaState | null = null;
+  /** Online: the side whose draft pick just arrived (its newest slot pops in). */
+  private freshPick: Side | null = null;
   private info: GameOptions | null = null;
   private shape: ShapeState | null = null;
   private thinking = false;
@@ -116,6 +118,12 @@ export class BoardHud {
 
   setState(st: ArenaState | null): void {
     if (!st || st.turn !== this.state?.turn || st.stage !== this.state?.stage || st.phase !== 'action') this.clearEnding();
+    // Online, your friend's draft picks arrive from the room: the new one pops in with the pick sound (yours plays on click).
+    const you = youSide(this.info);
+    const friend = you && isOnline(this.info) ? otherSide(you) : null;
+    const was = this.state?.draft?.picks[friend ?? 'land'].length ?? 0;
+    this.freshPick = friend && st?.draft && this.state?.draft && st.draft.picks[friend].length > was ? friend : null;
+    if (this.freshPick) this.ctx.audio.play('draftPick');
     this.state = st;
     if (!st) this.shape = null;
     this.render();
@@ -201,15 +209,13 @@ export class BoardHud {
     }
   };
 
-  /** The human side in a bot game, else null. */
+  /** Your side vs the bot or a friend online, else null. */
   private you(): Side | null {
-    return this.info?.opponent.type === 'bot' ? otherSide(this.info.opponent.botSide) : null;
+    return youSide(this.info);
   }
 
   private nameOf(side: Side): string {
-    const bot = this.info?.opponent.type === 'bot' ? this.info.opponent : null;
-    if (!bot) return SIDE_NAME[side];
-    return bot.botSide === side ? botName(bot.level) : 'You';
+    return playerName(this.info, side);
   }
 
   private barVisible(): boolean {
@@ -241,13 +247,14 @@ export class BoardHud {
     const size = st.draft?.size ?? 2;
     const drafting = st.phase === 'draft';
     const rows: { kind: PieceKind; p?: PieceState }[] = drafting || !onBoard.length ? picks.map((kind) => ({ kind })) : onBoard.map((p) => ({ kind: p.kind, p }));
-    const items = rows.map(({ kind, p }) => {
+    const items = rows.map(({ kind, p }, i) => {
       const t = this.trait(kind);
+      const fresh = drafting && this.freshPick === side && i === rows.length - 1;
       const lvl = p ? st.levels?.[p.square] ?? 0 : 0;
       const crowned = !!p && st.crowned?.pieceId === p.id;
       const mover = !!p && st.mover === p.id;
       const name = ANIMAL_NAME[side][kind];
-      return h('span', { class: `mc-bani${crowned ? ' is-crowned' : ''}${mover ? ' is-mover' : ''}`, title: `${name}, ${t.name}: ${t.line}${p ? ` (level ${lvl})` : ''}` },
+      return h('span', { class: `mc-bani${crowned ? ' is-crowned' : ''}${mover ? ' is-mover' : ''}${fresh ? ' is-fresh' : ''}`, title: `${name}, ${t.name}: ${t.line}${p ? ` (level ${lvl})` : ''}` },
         h('span', { class: 'mc-ani' }, h('span', { class: 'mc-ani__icon', html: animalIcon(side, kind) }),
           crowned ? h('span', { class: 'mc-bani__crown', 'aria-hidden': 'true', text: '👑' }) : null,
           lvl > 0 && !crowned ? h('span', { class: 'mc-bani__lvl', 'aria-hidden': 'true', text: String(lvl) }) : null),
@@ -344,8 +351,10 @@ export class BoardHud {
     const human = you === null || you === st.turn;
     this.turnBar.dataset.side = st.turn;
     this.turnBar.dataset.stage = st.stage ?? '';
-    this.who.textContent = you === null ? `${SIDE_NAME[st.turn]}'s turn` : human ? 'Your turn' : `${this.nameOf(st.turn)}'s turn`;
-    this.stage.textContent = stageWords(st, human);
+    // Online draft: the friend picks on their own screen; their picks show in the strip as they come in.
+    const friendPicking = isOnline(this.info) && !human && st.phase === 'draft';
+    this.who.textContent = friendPicking ? 'Friend is picking…' : you === null ? `${SIDE_NAME[st.turn]}'s turn` : human ? 'Your turn' : `${this.nameOf(st.turn)}'s turn`;
+    this.stage.textContent = friendPicking ? 'Their picks show up as they come in' : stageWords(st, human);
 
     // Castle: the animal that builds or digs, beside the words.
     const mover = st.mode === 'castle' && (st.stage === 'shape' || st.stage === 'more') ? st.pieces.find((p) => p.id === st.mover) : undefined;
@@ -359,7 +368,7 @@ export class BoardHud {
       // Keep the same node so keyboard focus stays on it.
       if (this.right.firstChild !== this.endBtn || this.right.childNodes.length !== 1) this.right.replaceChildren(this.endBtn);
     } else {
-      this.right.replaceChildren(!human && this.thinking ? h('span', { class: 'mc-dots', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')) : h('span'));
+      this.right.replaceChildren(!human && (this.thinking || friendPicking) ? h('span', { class: 'mc-dots', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')) : h('span'));
     }
   }
 

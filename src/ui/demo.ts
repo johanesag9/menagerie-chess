@@ -283,7 +283,7 @@ function note(name: string, payload: unknown) {
 (['startGame', 'promotionChosen', 'emote', 'undo', 'resign', 'rematch', 'settingsChanged', 'screenChanged', 'powerRequested', 'cardRequested', 'cancelAction'] as const).forEach((n) => ui.on(n, (p) => note(n, p)));
 let lastOpts: GameOptions | null = null;
 let arena: { start(o: GameOptions): void } | null = null;
-let boardGames: { start(o: GameOptions): void } | null = null;
+let boardGames: { start(o: GameOptions): void; stop(): void } | null = null;
 const startAny = (o: GameOptions) => {
   lastOpts = o;
   if (isBoardMode(o.mode)) {
@@ -403,7 +403,10 @@ btn(results, 'Draw: threefold', () => ui.showResult({ winner: null, reason: 'thr
 
 addModeControls(ui, section, btn, note, () => game.stop());
 arena = addArenaControls(ui, section, btn, note, () => game.stop());
-addOnlineControls(ui, section, btn, note, startAny, () => game.stop());
+addOnlineControls(ui, section, btn, note, startAny, () => {
+  game.stop();
+  boardGames?.stop();
+});
 boardGames = addBoardControls(ui, section, btn, note, () => game.stop());
 
 const music = section('Music');

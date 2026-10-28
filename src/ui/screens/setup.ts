@@ -78,7 +78,6 @@ export function setupScreen(ctx: UiCtx): View & { setBusy(on: boolean): void } {
     const label = start.querySelector('.mc-btn__text');
     if (label && !busy) label.textContent = choice.opponent === 'online' ? 'Invite a friend' : 'Start game';
   }
-  syncBot();
   // Crazy has the Wheel of Chaos instead of Weird Mode. Party modes and board games have no clock, Weird Mode or FEN; online games neither.
   const timeLabel = h('h3', { class: 'mc-label', text: 'Time' });
   function syncMode() {

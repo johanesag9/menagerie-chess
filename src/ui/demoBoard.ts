@@ -18,7 +18,7 @@ const wait = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 const sq = (f: number, r: number): Square | null => (f < 0 || f > 7 || r < 0 || r > 7 ? null : (`${FILES[f]}${r + 1}` as Square));
 const xy = (s: Square): [number, number] => [FILES.indexOf(s[0]), Number(s[1]) - 1];
 const ALL: Square[] = Array.from({ length: 64 }, (_, i) => sq(i % 8, Math.floor(i / 8))!);
-const TRAITS = Object.fromEntries(TRAIT_ORDER.map((k) => [k, { name: TRAIT_TEXT[k].name, line: TRAIT_TEXT[k].line }])) as Record<PieceKind, { name: string; line: string }>;
+export const TRAITS = Object.fromEntries(TRAIT_ORDER.map((k) => [k, { name: TRAIT_TEXT[k].name, line: TRAIT_TEXT[k].line }])) as Record<PieceKind, { name: string; line: string }>;
 /** Stones roster, as in the party modes: Land on b2–g2, Sea on b7–g7. */
 const ROSTER: [PieceKind, string][] = [['n', 'b'], ['b', 'c'], ['q', 'd'], ['k', 'e'], ['r', 'f'], ['p', 'g']];
 
@@ -148,7 +148,7 @@ function drawBoard(st: ArenaState | null): void {
 
 // ---------- Drawer ----------
 
-export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, note: (n: string, p: unknown) => void, stop: () => void): { start(o: GameOptions): void } {
+export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, note: (n: string, p: unknown) => void, stop: () => void): { start(o: GameOptions): void; stop(): void } {
   let fb: FakeBoard | null = null;
   let gen = 0;
   const BOT: GameOptions = { mode: 'castle', opponent: { type: 'bot', level: 4, botSide: 'sea' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false };
@@ -215,6 +215,8 @@ export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, no
   async function draft(f: FakeBoard, my: number): Promise<void> {
     const o = ui.gameInfo!;
     const botSide = o.opponent.type === 'bot' ? o.opponent.botSide : null;
+    // Online the demo's friend picks on "their screen" (a pause, no thinking dots): the HUD says "Friend is picking…".
+    const friendSide = o.opponent.type === 'online' ? (o.opponent.you === 'land' ? 'sea' : 'land') : null;
     const d = f.st.draft!;
     for (let i = 0; i < d.size * 2 && my === gen; i++) {
       const side: Side = i % 2 === 0 ? 'land' : 'sea';
@@ -228,8 +230,11 @@ export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, no
         ui.setBotThinking(false);
         kind = (['b', 'q', 'p', 'r', 'n', 'k'] as PieceKind[]).find((k) => !d.picks[side].includes(k))!;
         ui.audio.play('draftPick');
+      } else if (side === friendSide) {
+        await wait(2200);
+        kind = (['q', 'b', 'r', 'p', 'n', 'k'] as PieceKind[]).find((k) => !d.picks[side].includes(k))!;
       } else {
-        kind = await ui.askDraft(side, { picks: structuredClone(d.picks), size: d.size, traits: TRAITS, hotSeat: botSide === null });
+        kind = await ui.askDraft(side, { picks: structuredClone(d.picks), size: d.size, traits: TRAITS, hotSeat: botSide === null && friendSide === null });
       }
       if (my !== gen) return;
       d.picks[side].push(kind);
@@ -515,6 +520,13 @@ export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, no
   (['build', 'dig', 'raise', 'sinkStone', 'climb', 'flag', 'tideWear', 'draftPick'] as const).forEach((c) => btn(sounds, c, () => ui.audio.play(c)));
 
   Object.assign(window, { __board: { stage, castleMid, castleTurn, draft, get fb() { return fb; } } });
-  return { start: (o) => (isBoardMode(o.mode) ? void start(o) : undefined) };
+  return {
+    start: (o) => (isBoardMode(o.mode) ? void start(o) : undefined),
+    /** Stops a running fake draft (another demo button took over). */
+    stop: () => {
+      gen++;
+      fb = null;
+    },
+  };
 }
 
