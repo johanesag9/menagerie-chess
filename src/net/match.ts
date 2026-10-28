@@ -4,9 +4,9 @@
  */
 import type { NetInput } from '../contracts/net';
 import type {
-  ArenaController, ArenaEventMap, DuelInfo, GameController, GameEventMap, GameOptions, GameOver, Hand, Side, Square,
+  ArenaAction, ArenaController, ArenaEventMap, DuelInfo, GameController, GameEventMap, GameOptions, GameOver, Hand, PieceKind, Side, Square,
 } from '../contracts/types';
-import { isArenaMode } from '../contracts/types';
+import { isArenaMode, isBoardMode } from '../contracts/types';
 
 export type Core = { kind: 'game'; ctl: GameController } | { kind: 'arena'; ctl: ArenaController };
 
@@ -146,7 +146,10 @@ export class Match {
       case 'bonus':
         return { k: 'act', side: w.side, input: { type: 'bonus', choice: 'skip' } };
       case 'action': {
-        if (this.core.kind === 'arena') return { k: 'arena', side: w.side, action: { type: 'endTurn' } };
+        if (this.core.kind === 'arena') {
+          const action = isBoardMode(this.core.ctl.state.mode) ? this.boardTimeoutAction(random) : { type: 'endTurn' as const };
+          return action ? { k: 'arena', side: w.side, action } : null;
+        }
         const g = this.core.ctl;
         const moves: { from: Square; to: Square }[] = [];
         for (const p of g.pieces) {
@@ -158,6 +161,45 @@ export class Match {
         return { k: 'act', side: w.side, input: { type: 'move', ...m, ...(g.needsPromotion(m.from, m.to) ? { promotion: 'q' as const } : {}) } };
       }
     }
+  }
+
+  /** Is this a board-game mode (castle, stones)? Their turn timer covers the whole turn. */
+  get board(): boolean {
+    return this.core.kind === 'arena' && isBoardMode(this.core.ctl.state.mode);
+  }
+
+  /**
+   * Board games: a random legal action for the current stage (GAME_SPEC "Online play", board games row).
+   * Draft: a random kind not yet picked. Move: a random step or hit. Shape: a random square and direction.
+   * 'more': end the turn. Null when nothing is legal (core passes by itself).
+   */
+  private boardTimeoutAction(random: () => number): ArenaAction | null {
+    if (this.core.kind !== 'arena') return null;
+    const a = this.core.ctl;
+    const s = a.state;
+    const pick = <T>(xs: T[]): T | null => (xs.length ? xs[Math.floor(random() * xs.length)] : null);
+    if (s.phase === 'draft' || s.stage === 'pick') {
+      const taken = s.draft?.picks[s.turn] ?? [];
+      const kind = pick((['p', 'n', 'b', 'r', 'q', 'k'] as PieceKind[]).filter((k) => !taken.includes(k)));
+      return kind ? { type: 'pick', kind } : null;
+    }
+    if (s.stage === 'more') return { type: 'endTurn' };
+    if (s.stage === 'shape') {
+      const options = (a.shapeOptions?.() ?? []).flatMap((o) => [
+        ...(o.up ? [{ square: o.square, dir: 'up' as const }] : []),
+        ...(o.down ? [{ square: o.square, dir: 'down' as const }] : []),
+      ]);
+      const o = pick(options);
+      return o ? { type: 'shape', pieceId: s.mode === 'castle' ? s.mover ?? null : null, ...o } : null;
+    }
+    const moves: ArenaAction[] = [];
+    for (const p of s.pieces) {
+      if (p.side !== s.turn) continue;
+      const o = a.pieceOptions(p.id);
+      for (const to of o.steps) moves.push({ type: 'step', pieceId: p.id, to });
+      for (const target of o.hits) moves.push({ type: 'hit', pieceId: p.id, target });
+    }
+    return pick(moves);
   }
 
   dispose(): void {

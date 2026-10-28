@@ -2,7 +2,7 @@
  * The stable `game` and `arena` objects of the online client. They have the exact local interfaces, so the 3D app
  * can drive them like local controllers:
  * - reads come from the current mirror (an idle placeholder before the first game);
- * - the interactive reads (`legalTargets`, `powerInfo`, `canPlayCard`, `targets`, `pieceOptions`) only offer
+ * - the interactive reads (`legalTargets`, `powerInfo`, `canPlayCard`, `targets`, `pieceOptions`, `shapeOptions`) only offer
  *   your own pieces on your own turn, so the friend's moves never light up;
  * - actions send an input to the room instead of changing the mirror; the change shows when the room
  *   broadcasts it back. Inputs that aren't yours are refused here (`Not your turn`);
@@ -14,7 +14,7 @@
 import type { NetInput } from '../contracts/net';
 import type {
   ActionInput, ActResponse, ArenaAction, ArenaController, ArenaEventMap, ArenaPieceOptions, EmoteKind, GameController,
-  GameEventMap, Hand, MoveInput, MoveResult, PendingAction, PieceId, PowerInfo, Side, Square, TargetStep, Unsubscribe,
+  GameEventMap, Hand, MoveInput, MoveResult, PendingAction, PieceId, PowerInfo, ShapeOption, Side, Square, TargetStep, Unsubscribe,
 } from '../contracts/types';
 import type { OnlineClientImpl } from './client';
 
@@ -142,7 +142,16 @@ class ArenaProxy implements ArenaController {
     if (you === null) return o;
     const p = this.a.state.pieces.find((x) => x.id === pieceId);
     if (p?.side === you && notYours(this.c) === null) return o;
-    return { ...o, steps: [], hits: [], hitCosts: [], power: { ...o.power, available: false, reason: o.power.reason ?? 'notYourTurn' } };
+    const { throws: _t, throwCost: _c, ...rest } = o;
+    // Castle traits are always on (no power action), so their info stays as core gives it.
+    const power = this.a.state.mode === 'castle' ? o.power : { ...o.power, available: false, reason: o.power.reason ?? 'notYourTurn' };
+    return { ...rest, steps: [], hits: [], hitCosts: [], power };
+  }
+
+  /** Phase 6: what you can build/dig or raise/sink now; [] when it isn't your stage. */
+  shapeOptions(): ShapeOption[] {
+    if (this.c.you !== null && notYours(this.c) !== null) return [];
+    return this.a.shapeOptions?.() ?? [];
   }
 
   targets(pending: { pieceId: PieceId; targets: Square[] }): TargetStep {
