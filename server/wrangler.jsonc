@@ -1,0 +1,16 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Online play by invite link (GAME_SPEC "Online play"). Free plan: SQLite Durable Objects, hibernating WebSockets, alarms.
+  "name": "menagerie-chess-online",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RoomObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomObject"] }],
+  "vars": {
+    // Comma-separated origins of the real site, e.g. "https://menagerie-chess.pages.dev". Any http://localhost port is always allowed.
+    "ALLOWED_ORIGINS": ""
+  },
+  "observability": { "enabled": true }
+}
