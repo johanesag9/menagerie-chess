@@ -79,6 +79,9 @@ class Room {
   rematch = new Set<Side>();
   timer: { side: Side; endsAt: number; handle: ReturnType<typeof setTimeout> } | null = null;
   private fallback: ReturnType<typeof setTimeout> | null = null;
+  /** Board games: whose turn the running timer (or its fallback) covers. It runs on through that turn's stages. */
+  private turnSide: Side | null = null;
+  private timingOut = false;
   private idleSides = new Set<Side>();
 
   constructor(private server: FakeServer, readonly code: string, readonly base: GameOptions, readonly creator: Side) {}
@@ -262,10 +265,15 @@ class Room {
 
   /** After every change: stop the timer; it starts again on the mover's idle, or after the fallback. */
   private armTimer(): void {
+    if (this.timingOut) return;
+    const w = this.match?.awaiting();
+    // Board games: one timer for the whole turn, not one per stage.
+    if (this.match?.board && w?.kind === 'action' && w.side === this.turnSide && (this.timer || this.fallback)) return;
     this.stopTimer();
     this.idleSides.clear();
-    const w = this.match?.awaiting();
+    this.turnSide = null;
     if (!w || w.kind === 'none') return;
+    if (this.match?.board && w.kind === 'action') this.turnSide = w.side;
     this.fallback = setTimeout(() => this.startTimer(), this.server.scaled(TIMES.idleFallbackMs));
   }
 
@@ -307,12 +315,36 @@ class Room {
     this.fallback = null;
     if (!match || this.status !== 'playing') return;
     const w = match.awaiting();
+    if (match.board && w.kind === 'action') return this.timeoutBoardTurn(w.side);
     const sides = w.kind === 'none' ? [] : w.kind === 'throw' ? w.sides : [w.side];
     for (const side of sides) {
       const input = match.timeoutInput(side, this.server.random);
       const bad = input && this.take(input, 'timeout');
       if (bad) console.warn('[fake server] the timeout input was refused', input, bad);
     }
+  }
+
+  /** Board games: a random legal action for each stage left, until the turn passes (or the game ends). */
+  private timeoutBoardTurn(side: Side): void {
+    const match = this.match!;
+    this.timingOut = true;
+    try {
+      for (let i = 0; i < 12; i++) {
+        const w = match.awaiting();
+        if (this.status !== 'playing' || w.kind !== 'action' || w.side !== side) break;
+        const input = match.timeoutInput(side, this.server.random);
+        const bad = input ? this.take(input, 'timeout') : 'nothing legal';
+        if (!bad) continue;
+        if (this.take({ k: 'arena', side, action: { type: 'endTurn' } }, 'timeout')) {
+          console.warn('[fake server] the timeout found nothing to play', input, bad);
+          break;
+        }
+      }
+    } finally {
+      this.timingOut = false;
+    }
+    this.turnSide = null;
+    if (this.status === 'playing') this.armTimer();
   }
 
   private askRematch(side: Side): void {

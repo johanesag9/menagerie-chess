@@ -71,6 +71,8 @@ class Seat {
   private aim: Aim | null = null;
   private flash: string | null = null;
   private threw: string | null = null;
+  /** Board games: build/raise (up) or dig/sink (down) when clicking a shape square. */
+  private shapeDir: 'up' | 'down' = 'up';
   timer: { side: Side | null; endsAt: number | null } = { side: null, endsAt: null };
   presence: { opponent: string; graceEndsAt: number | null } = { opponent: 'waiting', graceEndsAt: null };
   rematch: 'none' | 'youAsked' | 'theyAsked' = 'none';
@@ -218,6 +220,14 @@ class Seat {
       this.selected = p?.side === you && this.selected !== sq ? sq : null;
     } else {
       const a = this.client.arena;
+      const shape = a.shapeOptions?.().find((o) => o.square === sq);
+      if (shape) {
+        const dir = (this.shapeDir === 'up' ? shape.up : !shape.down) ? 'up' : 'down';
+        const st = a.state;
+        this.report(a.act({ type: 'shape', pieceId: st.mode === 'castle' ? st.mover ?? null : null, square: sq, dir }));
+        this.selected = null;
+        return this.render();
+      }
       const sel = this.selected && a.state.pieces.find((x) => x.square === this.selected);
       if (sel) {
         const o = a.pieceOptions(sel.id);
@@ -348,6 +358,10 @@ class Seat {
       pieces = s.pieces;
       s.sunk.forEach((q) => add(q, 'sunk'));
       s.sinkingNext.forEach((q) => add(q, 'warn'));
+      s.fresh?.forEach((q) => add(q, 'warn'));
+      for (const [q, lv] of Object.entries(s.levels ?? {})) if (lv) marks.set(q as Square, lv === 3 ? '🏰' : `▲${lv}`);
+      if (s.crowned) marks.set(s.crowned.square, '👑');
+      a.shapeOptions?.().forEach((o) => add(o.square, 'aim'));
       s.squares.forEach((b) => marks.set(b.square, b.by === 'land' ? '🏺' : '🫧'));
       s.statuses.forEach((x) => statuses.add(x.pieceId));
       for (const t of s.treasures) {
@@ -404,6 +418,10 @@ class Seat {
       const s = c.arena.state;
       text = s.phase === 'over'
         ? `Game over: ${c.arena.log.at(-1)?.label ?? ''}`
+        : s.stage
+        ? `${cap(s.turn)} to ${s.stage === 'more' ? 'dig again or end' : s.stage}${s.turn === c.you ? ' (you)' : ''} · round ${s.round}/${s.maxRounds}` +
+          (s.crowned ? ` · ${cap(s.crowned.side)} holds a castle!` : '') +
+          (s.pathLength ? ` · path Land ${s.pathLength.land ?? '-'}, Sea ${s.pathLength.sea ?? '-'}` : '')
         : `${cap(s.turn)} to move${s.turn === c.you ? ' (you)' : ''} · die ${s.die ?? '-'} · ${s.ap} AP · round ${s.round}/${s.maxRounds}` +
           (s.mode === 'raid' ? ` · Land ${s.score.land}, Sea ${s.score.sea} (to ${s.target})` : '') +
           (s.mode === 'sumo' && s.nextSinkIn !== null ? ` · sinks in ${s.nextSinkIn}` : '');
@@ -486,12 +504,35 @@ class Seat {
 
   private arenaActions(box: HTMLElement): void {
     const a = this.client.arena;
-    const sel = this.selected && a.state.pieces.find((p) => p.square === this.selected);
+    const st = a.state;
+    if (st.phase === 'draft') {
+      const you = this.client.you!;
+      const taken = st.draft?.picks[you] ?? [];
+      for (const k of ['p', 'n', 'b', 'r', 'q', 'k'] as PieceKind[]) {
+        if (taken.includes(k)) continue;
+        this.button(box, `Pick ${EMOJI[you][k]}`, () => (this.report(a.act({ type: 'pick', kind: k })), this.render()), { cls: 'hand' });
+      }
+      return;
+    }
+    if (st.stage === 'shape' || st.stage === 'more') {
+      const castle = st.mode === 'castle';
+      for (const dir of ['up', 'down'] as const) {
+        const label = dir === 'up' ? (castle ? 'Build ▲' : 'Raise ▲') : castle ? 'Dig ▼' : 'Sink ▼';
+        const b = this.button(box, label, () => ((this.shapeDir = dir), this.render()));
+        b.setAttribute('aria-pressed', String(this.shapeDir === dir));
+        if (this.shapeDir === dir) b.classList.add('call');
+      }
+    }
+    const sel = this.selected && st.pieces.find((p) => p.square === this.selected);
+    if (st.mode === 'castle') {
+      if (st.stage === 'more') this.button(box, 'End turn', () => (this.report(a.act({ type: 'endTurn' })), this.render()), { cls: 'primary' });
+      return;
+    }
     if (sel && !this.aim) {
       const info = a.pieceOptions(sel.id).power;
       this.button(box, `Power: ${info.name ?? info.power}`, () => this.startAim({ kind: 'arena', p: { pieceId: sel.id, targets: [] } }), { disabled: !info.available, title: info.note ?? info.reason });
     }
-    this.button(box, 'End turn', () => (this.report(a.act({ type: 'endTurn' })), this.render()), { cls: 'primary' });
+    if (st.mode !== 'stones') this.button(box, 'End turn', () => (this.report(a.act({ type: 'endTurn' })), this.render()), { cls: 'primary' });
   }
 }
 

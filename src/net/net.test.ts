@@ -555,3 +555,117 @@ describe('rematch', () => {
     expect(a.game.history).toHaveLength(1);
   });
 });
+
+describe('board games (castle, stones)', () => {
+  it('castle draft: reads from the mirror, picks are sent not applied, and only yours on your pick', async () => {
+    const { a, b } = await setup('castle');
+    const s = a.arena.state;
+    expect(s.phase).toBe('draft');
+    expect(s.turn).toBe('land');
+    expect(b.arena.state).toEqual(s);
+    expect(b.arena.act({ type: 'pick', kind: 'n' })).toEqual({ ok: false, reason: 'Not your turn' });
+    expect(a.arena.act({ type: 'pick', kind: 'n' })).toEqual({ ok: true });
+    expect(a.arena.state.draft!.picks.land).toEqual([]);
+    await flush();
+    expect(a.arena.state.draft!.picks.land).toEqual(['n']);
+    expect(b.arena.state).toEqual(a.arena.state);
+    expect(a.arena.state.turn).toBe('sea');
+    expect(a.arena.act({ type: 'pick', kind: 'b' })).toEqual({ ok: false, reason: 'Not your turn' });
+  });
+
+  it("stones: shapeOptions is masked when it isn't your stage", async () => {
+    const { a, b } = await setup('stones');
+    expect(a.arena.state.stage).toBe('shape');
+    const mine = a.arena.shapeOptions!();
+    expect(mine.length).toBeGreaterThan(0);
+    expect(b.arena.shapeOptions!()).toEqual([]);
+    const o = mine.find((x) => x.up || x.down)!;
+    expect(a.arena.act({ type: 'shape', pieceId: null, square: o.square, dir: o.up ? 'up' : 'down' })).toEqual({ ok: true });
+    expect(a.arena.state.stage).toBe('shape'); // not applied yet
+    await flush();
+    expect(a.arena.state.stage).toBe('move');
+    expect(b.arena.state).toEqual(a.arena.state);
+  });
+
+  it('a rejoin during the castle draft catches up silently and resyncs', async () => {
+    const { a, b, server, sb, room } = await setup('castle');
+    a.arena.act({ type: 'pick', kind: 'n' });
+    await flush();
+    b.arena.act({ type: 'pick', kind: 'q' });
+    await flush();
+    b.dispose();
+    const b2 = createOnlineWith({ transport: server.transport(), storage: sb, now });
+    const ev = record<OnlineEventMap>(b2, ['started', 'resync']);
+    const acted: unknown[] = [];
+    b2.arena.on('acted', (x) => acted.push(x));
+    b2.join(room);
+    await flush();
+    expect(acted).toEqual([]);
+    expect(ev.names()).toEqual(['started', 'resync']);
+    expect(b2.arena.state).toEqual(a.arena.state);
+    expect(b2.arena.state.draft!.picks).toEqual({ land: ['n'], sea: ['q'] });
+  });
+
+  it('draft timeout: the room picks a random animal not yet picked', async () => {
+    const { a, b, server, room } = await setup('castle');
+    const auto = record<OnlineEventMap>(b, ['auto']);
+    a.arena.act({ type: 'pick', kind: 'n' });
+    await flush();
+    b.arena.act({ type: 'pick', kind: 'n' });
+    await flush();
+    server.forceTimeout(room); // Land's second pick
+    await flush();
+    expect(auto.log.map((e) => e.payload)).toEqual([{ side: 'land', why: 'timeout' }]);
+    const picks = a.arena.state.draft!.picks.land;
+    expect(picks).toHaveLength(2);
+    expect(picks[1]).not.toBe('n');
+    expect(b.arena.state).toEqual(a.arena.state);
+  });
+
+  it('stones: one 60s timer for the whole turn; a timeout plays every stage left', async () => {
+    const { a, b, server, room } = await setup('stones');
+    const timers = record<OnlineEventMap>(b, ['timer']);
+    const auto = record<OnlineEventMap>(b, ['auto']);
+    a.arena.resume(); // Land's screen is ready: the turn timer starts
+    await flush();
+    const started = timers.log.filter((e) => (e.payload as OnlineEventMap['timer']).side === 'land');
+    expect(started).toHaveLength(1);
+    const o = a.arena.shapeOptions!().find((x) => x.up || x.down)!;
+    a.arena.act({ type: 'shape', pieceId: null, square: o.square, dir: o.up ? 'up' : 'down' });
+    await flush();
+    a.arena.resume();
+    await flush(2000);
+    // Still Land's turn (the move stage): the timer runs on, it was neither stopped nor restarted.
+    expect(timers.log).toHaveLength(1);
+    server.forceTimeout(room);
+    await flush();
+    expect(auto.log.map((e) => e.payload)).toEqual([{ side: 'land', why: 'timeout' }]);
+    expect(a.arena.state.turn).toBe('sea');
+    expect(b.arena.state).toEqual(a.arena.state);
+
+    // Sea's whole turn times out: shape and move, both played by the room.
+    auto.log.length = 0;
+    server.forceTimeout(room);
+    await flush();
+    expect(auto.log.map((e) => e.payload)).toEqual([{ side: 'sea', why: 'timeout' }, { side: 'sea', why: 'timeout' }]);
+    expect(a.arena.state.turn).toBe('land');
+    expect(b.arena.state).toEqual(a.arena.state);
+  });
+
+  it('castle: a timed-out turn moves, then builds or digs', async () => {
+    const { a, b, server, room } = await setup('castle');
+    // Draft every pick by timeout, then time out Land's first real turn.
+    for (let i = 0; i < 40 && a.arena.state.phase === 'draft'; i++) {
+      server.forceTimeout(room);
+      await flush();
+    }
+    expect(a.arena.state.phase).toBe('action');
+    const turn = a.arena.state.turn;
+    const logBefore = a.arena.log.length;
+    server.forceTimeout(room);
+    await flush();
+    expect(a.arena.state.turn).not.toBe(turn);
+    expect(a.arena.log.length - logBefore).toBeGreaterThanOrEqual(2);
+    expect(b.arena.state).toEqual(a.arena.state);
+  });
+});

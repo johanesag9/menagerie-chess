@@ -35,11 +35,20 @@ Branch `claude/p5-net-e0d74f`. Owns `src/net/` only. No new packages.
   - Rematch with sides swapped and a new seed. Room codes have 6 characters with no look-alikes.
   - It matches the real server's details: `POST /rooms` returns 201, the same close codes, an unknown room refused before the socket opens, and a re-throw replacing your held hand.
   - Test hooks: `timeScale`, `forceTimeout(room)`, `expire(room)`, droppable transports (`ControlledTransport`), and logs of everything sent and received.
-- **Tests** (`net.test.ts`, 27 cases, vitest): rooms (create, link, info, full room); reads come from the mirror; actions send and don't apply; local refusals; room rejects; party modes.
+- **Board games online (Phase 6: castle, stones)**:
+  - `ARENA_EVENT_SET` has `tide` and `crowned` (checked: the compiler requires every key of `ArenaEventMap`).
+  - The arena proxy has `shapeOptions()`: the mirror's options on your stage, else `[]`. `pieceOptions` is masked as before; in castle the trait info stays, since traits are always on.
+  - The `'draft'` phase is the turn of `state.turn`, so a `pick` is only yours on your pick.
+  - The fake server plays both, with the board-game timer rule: one 60s timer for the whole turn, not restarted between stages.
+    On timeout it plays a random legal action for each stage left until the turn passes: a random unpicked animal in the draft, a random step or hit, a random shape square and direction, and `endTurn` for 'more'.
+  - The demo offers Sandcastle King and Stepping Stones: pick buttons in the draft, Build/Dig (Raise/Sink) toggles, levels (▲1, ▲2, 🏰), the crown 👑 and fresh squares.
+- **Tests** (`net.test.ts`, 35 cases, vitest). Board games: draft reads, sends and turn checks; `shapeOptions` masked; a draft rejoin resyncs; the draft timeout; the stones whole-turn timer and timeout; the castle timeout (move, then build/dig).
+  Earlier cases: rooms (create, link, info, full room); reads come from the mirror; actions send and don't apply; local refusals; room rejects; party modes.
   Also: inputs in order and duplicates ignored, plus gap recovery; `auto` before apply; secret throws (nothing leaks, attacker first); duel answer and throw timeouts.
   Also: dead link, opened somewhere else, room expired (connected and while away), drops keep retrying, re-throw replaces;
   catch-up then `resync` on reload; reconnect after a drop; grace forfeit; `leave` resigns; emotes; `idle` once per count; the mover's idle starts the timer; listeners survive a rematch, with the side swap.
-- `npm run typecheck` passes. `npm test` passes: 14 files, 308 tests, including the 27 net ones.
+- `npm run typecheck` passes. All 35 net tests pass.
+  The full `npm test` on this branch (`phase3` merged) has 15 failures outside `src/net`, which are the same on `phase3`: `src/cast/phase6.test.ts` (11, also alone) and `server/test/determinism.raid.test.ts` (4, the Raid throw bug in the server brief).
 
 ## How to run the demo
 - Launch config `net-demo` (port 4415; it moves to 4416 if 4415 is taken), then open `/src/net/demo.html`.
