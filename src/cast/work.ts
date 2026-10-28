@@ -421,7 +421,11 @@ export function work(a: Actor, tl: TL, kind: WorkKind, to: THREE.Vector3, water:
   // Build: the sand flies over and lands.
   if (c.build && o.from !== undefined && o.release !== undefined) {
     const from = o.from, flight = Math.max(0.08, o.hit - o.release);
-    tl.call(() => fx.toss(P, typeof from === 'string' ? a.bonePoint(from) : from(), to, sq, flight), [], o.release);
+    tl.call(() => {
+      // Start a little out in front of the limb, so the sand never covers the face.
+      const p = (typeof from === 'string' ? a.bonePoint(from) : from()).lerp(to, back ? 0 : 0.15);
+      fx.toss(P, p, to, sq, flight);
+    }, [], o.release);
   }
   tl.call(() => {
     if (c.build) {
