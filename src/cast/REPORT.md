@@ -2,6 +2,35 @@
 
 The 12 animals and all their animations. Everything is built in code. No downloaded assets, and nothing from `steam-scrape/`.
 
+# Raid "pass and run": toss and catch (2026-10-28)
+
+## What's done
+- **`toss(at)`** (the optional contract method, `toss.ts`). The animal turns to face `at`, winds up, lets go at **0.3s** (when the promise resolves), then follows through and turns back to its home facing (about 0.9s in all). Each throw fits how the animal holds the treasure:
+  - Dogs, horse, goat, cat: a mouth flick. The head scoops down, then flicks up and forward. The cat bats it with a paw too, and the goat's beard swings.
+  - Elephant: the trunk curls back, then whips forward joint by joint.
+  - Crab: the raised claw cocks back as it leans away, then flings over and snaps open.
+  - Octopus: the holding tentacle curls back, then whips out level toward the catcher.
+  - Seahorse, pufferfish, turtle, blobfish: a head-bob launch. They crouch with the chin up, then pop up and nod it off.
+- **At the release**, the animal's own treasure disappears (the world flies the real one) with a few sparkles and short speed lines. Integration's `setCarrying(null)` right after then removes it without a pop, and the holding pose (raised trunk, claw or tentacle) eases back down instead of snapping. Every drop now eases that pose down this way.
+- **The catch.** The first other animal given a treasure (`setCarrying(owner)`) within 2.5s of a toss does a happy hop with its arms up: front legs, paws, claws, flippers, fins, or four tentacles. It plays on the emote layer, so it never cuts an action.
+- **Skip and reduced motion.** `skip()` resolves a toss at once and still lets go. Under reduced motion it runs 1.3× faster with small poses and no speed lines, and the catch hop is small.
+- If nobody clears a thrown treasure, it shows again in the mouth when the animal next acts.
+- **Tests**: 15 new (116 in the cast, all passing): every animal releases at 0.25–0.4s facing the target, hides and then removes the treasure, and settles back home. Also the catch (only once, only after a toss), skip, reduced motion, and a toss nobody clears. `npm run typecheck` passes.
+
+## How to run the demo
+Cast demo, **Party modes → Raid**: **Toss to a teammate** (the picked animal throws to a teammate two squares away, who catches it) and **All 12 toss** (in turn, in four directions). The flying ball is a **stand-in** for the world's `flyTreasure`. Solo mode also takes `act=toss`.
+
+## Contract requests
+None. Integration order (as in `src/app/modes.ts` on phase3): `await thrower.toss(catcherPoint)`, then `thrower.setCarrying(null)`, then `await world.flyTreasure(...)`, then `catcher.setCarrying(owner)`. The catch plays by itself.
+
+## Open design questions for Johanes
+1. **Catch for every pickup?** Right now only a pickup straight after a toss gets the hop. A normal grab from the ground keeps the small star pop.
+
+## Known issues
+- The release point is where the treasure sits in the animal's mouth, claw, trunk, tentacle or on its head. The world's flight should start from about there; not checked together yet.
+
+---
+
 # Animation polish (2026-10-28)
 
 ## What changed

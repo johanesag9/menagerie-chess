@@ -9,6 +9,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { POWER_OF, type EmoteKind, type MoveStyle, type PieceKind, type PowerKind, type Side, type SkinChoice } from '../contracts/types';
 import { createCast, type Actor } from './index';
 import { splash as fxSplash } from './fx';
+import { TREASURE_COLORS } from './party';
 
 const SQ = 1;
 const SIDES: Side[] = ['land', 'sea'];
@@ -480,9 +481,73 @@ document.querySelectorAll<HTMLButtonElement>('#falls button').forEach((b) => {
     await fallOnce(await staged(), x, z);
   });
 });
+/**
+ * Stand-in for `world.flyTreasure`: a plain ball (bone or pearl colour) arcs from one square to another.
+ * The game's world flies the real treasure.
+ */
+function flyStandIn(owner: Side, from: THREE.Vector3, to: THREE.Vector3): Promise<void> {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), new THREE.MeshStandardMaterial({ color: owner === 'land' ? TREASURE_COLORS.bone : TREASURE_COLORS.pearl, roughness: 0.4 }));
+  m.castShadow = true;
+  m.userData.noPick = true;
+  table.add(m);
+  const p = { t: 0 };
+  const dist = from.distanceTo(to);
+  const place = () => {
+    m.position.lerpVectors(from, to, p.t);
+    m.position.y = 0.55 + Math.sin(p.t * Math.PI) * (0.35 + dist * 0.25);
+  };
+  place();
+  return new Promise((resolve) => {
+    gsap.to(p, { t: 1, duration: 0.3 + dist * 0.12, ease: 'none', onUpdate: place, onComplete: () => {
+      m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); resolve();
+    } });
+  });
+}
+
+/** Raid "pass and run", as integration plays it: toss, clear the thrower, fly the treasure, hand it to the catcher (the catch). */
+async function tossOnce(a: Actor, catcher: Actor) {
+  const owner: Side = a.side === 'land' ? 'sea' : 'land';
+  if (a.carrying !== owner) { a.setCarrying(owner); await wait(0.6); }
+  const t0 = performance.now();
+  await a.toss(world(catcher.object.position));
+  const t1 = performance.now();
+  a.setCarrying(null);
+  await flyStandIn(owner, a.object.position.clone(), catcher.object.position.clone());
+  catcher.setCarrying(owner);
+  log.textContent = `${cast.displayName(a.side, a.kind)}: toss released at ${((t1 - t0) / 1000).toFixed(2)}s`;
+}
+
+/** A teammate standing at `[x, z]` from the middle square, facing forward. */
+function teammate(a: Actor, x: number, z: number): Actor {
+  return spawn(a.side, a.kind === 'p' ? 'n' : 'p', off(x, z), 0);
+}
+
 document.querySelectorAll<HTMLButtonElement>('#carry button').forEach((b) => {
   b.onclick = () => action(async () => {
     const c = b.dataset.c!;
+    if (c === 'toss' || c === 'tossall') {
+      const one = c === 'toss';
+      if (!one) unstage();
+      const dirs: [number, number][] = [[2, 0], [0, -2], [-2, 0], [0, 2], [1, 0], [-1, 0]];
+      const list = one ? [null] : SIDES.flatMap((side) => KINDS.map((kind) => [side, kind] as const));
+      let i = 0;
+      for (const sk of list) {
+        const a = sk ? spawn(sk[0], sk[1], S, 0) : await staged();
+        const [x, z] = dirs[i++ % dirs.length];
+        const mate = teammate(a, x, z);
+        if (!one) await wait(0.6);
+        await tossOnce(a, mate);
+        await wait(1.1);
+        mate.setCarrying(null);
+        await gsap.to(mate.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+        mate.dispose();
+        if (!one) {
+          await gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+          a.dispose();
+        }
+      }
+      return;
+    }
     if (c === 'all') {
       unstage();
       const row = SIDES.flatMap((side) => KINDS.map((kind) => [side, kind] as const));
@@ -601,7 +666,7 @@ async function start() {
 
 /**
  * `?solo=land-r` plays one animal's power on a loop, close up, with no panel.
- * `&act=` plays something else instead: attack, hit, pushed, jump, bonked, fall, digin, any travel style, or none.
+ * `&act=` plays something else instead: attack, hit, pushed, jump, bonked, fall, digin, toss, any travel style, or none.
  * `&look=clean|cartoon` (impact look), `&view=front|back`, `&rm=1` (reduced motion), `&label=` (caption), `&once=1` (no loop).
  */
 const qs = new URLSearchParams(location.search);
@@ -672,6 +737,16 @@ async function soloAct(a: Actor, act: string) {
       return;
     }
     case 'fall': await fallOnce(a, 1, 0); return;
+    case 'toss': {
+      const mate = teammate(a, 1, 0);
+      await wait(0.6);
+      await tossOnce(a, mate);
+      await wait(1);
+      mate.setCarrying(null);
+      await gsap.to(mate.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+      mate.dispose();
+      return;
+    }
     case 'digin': {
       await a.powerUp('sidestep');
       a.setStatus('anchored');

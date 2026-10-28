@@ -77,7 +77,7 @@ export function partyMaterials(): THREE.Material[] {
 
 // ---------- carrying (Raid) ----------
 
-type HoldMode = 'mouth' | 'claw' | 'trunk' | 'tentacle' | 'head';
+export type HoldMode = 'mouth' | 'claw' | 'trunk' | 'tentacle' | 'head';
 interface Hold {
   bone: string;
   /** Grip point in the bone's own (unscaled) space. */
@@ -201,12 +201,26 @@ export function attachCarry(a: Actor, owner: Side, restScale: (bone: string) => 
   return { owner, group, hold, k };
 }
 
-/** Pop the treasure away and remove it. */
+/** How an animal holds a treasure (the toss is built from this). */
+export function holdOf(side: Side, kind: PieceKind): { mode: HoldMode; bone: string } {
+  const h = HOLD[side][kind];
+  return { mode: h.mode, bone: h.bone };
+}
+
+/** Pop the treasure away and remove it. The holder pose eases out meanwhile (the actor keeps calling `carryFrame` until it's gone). */
 export function detachCarry(c: Carry, rm: boolean) {
   gsap.killTweensOf(c.group.scale);
   gsap.killTweensOf(c.k);
   gsap.to(c.k, { v: 0, duration: 0.2 });
   gsap.to(c.group.scale, { x: 0.001, y: 0.001, z: 0.001, duration: rm ? 0.12 : 0.2, ease: 'back.in(2)', onComplete: () => { c.group.removeFromParent(); } });
+}
+
+/** After a toss: the treasure is already hidden (the world flies it); just ease the holder pose out, then remove it. */
+export function letGoCarry(c: Carry) {
+  gsap.killTweensOf(c.group.scale);
+  gsap.killTweensOf(c.k);
+  c.group.visible = false;
+  gsap.to(c.k, { v: 0, duration: 0.35, ease: 'power2.inOut', onComplete: () => { c.group.removeFromParent(); } });
 }
 
 /** Every frame while carrying (after the idle): the holder pose, and a balanced treasure wobbles on the head. */

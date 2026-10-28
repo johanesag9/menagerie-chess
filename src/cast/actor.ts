@@ -23,6 +23,7 @@ import { STYLES, type Gait, type Style } from './styles';
 import { charge, FLOURISH, genericFlourish, POWER_INTENSITY } from './powers';
 import { travelStyle } from './travels';
 import * as party from './party';
+import { catchHop, noteToss, releaseFx, takeCatch, tossPose } from './toss';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -124,6 +125,10 @@ export class Actor implements PieceActor {
   private temps = new Set<THREE.Object3D>();
   // Phase 4
   private carry: party.Carry | null = null;
+  /** Treasures being let go: the holder pose eases out until each is removed. */
+  private letGo = new Set<party.Carry>();
+  /** The carried treasure was thrown (hidden at the release); the next `setCarrying(null)` removes it without a pop. */
+  private tossed = false;
   // Animation polish
   /** Set by a headbutt wind-up: the next attack skips its own wind-up and charges straight in. */
   private primed: PowerKind | null = null;
@@ -217,6 +222,7 @@ export class Actor implements PieceActor {
    */
   private begin(relax: boolean | 'keep' = true, hold = 0): TL {
     this.cut();
+    this.untoss();
     if (relax !== 'keep') this.primed = null;
     if (this.home === null) this.home = this.object.rotation.y;
     // Bake a leftover lunge (from an attack) into the board position, so the next move starts from there.
@@ -350,6 +356,10 @@ export class Actor implements PieceActor {
       }
     }
     if (this.carry) party.carryFrame(this, this.carry, t);
+    for (const c of this.letGo) {
+      if (c.group.parent) party.carryFrame(this, c, t);
+      else this.letGo.delete(c);
+    }
     party.anchorFrame(this, this.statusFx.dig, t);
 
     // Blinks (sometimes a double blink).
@@ -955,9 +965,55 @@ export class Actor implements PieceActor {
 
   setCarrying(owner: Side | null): void {
     if (this.disposed || owner === this.carrying) return;
-    if (this.carry) party.detachCarry(this.carry, this.rm);
+    if (this.carry) {
+      if (this.tossed) party.letGoCarry(this.carry);
+      else party.detachCarry(this.carry, this.rm);
+      this.letGo.add(this.carry);
+    }
+    this.tossed = false;
     this.carry = owner ? party.attachCarry(this, owner, (n) => this.restScale(n)) : null;
     if (this.carry && this.object.parent && !this.rm) fx.stars(this.fxParent, this.bonePoint(this.carry.hold.bone), this.sq, 4, 0.35);
+    // Handed it straight after another animal's toss: a catch.
+    if (this.carry && this.object.parent && takeCatch(this.id)) this.catchIt();
+  }
+
+  /**
+   * Raid "pass and run": a throw toward `at` (world space), in the animal's own way. Resolves at the release (0.3s);
+   * the carried treasure is hidden then (the world flies it), and the follow-through plays on.
+   */
+  toss(at: THREE.Vector3): Promise<void> {
+    if (this.disposed || this.gone) return Promise.resolve();
+    const tl = this.begin();
+    if (this.rm) tl.timeScale(RM_SPEED);
+    const target = this.toParent(at);
+    const release = tossPose(this, tl, target);
+    tl.call(() => {
+      noteToss(this.id);
+      const c = this.carry;
+      this.object.updateWorldMatrix(true, true);
+      const from = c ? c.group.getWorldPosition(new THREE.Vector3()) : this.bonePoint('head');
+      if (c) {
+        if (this.object.parent) this.object.parent.worldToLocal(from);
+        c.group.visible = false;
+        this.tossed = true;
+      }
+      if (this.object.parent) releaseFx(this, from, target);
+    }, [], release);
+    this.relaxFaceAndPose(tl, Math.max(release + 0.5, tl.duration()));
+    return this.promiseAt(tl, release);
+  }
+
+  /** Thrown but never cleared (integration normally calls setCarrying(null) right away): the next action shows it again. */
+  private untoss() {
+    if (this.tossed && this.carry) this.carry.group.visible = true;
+    this.tossed = false;
+  }
+
+  /** The catch: a happy hop with arms up (emote layer, like the select hop). */
+  private catchIt() {
+    this.reactTl?.kill();
+    const tl = (this.reactTl = gsap.timeline());
+    catchHop(this, tl);
   }
 
   /** How much a bone is scaled at rest relative to the actor (the body is scaled to fit its height). */
@@ -988,6 +1044,8 @@ export class Actor implements PieceActor {
     if (this.statusMesh) gsap.killTweensOf(this.statusMesh.scale);
     if (this.carry) party.dropCarry(this.carry);
     this.carry = null;
+    for (const c of this.letGo) party.dropCarry(c);
+    this.letGo.clear();
     this.killBubble?.();
     for (const o of this.temps) o.removeFromParent();
     this.temps.clear();

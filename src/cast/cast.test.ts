@@ -494,3 +494,117 @@ describe('phase 4', () => {
     }
   });
 });
+
+describe('raid toss', () => {
+  const world = new THREE.Group();
+  const cast = createCast({ squareSize: 2, quality: 'high' });
+  let n = 0;
+  const make = (side: Side, kind: PieceKind, x = 0) => {
+    const a = cast.createPiece({ id: `${side}-${kind}-toss-${n++}`, side, kind, square: 'a1' });
+    a.object.position.x = x;
+    world.add(a.object);
+    return a;
+  };
+  const enemy = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
+  /** Treasure meshes (non-skinned) that are actually showing. */
+  const shown = (a: Actor) => {
+    let k = 0;
+    a.object.traverse((o) => {
+      if (!(o as THREE.Mesh).isMesh || (o as THREE.SkinnedMesh).isSkinnedMesh) return;
+      let v = true;
+      for (let p: THREE.Object3D | null = o; p; p = p.parent) v &&= p.visible;
+      if (v) k++;
+    });
+    return k;
+  };
+  const ALL = SIDES.flatMap((s) => KINDS.map((k) => [s, k] as [Side, PieceKind]));
+
+  it.each(ALL)('%s %s turns, throws, lets go at about 0.3s, then settles back facing home', async (side, kind) => {
+    const a = make(side, kind);
+    const yaw0 = a.object.rotation.y;
+    a.setCarrying(enemy(side));
+    await run([a], () => false, 0.5);
+    expect(shown(a)).toBeGreaterThan(0);
+    // Two squares to the side (+x).
+    const r = await settle([a], a.toss(new THREE.Vector3(4, 0, 0)), 2);
+    expect(r.done).toBe(true);
+    expect(r.t).toBeGreaterThan(0.25);
+    expect(r.t).toBeLessThan(0.4);
+    expect(a.forward().x).toBeGreaterThan(0.7);
+    // Hidden at the release (the world flies it), still carried until integration clears it.
+    expect(shown(a)).toBe(0);
+    expect(a.carrying).toBe(enemy(side));
+    a.setCarrying(null);
+    await run([a], () => false, 0.5);
+    expect(a.carrying).toBeNull();
+    expect(a.object.children.length).toBeGreaterThan(0);
+    let left = 0;
+    a.object.traverse((o) => { if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) left++; });
+    expect(left).toBe(0);
+    await run([a], () => !a.isBusy, 1.5);
+    expect(a.isBusy).toBe(false);
+    expect(Math.cos(a.object.rotation.y - yaw0)).toBeGreaterThan(0.99);
+    a.dispose();
+  });
+
+  it('the catcher hops with its arms up, only right after a toss', async () => {
+    for (const side of SIDES) {
+      const owner = enemy(side);
+      const thrower = make(side, 'r');
+      const catcher = make(side, 'p', 4);
+      const later = make(side, 'b', -4);
+      thrower.setCarrying(owner);
+      await run([thrower], () => false, 0.4);
+      await settle([thrower, catcher], thrower.toss(catcher.worldPos()));
+      thrower.setCarrying(null);
+      await run([thrower, catcher], () => false, 0.5);
+      catcher.setCarrying(owner);
+      await run([catcher], () => false, 0.2);
+      expect(catcher.eb('base').py).toBeGreaterThan(0.05);
+      if (side === 'land') expect(catcher.eb('legFL').rx).toBeLessThan(-0.3);
+      else expect(catcher.eb('clawR').rz).toBeGreaterThan(0.3);
+      await run([catcher], () => false, 1);
+      expect(catcher.eb('base').py).toBeCloseTo(0, 3);
+      // A second pickup isn't a catch, and neither is one with no toss before it.
+      catcher.setCarrying(null);
+      later.setCarrying(owner);
+      await run([later], () => false, 0.2);
+      expect(later.eb('base').py).toBe(0);
+      for (const a of [thrower, catcher, later]) a.dispose();
+    }
+  });
+
+  it('skip resolves a toss at once and still lets go; reduced motion is quicker', async () => {
+    const a = make('sea', 'q');
+    a.setCarrying('land');
+    await run([a], () => false, 0.4);
+    let done = false;
+    a.toss(new THREE.Vector3(0, 0, 4)).then(() => (done = true));
+    await run([a], () => false, 0.05);
+    cast.skipAll();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(true);
+    expect(shown(a)).toBe(0);
+    a.setCarrying(null);
+    const full = await settle([a], a.toss(new THREE.Vector3(0, 0, -4)), 2);
+    cast.setReducedMotion(true);
+    const short = await settle([a], a.toss(new THREE.Vector3(0, 0, 4)), 2);
+    cast.setReducedMotion(false);
+    expect(short.t).toBeLessThan(full.t);
+    a.dispose();
+  });
+
+  it('a toss nobody clears shows the treasure again on the next action', async () => {
+    const a = make('land', 'n');
+    a.setCarrying('sea');
+    await run([a], () => false, 0.4);
+    await settle([a], a.toss(new THREE.Vector3(4, 0, 0)));
+    await run([a], () => false, 1);
+    expect(shown(a)).toBe(0);
+    const p = a.moveTo(new THREE.Vector3(0, 0, 2));
+    expect(shown(a)).toBeGreaterThan(0);
+    await settle([a], p);
+    a.dispose();
+  });
+});
