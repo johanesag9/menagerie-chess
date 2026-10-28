@@ -2,6 +2,56 @@
 
 The 12 animals and all their animations. Everything is built in code. No downloaded assets, and nothing from `steam-scrape/`.
 
+# Phase 6: board-game modes (2026-10-28)
+
+## What's done
+New code is in `climb.ts` and `work.ts`, plus small hooks in `travels.ts`, `actor.ts`, `fx.ts` (`toss`) and `index.ts`.
+- **`moveTo(target, { style: 'climb' })`**: a hop up onto a higher tier, or a drop down off one. `target.y` is the new height. Going up, it rises first, then moves over, so it clears the tier edge. Going down, it hops off the edge, falls faster and faster, lands with a squash and bounces once (a bigger drop lands harder and fires a stronger `land`). The same height is a plain hop. It arrives in 0.65–1.1s.
+  - Pup: front paws up the ledge, back legs scrabbling. Horse: a neat bound, legs tucked. Elephant: front feet up first, then a heave and a stomp. Cat: crouch, butt wiggle, smooth pounce, soft landing. Pug: a determined heave and a wobble at the top.
+  - Crab: scrambles up sideways, legs a blur. Seahorse: floats up on bubbles, tail curled. Turtle: hauls itself up with its front flippers, then flops forward. Octopus: front tentacles grab the ledge and pull it up. Blobfish: squish, gloop up tall, splat.
+  - **Climbers, up 2 or more, with flair.** Goat: sizes up the ledge, deep crouch, a big spring with a twist, and a champion landing (head toss, sparkle). Pufferfish: puffs up like a balloon, floats up spinning, then lets the air out on top. Climbing 1, or dropping, they hop like everyone else.
+- **`work(kind, target)`**: build pats sand onto the square, dig scoops it off. It resolves the moment the sand lands (build, 0.63–0.75s) or leaves (dig, 0.33–0.55s); the follow-through keeps playing, about 0.5s more. The animal faces the square, works, and turns back home. It leans toward a lower square and back from a higher one.
+  - Pup: digs like mad with its front paws, dirt flying out behind. To build, it backs up to the square and kicks sand onto it. Horse: two hoof scrapes, then a forward flick (build), or a hoof drags sand off (dig). Goat: scoops with its horns and tosses it over, or gouges it out with a jab. Elephant: sucks up sand and sprays it on, or scoops a trunkful off and flings it over its head. Cat: two quick paw swats, or a litter-box rake. Pug: scoops with both paws and heaves, or scrabbles clumsily and sneezes.
+  - Crab: pinches up two clawfuls and lobs them, or snips the sand away claw after claw. Seahorse: turns its back and flicks sand over with its tail, or swishes it off. Pufferfish: puffs up, then blows a jet that carries sand over, or blasts it off. Turtle: sweeps sand over with both front flippers, or scoops it away one flipper at a time. Octopus: two tentacles slap sandfuls on, or four reach out and yank sand away. Blobfish: hops and belly-flops: the splat throws a pile on, or splats it out.
+  - **Water (Stepping Stones).** `work(kind, target, { water: true })` keeps the same gesture, but the sand lands in the sea with a splash and bubbles (raise), or the stone goes under with sand, a splash and bubbles (sink). See the contract request below.
+- **Shover's push down tiers.** `pushed` now handles height: when the target is lower, the victim skids to the edge, falls, thumps down with a bounce, dust and a few stars. Pushed up 1, it gets bumped up and over. A flat push plays exactly as before.
+- **Riding.** Integration can lower (or raise) an idle animal with a plain tween of `object.position.y`. Idle, hover, selection, emotes, `hit`, statuses and the carried treasure all live on the bones, so nothing fights the tween. The next move starts from the new height. Tested for all 12.
+- **Skip and reduced motion.** `climb` and `work` resolve on `skip()` and on `dispose()`. Under reduced motion they are quicker and smaller (no spins or twists, a plain hop that still clears the edge), with `land` intensity 0 and fewer particles.
+- **No first-play hitch.** `preload` now also draws its warm-up meshes once, off-screen. Before, the first water splash stalled about 100ms on a real GPU (pre-compiling shaders didn't cover it). Now the worst frame is about 5ms (headless Chrome, real GPU, all 12 climbing and working, drawing included). This also helps the older splash effects.
+- **Existing animations are unchanged.** Old styles and gaits weren't touched. `toss` is a new effect. The only shared change is the preload warm-up draw.
+- **Tests:** 29 new in `phase6.test.ts` (130 in the cast). For all 12: climb up 1, up 2 and down 2 clears the edge, lands on target and faces home; build and dig on sand and on water resolve on time and stay put. Also: Climbers bound higher, drops land harder, reduced motion, a ledge push for all 12, skip and dispose, and riding. `npm run typecheck` and `npm test` pass (391 tests).
+
+## How to run the demo
+Start `cast-demo` (port 4413), then open http://localhost:4413/src/cast/demo.html. Look under **Board games**. The buttons work on a copy of the picked animal in the middle row.
+- **Up 1**, **Up 2**: climb onto the square in front, then drop back down. **Drop 2**: the square rises under the animal (riding up), it drops off, then climbs back. **Pushed off**: the animal pushes an enemy pup off a level-2 square, down to level 0 (any animal can push here; in the game only the cat and octopus do). **Ride down**: it rides a square down three levels on a plain y tween. **All 12 climb** (the Climbers go up 2).
+- **Build**, **Dig**, **Build up high** (onto a level-2 square from the ground). **Raise stone** and **Sink stone** (with `water: true`). **All 12 work**. The log shows when the promise resolved; the stand-in tier or stone changes at that moment.
+- **The sand blocks, blue squares and grey stones are stand-ins** for the world's tiers, sea and stones.
+- Checked at 1280×800 and at 390×844, with real clicks at 390: no console errors, and about 1–2ms a frame (5ms at worst) in headless Chrome with a real GPU.
+
+## Contract requests
+1. **`PieceActor.work?(kind, target, opts?: { water?: boolean })`.** The cast already takes the optional `opts`. Stepping Stones should pass `water: true` for raise and sink. Without it, a raise shows a sand pat instead of a splash: it still works, but reads less clearly.
+
+Notes for integration (no contract change):
+- **Every `moveTo` target in castle needs the right height** (`world.squareTop`). The old travel styles move straight to `target.y`, so a target at level 0 would slide the animal down through the tier. Use `climb` whenever the height changes. For same-height steps, `climb` (a small hop) or the old styles both work.
+- **Shover's push:** `await shover.attack(victim)`, then together `shover.moveTo(squareTop(own square))`, `victim.hit()` and `victim.moveTo(squareTop(dest), { style: 'pushed' })`. The pusher's return target must carry its own height too.
+- **Riding:** tween `object.position.y` only while that animal isn't in its own `moveTo` or `work` (those write the position every frame). A dug-under enemy is idle, so this is the normal case.
+- **`work` timing:** call `world.setLevels` (castle) or `setSunk` (stones) when `work` resolves. Target = `world.squareTop(square)` in castle. In stones, use the water surface to raise and the stone's top to sink.
+- **Leaper and Zoomer:** a Leaper's knight hop that changes height can use `climb` (one longer hop). A Zoomer's 2 steps are two `climb` calls.
+- The cast assumes about 0.28 of a square per level (`LEVEL` in `climb.ts`). It only uses this to count levels for timing and flair, so a different world height still works.
+
+## Open design questions for Johanes
+1. **Back to the square.** The pup builds by kicking sand backwards onto the square, and the seahorse flicks sand with its tail, so both turn their backs to work. Keep it, or have them face the square like the others?
+2. **Sand colour.** All the work sand is sand-coloured, even on the meadow half. It could be brown dirt there to match packed-earth tiers, if the world uses them.
+3. **How much flair.** The goat twists in mid-air and sparkles on landing; the pufferfish spins while puffed up. More, less, or about right?
+4. **The pug sneezes** after it digs. Keep the joke?
+5. **Reduced motion** climbs are a plain hop for everyone (no personality). Should some character stay?
+
+## Known issues
+- `climb` over a knight hop (2.2 squares) uses the same timing as a single step, so it's a quick, long hop. It still clears the edge.
+- The demo doesn't queue actions: clicking a new button while one is running overlaps them (as before).
+- I saw one failing test once in a full `npm test` run while other sessions were busy. It didn't come back in five more runs, and I didn't catch which test it was.
+- The climb and work are tuned against stand-in tiers 0.88 squares wide. Check them against the world's real tiers at integration.
+
 # Phase 4: party modes (2026-10-28)
 
 ## What's done
