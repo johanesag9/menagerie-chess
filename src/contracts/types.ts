@@ -249,7 +249,7 @@ export type ChangeHow =
   | 'swept'     // tide
   | 'quake'     // earthquake
   // Phase 4 (party modes)
-  | 'sentHome'; // Raid: tagged, back to its own back rank
+  | 'sentHome'; // Raid: a tagged carrier, back to its own back rank (a tagged non-carrier is stunned in place: a `status` change)
 
 /**
  * One piece-level change. `step` orders them: integration plays every change with the same step together
@@ -275,9 +275,16 @@ export type BoardChange = { step: number } & (
   /**
    * Raid: a treasure changed hands or place. `square` = where it now lies (null while carried); `carrier` = who holds it now.
    * pickup: the step after the arrival move · drop (tag, headbutt): before the `sentHome`/`pushed` move, at the carrier's old square ·
-   * return (owner touched a dropped one) and score: it is back at `home` (`square` = home) · snatch (pigeon): one change, `square` = where it lands.
+   * return (owner touched a dropped one) and score: it is back at `home` (`square` = home) · snatch (pigeon): one change, `square` = where it lands ·
+   * throw (Raid "pass and run"): it flies from `from` to the catcher (`carrier`, `square` null) · intercept: an enemy on the square in between
+   * caught it: it flies from `from` straight home (`square` = home, `carrier` null, `by` = the interceptor).
+   * `points`: points this change scored for the carrier's side (a grab from home, bringing it home, a catch in your own half).
    */
-  | { type: 'treasure'; owner: Side; event: 'pickup' | 'drop' | 'return' | 'score' | 'snatch'; square: Square | null; carrier: PieceId | null }
+  | {
+      type: 'treasure'; owner: Side; event: 'pickup' | 'drop' | 'return' | 'score' | 'snatch' | 'throw' | 'intercept';
+      square: Square | null; carrier: PieceId | null;
+      from?: Square; by?: PieceId; points?: number;
+    }
 );
 
 /** One line of the game log, for the move list (moves, powers, cards, bonuses, bonks, wheel, passes). */
@@ -452,7 +459,7 @@ export interface GameController extends EventSource<GameEventMap> {
 
 // ---------- Phase 4: party modes (Sumo, Raid) — core ----------
 
-/** A treasure in Raid: Land's bone (home e1) or Sea's pearl (home d8). */
+/** A treasure in Raid: Land's bone or Sea's pearl. Its home square is `home` (from core's tuning: bone e3, pearl d6 by default). */
 export interface TreasureState {
   owner: Side;
   home: Square;
@@ -512,6 +519,10 @@ export interface ArenaPieceOptions {
   /** AP a shove or tag on each square in `hits` costs, same order. */
   hitCosts: number[];
   power: PowerInfo;
+  /** Raid carrier: teammates' squares it can throw the treasure to (missing = none). */
+  throws?: Square[];
+  /** AP a throw costs. */
+  throwCost?: number;
 }
 
 /**
@@ -524,6 +535,8 @@ export type ArenaAction =
   | { type: 'step'; pieceId: PieceId; to: Square }
   | { type: 'hit'; pieceId: PieceId; target: Square }
   | { type: 'power'; pieceId: PieceId; targets: Square[] }
+  /** Raid "pass and run": the carrier throws the treasure to a teammate in a straight line up to 2 squares away. */
+  | { type: 'throw'; pieceId: PieceId; to: Square }
   | { type: 'endTurn' };
 
 export interface ArenaEventMap {
@@ -649,6 +662,11 @@ export interface World extends EventSource<WorldEventMap> {
    * - Phase 4, Raid pigeon: `treasure` = the pigeon grabs that treasure at `from` (from the ground, or out of a carrier's mouth: integration
    *   clears the carrier first) and drops it at `to`. Show the treasure in its beak; integration calls `setTreasures` after.
    */
+  /**
+   * Phase 4 (Raid), optional: the treasure arcs from `from` to `to` (a catch, or straight home when intercepted). Resolves when it lands.
+   * Integration hides it in the carrier first (`setCarrying(null)`) and calls `setCarrying`/`setTreasures` after.
+   */
+  flyTreasure?(owner: Side, from: Square, to: Square, opts?: { intercepted?: boolean }): Promise<void>;
   playChaos(outcome: WheelOutcome, opts?: { squares?: Square[]; carry?: Object3D; direction?: 'left' | 'right'; treasure?: { owner: Side; from: Square; to: Square } }): Promise<void>;
   /**
    * Phase 4 (Sumo): show exactly these squares as sunk (the tile drops under rising water, waves lap over it) and `warn` as
@@ -721,6 +739,8 @@ export interface PieceActor {
   fall(dir: Vector3): Promise<void>;
   /** Phase 4 (Raid): hold the other side's treasure in its mouth, claw or tentacle (`owner` = whose treasure: 'land' bone, 'sea' pearl). null = nothing. */
   setCarrying(owner: Side | null): void;
+  /** Phase 4 (Raid), optional: a throwing pose toward `at` (the treasure itself flies with `world.flyTreasure`). Resolves at release. */
+  toss?(at: Vector3): Promise<void>;
   /** Attack lunge toward a victim. Resolves at the moment of impact. The attacker is left mid-lunge: integration then moves it on (capture) or back (headbutt, bonk). */
   attack(victim: PieceActor): Promise<void>;
   /** Defeat animation (slapstick, never gory). Resolves when it has left the board. */
@@ -908,7 +928,7 @@ export type AudioCue =
   | 'stun' | 'freeze' | 'block' | 'revive' | 'slip' | 'recharge'
   // Phase 4
   | 'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 'anchor'
-  | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn'
+  | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn' | 'toss' | 'catch' | 'intercept'
   | `voice:${Side}:${PieceKind}`
   | `emote:${EmoteKind}`;
 
