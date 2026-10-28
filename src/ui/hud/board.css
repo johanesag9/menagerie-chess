@@ -1,0 +1,190 @@
+/* =====================================================================
+   Phase 6: board-game modes (Sandcastle King, Stepping Stones).
+   Setup row, draft picker, board HUD, Build/Dig toggle, result art. Other modes never show any of this.
+   ===================================================================== */
+
+/* ---------- Setup: the "Board games" row ---------- */
+.mc-modes__tag--board { background: rgba(31, 138, 138, 0.14); color: var(--teal-deep); }
+.mc-modes__opt[data-value='castle'][aria-checked='true'] { background: #b07a2a; border-color: #b07a2a; box-shadow: 0 4px 0 #6e4a14; }
+.mc-modes__opt[data-value='stones'][aria-checked='true'] { background: #3f6a86; border-color: #3f6a86; box-shadow: 0 4px 0 #24435a; }
+
+/* ---------- Side strip: drafted animals and traits (castle), powers left (stones) ---------- */
+.mc-strip--board { gap: 2px 8px; }
+.mc-bani { display: inline-flex; align-items: center; gap: 3px; padding-right: 2px; }
+.mc-bani .mc-ani { flex: none; }
+.mc-bani__trait { font-size: 13px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+.mc-strip--board[data-side='land'] .mc-bani__trait { color: var(--gold-deep); }
+.mc-strip--board[data-side='sea'] .mc-bani__trait { color: var(--teal-deep); }
+.mc-bani__lvl {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #d9a85a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 1.5px 0 #9c6b22;
+}
+.mc-bani__crown { position: absolute; right: -6px; top: -9px; font-size: 14px; line-height: 1; filter: drop-shadow(0 1px 0 #fff); }
+.mc-bani.is-crowned .mc-ani { animation: mc-bob 1.6s ease-in-out infinite; }
+.mc-bani.is-mover .mc-ani { border-radius: 50%; box-shadow: 0 0 0 2px var(--gold); }
+.mc-strip--board[data-side='sea'] .mc-bani.is-mover .mc-ani { box-shadow: 0 0 0 2px var(--aqua); }
+.mc-bani--empty .mc-ani { border-radius: 50%; border: 2px dashed var(--edge-deep); }
+.mc-bani--empty .mc-bani__trait { font-weight: 500; opacity: 0.7; }
+.mc-bani--empty.is-now .mc-ani { border-color: var(--coral); animation: mc-pulse 1.2s ease-in-out infinite; }
+.mc-bstrip__n { font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+
+/* ---------- Chip: round, tide, paths, and the crown warning ---------- */
+.mc-chip__path b { margin: 0 2px; font-size: 17px; font-variant-numeric: tabular-nums; }
+.mc-chip__path b[data-side='land'] { color: var(--gold-deep); }
+.mc-chip__path b[data-side='sea'] { color: var(--teal-deep); }
+.mc-chip__path b.is-hot { padding: 0 6px; border-radius: 999px; background: var(--coral-deep); color: #fff; animation: mc-pulse 1s ease-in-out infinite; }
+
+.mc-crown {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 560px;
+  margin: 4px auto 0;
+  padding: 8px 16px;
+  border-radius: 18px;
+  background: var(--coral-deep);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-wrap: balance;
+  box-shadow: 0 4px 0 #8c2a1c, 0 10px 24px rgba(59, 42, 30, 0.3);
+}
+.mc-crown[data-mine='true'] { background: var(--gold); color: var(--ink); box-shadow: 0 4px 0 var(--gold-deep), 0 10px 24px rgba(59, 42, 30, 0.25); }
+.mc-crown__icon { flex: none; font-size: 26px; animation: mc-bob 1.2s ease-in-out infinite; }
+
+/* ---------- Bottom dock: turn bar with the stage, and the toggle ---------- */
+.mc-board-dock { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(520px, 100%); }
+.mc-bturn { width: 100%; justify-content: flex-start; }
+.mc-bturn .mc-turnbar__mid { flex: 1; padding-left: 4px; }
+.mc-bturn__stage { font-size: 19px; font-weight: 700; line-height: 1.15; text-wrap: balance; }
+.mc-bturn__art { flex: none; width: 44px; height: 44px; }
+.mc-bturn[data-stage='more'] .mc-bturn__stage { color: var(--coral-deep); }
+
+.mc-shape {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  padding: 4px;
+  border-radius: 22px;
+  background: rgba(255, 250, 240, 0.97);
+  border: 3px solid var(--edge);
+  box-shadow: 0 4px 0 var(--edge-deep), 0 10px 22px rgba(59, 42, 30, 0.18);
+}
+/* The sliding thumb under the chosen half. */
+.mc-shape::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 17px;
+  background: var(--thumb, var(--gold));
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+  transition: transform 0.28s var(--spring), background-color 0.2s;
+}
+.mc-shape[data-dir='down']::before { transform: translateX(100%); }
+.mc-shape[data-mode='castle'] { --thumb: #d9a85a; }
+.mc-shape[data-mode='castle'][data-dir='down'] { --thumb: #8a5a2b; }
+.mc-shape[data-mode='stones'] { --thumb: #6f8796; }
+.mc-shape[data-mode='stones'][data-dir='down'] { --thumb: var(--teal-deep); }
+.mc-shape__opt {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 17px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 21px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 0.2s, transform 0.14s var(--spring);
+}
+.mc-shape__opt[aria-checked='true'] { color: #fff; }
+.mc-shape[data-mode='castle'][data-dir='up'] .mc-shape__opt[aria-checked='true'] { color: var(--ink); }
+.mc-shape__opt:active:not(:disabled) { transform: scale(0.96); }
+.mc-shape__opt:disabled { cursor: not-allowed; opacity: 0.4; }
+.mc-shape__ico { display: block; width: 22px; height: 22px; }
+.mc-shape__ico svg { display: block; width: 100%; height: 100%; }
+.mc-shape__x { padding: 1px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.85); color: var(--ink); font-size: 15px; }
+.mc-shape__opt kbd { position: absolute; top: 5px; right: 10px; font: 600 11px/1 inherit; opacity: 0.6; }
+@media (hover: none) { .mc-shape__opt kbd { display: none; } }
+
+/* ---------- Draft picker ---------- */
+.mc-draft { width: min(620px, calc(100% - 16px)); }
+.mc-draft__picks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
+.mc-draft__side { display: flex; align-items: center; gap: 6px; }
+.mc-draft__who { font-size: 14px; font-weight: 700; color: var(--ink-soft); min-width: 32px; }
+.mc-draft__side[data-side='land'] .mc-draft__who { color: var(--gold-deep); }
+.mc-draft__side[data-side='sea'] .mc-draft__who { color: var(--teal-deep); }
+.mc-draft__slot { display: block; width: 36px; height: 36px; border-radius: 50%; border: 2px dashed var(--edge-deep); }
+.mc-draft__slot.is-full { border: 0; animation: mc-pop-in 0.35s var(--spring); }
+.mc-draft__slot.is-now { border-color: var(--coral); animation: mc-pulse 1.2s ease-in-out infinite; }
+.mc-draft__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mc-draft__opt { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-height: 0; padding: 10px; text-align: left; }
+.mc-draft__art { flex: none; width: 48px; height: 48px; }
+.mc-draft__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding-right: 12px; }
+.mc-draft__opt:disabled .mc-draft__text { padding-right: 0; padding-top: 12px; }
+.mc-draft__opt .mc-ask__name { font-size: 16px; line-height: 1.15; }
+.mc-draft__trait { font-size: 15px; font-weight: 700; }
+.mc-draft[data-side='land'] .mc-draft__trait { color: var(--gold-deep); }
+.mc-draft[data-side='sea'] .mc-draft__trait { color: var(--teal-deep); }
+.mc-draft__opt .mc-ask__line { font-size: 12.5px; }
+.mc-draft__picked { position: absolute; top: 6px; right: 8px; padding: 1px 7px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; }
+.mc-draft__opt:not(:disabled) { animation: mc-rise-in 0.36s var(--spring) both; animation-delay: calc(var(--i) * 30ms); }
+
+/* ---------- Result art ---------- */
+.mc-result__castle { position: relative; }
+
+/* ---------- Narrow screens ---------- */
+@media (max-width: 600px) {
+  .mc-bani__trait { font-size: 12px; }
+  .mc-crown { margin-top: 2px; padding: 6px 12px; font-size: 15px; border-radius: 16px; }
+  .mc-crown__icon { font-size: 20px; }
+  .mc-chip__path b { font-size: 15px; }
+  .mc-board-dock { gap: 6px; }
+  .mc-bturn__stage { font-size: 16px; }
+  .mc-bturn__art { width: 36px; height: 36px; }
+  .mc-shape { border-radius: 20px; }
+  .mc-shape__opt { min-height: 56px; font-size: 19px; }
+  .mc-draft__grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .mc-draft__opt { padding: 8px 6px; gap: 6px; }
+  .mc-draft__art { width: 40px; height: 40px; }
+  .mc-draft__opt .mc-ask__name { font-size: 14px; }
+  .mc-draft__trait { font-size: 14px; }
+  .mc-draft__opt .mc-ask__line { font-size: 11.5px; }
+  .mc-draft__slot { width: 30px; height: 30px; }
+}
+
+.mc-ui[data-motion='reduced'] .mc-shape::before { transition: none; }
+.mc-ui[data-motion='reduced'] .mc-crown__icon,
+.mc-ui[data-motion='reduced'] .mc-bani.is-crowned .mc-ani,
+.mc-ui[data-motion='reduced'] .mc-chip__path b.is-hot,
+.mc-ui[data-motion='reduced'] .mc-bani--empty.is-now .mc-ani,
+.mc-ui[data-motion='reduced'] .mc-draft__slot.is-now,
+.mc-ui[data-motion='reduced'] .mc-draft__opt { animation: none !important; }

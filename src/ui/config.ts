@@ -61,7 +61,7 @@ export const REASON_TEXT: Record<GameOverReason, string> = {
   kingOverboard: 'by shoving the king into the sea',
   treasure: 'by raiding the treasure',
   rounds: 'on the round cap',
-  // Phase 6 stub (orchestrator): ui owns the final words.
+  // Phase 6 (the result screen words these in full; see boardLine in boardText.ts).
   castle: 'by holding the castle',
   crossed: 'by crossing the sea',
   resign: 'by resignation',
