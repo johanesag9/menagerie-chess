@@ -212,13 +212,13 @@ const BASE: Record<PieceKind, number> = { p: 3, n: 2, b: 5, r: 4, q: 4, k: 3 };
 const PAIR: Partial<Record<string, number>> = { br: 4, bq: 3, pr: 3, kr: 3, bp: 2, kq: 2, nr: 2, bk: 2, pq: 2 };
 const pairValue = (a: PieceKind, b: PieceKind) => PAIR[a + b] ?? PAIR[b + a] ?? 0;
 
-/** Pick from the few best kinds for this side's draft so far, with a little randomness. */
+/** Pick from the 4 best kinds for this side's draft so far, at random weighted by value. */
 export function draftPick(s: AState, rng: () => number): PieceKind {
   const mine = s.picks[s.turn];
   const left = (['p', 'n', 'b', 'r', 'q', 'k'] as PieceKind[]).filter((k) => !mine.includes(k));
   const value = (k: PieceKind) => BASE[k] + mine.reduce((n, j) => n + pairValue(j, k), 0);
-  const top = left.sort((a, b) => value(b) - value(a)).slice(0, 3);
-  const weights = top.map((k) => value(k) ** 2);
+  const top = left.sort((a, b) => value(b) - value(a)).slice(0, 4);
+  const weights = top.map((k) => value(k));
   let x = rng() * weights.reduce((a, b) => a + b, 0);
   for (let k = 0; k < top.length; k++) {
     x -= weights[k];
