@@ -43,8 +43,8 @@ export class FakeArena {
     this.st = {
       mode, round: 1, turn: 'land', phase: 'action', die: null, ap: 0, pieces, out: [], powersUsed: [], statuses: [], squares: [],
       duelTokens: { land: 2, sea: 2 }, sunk: [], sinkingNext: [], nextSinkIn: null,
-      treasures: mode === 'raid' ? [{ owner: 'land', home: 'e1', square: 'e1', carrier: null }, { owner: 'sea', home: 'd8', square: 'd8', carrier: null }] : [],
-      score: { land: 0, sea: 0 }, target: mode === 'raid' ? 3 : 0, nextWheelIn: null, maxRounds: mode === 'raid' ? 20 : 15,
+      treasures: mode === 'raid' ? [{ owner: 'land', home: 'e3', square: 'e3', carrier: null }, { owner: 'sea', home: 'd6', square: 'd6', carrier: null }] : [],
+      score: { land: 0, sea: 0 }, target: mode === 'raid' ? 5 : 0, nextWheelIn: null, maxRounds: mode === 'raid' ? 12 : 15,
     };
     this.derive();
   }
@@ -98,8 +98,9 @@ export class FakeArena {
       const [f, r] = xy(p.square);
       for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) {
         const to = sq(f + df, r + dr);
-        const own = this.st.treasures.find((t) => t.owner === side)?.home;
-        if ((df || dr) && to && this.free(to) && to !== own && !this.st.sinkingNext.includes(to)) opts.push({ id: p.id, from: p.square, to });
+        // Stand-in steps stay off treasure homes and treasures (no guarding, closed homes, and no grabs in the fake).
+        const taken = this.st.treasures.some((t) => t.home === to || t.square === to);
+        if ((df || dr) && to && this.free(to) && !taken && !this.st.sinkingNext.includes(to)) opts.push({ id: p.id, from: p.square, to });
       }
     }
     return opts.length ? pick(opts) : null;
@@ -302,10 +303,10 @@ export function addArenaControls(ui: MenagerieUi, section: Section, btn: Btn, no
     f.st.round = 9;
     f.derive();
     f.st.score = { land: 1, sea: 2 };
-    // The Seahorse carried the bone into the meadow, was tagged on f4 and sent home to b8.
-    f.place({ 'land-n-b2': 'c6', 'land-q-d2': 'd4', 'sea-n-b7': 'b8', 'sea-p-g7': 'f5' });
-    f.st.treasures[1] = { owner: 'sea', home: 'd8', square: null, carrier: 'land-n-b2' };
-    f.st.treasures[0] = { owner: 'land', home: 'e1', square: 'f4', carrier: null };
+    // Land grabbed the pearl (+1). Sea grabbed the bone twice (+1 each): the Seahorse was tagged on f4 just now and sent home to f8.
+    f.place({ 'land-n-b2': 'c6', 'land-q-d2': 'd4', 'sea-n-b7': 'f8', 'sea-p-g7': 'f5' });
+    f.st.treasures[1] = { owner: 'sea', home: 'd6', square: null, carrier: 'land-n-b2' };
+    f.st.treasures[0] = { owner: 'land', home: 'e3', square: 'f4', carrier: null };
     f.st.die = 5;
     f.st.ap = 4;
     f.push();
@@ -383,9 +384,10 @@ export function addArenaControls(ui: MenagerieUi, section: Section, btn: Btn, no
   btn(res, 'Sumo: you win', () => sumoResult('land'));
   btn(res, 'Sumo: bot wins', () => sumoResult('sea'));
   btn(res, 'Sumo: both kings', () => sumoResult(null));
-  btn(res, 'Raid: 3 points', () => {
+  btn(res, 'Raid: 5 points', () => {
     const f = fa?.st.mode === 'raid' ? fa : stage('raid');
-    f.st.score = { land: 3, sea: 1 };
+    // Two grabs that were stopped (+1 each), then a full raid (+1 grab, +2 home).
+    f.st.score = { land: 5, sea: 1 };
     f.st.phase = 'over';
     f.push();
     ui.showResult({ winner: 'land', reason: 'treasure' });
@@ -498,41 +500,60 @@ export function addArenaControls(ui: MenagerieUi, section: Section, btn: Btn, no
     st.round = 5;
     f.derive();
     st.powersUsed = ['land-q-d2', 'sea-k-e7'];
+    st.score = { land: 1, sea: 1 };
     f.place({
-      'land-n-b2': 'c7', 'land-b-c2': 'c4', 'land-q-d2': 'd4', 'land-k-e2': 'e3', 'land-r-f2': 'f3', 'land-p-g2': 'g3',
-      'sea-p-g7': 'b6', 'sea-b-c7': 'c8', 'sea-q-d7': 'd6', 'sea-k-e7': 'e6', 'sea-r-f7': 'f6', 'sea-n-b7': 'g5',
+      'land-n-b2': 'c5', 'land-b-c2': 'c4', 'land-q-d2': 'd4', 'land-r-f2': 'f3', 'land-p-g2': 'b6',
+      'sea-p-g7': 'a6', 'sea-r-f7': 'f6', 'sea-n-b7': 'g5',
     });
     note('script', 'Raid, round 5: the Horse is next to the pearl');
-    await f.roll('land', 4);
+    await f.roll('land', 5);
 
     await wait(700);
-    note('script', 'step onto d8 (1 AP): pick up the pearl (free)');
-    f.place({ 'land-n-b2': 'd8' });
+    note('script', 'step onto d6 (1 AP): grab the pearl, +1');
+    f.place({ 'land-n-b2': 'd6' });
     f.spend(1);
     st.treasures[1] = { ...st.treasures[1], square: null, carrier: 'land-n-b2' };
+    st.score.land++;
     ui.audio.play('step');
     ui.audio.play('pickup');
-    ui.addLog({ side: 'land', kind: 'move', label: 'Horse c7→d8, grabs the pearl' });
+    ui.addLog({ side: 'land', kind: 'move', label: 'Horse c5→d6, grabs the pearl (+1)' });
     f.push();
-    await ui.announce('Pearl stolen!', 'good');
+    ui.audio.play('score');
+    await ui.announce('Pearl grabbed! +1', 'good');
 
     await wait(400);
-    note('script', 'carrier step d8→c7 (2 AP): AP runs out, the turn ends');
-    ui.setSelection({ pieceId: 'land-n-b2', side: 'land', kind: 'n', power: { power: 'doubleJump', available: false, reason: 'wrongPhase' } });
-    f.place({ 'land-n-b2': 'c7' });
-    f.spend(2);
-    ui.audio.play('step', { rate: 0.8 });
-    ui.addLog({ side: 'land', kind: 'move', label: 'Horse d8→c7 (carrying: 2 AP)' });
+    note('script', 'pass and run (1 AP): Horse d6 throws to the Dachshund on b6 (still in Sea\'s half, so no points yet)');
+    ui.audio.play('toss');
+    await wait(300);
+    st.treasures[1] = { ...st.treasures[1], carrier: 'land-p-g2' };
+    f.spend(1);
+    ui.audio.play('catch');
+    ui.addLog({ side: 'land', kind: 'move', label: 'Horse throws the pearl d6→b6, the Dachshund catches it' });
     f.push();
-    await wait(700);
-    ui.setSelection(null);
 
-    // Sea: the Crab tags the carrier. Land may duel.
+    await wait(500);
+    note('script', 'step: Horse d6→c6 (1 AP), then End turn (1 AP left is lost)');
+    f.place({ 'land-n-b2': 'c6' });
+    f.spend(1);
+    ui.audio.play('step');
+    ui.addLog({ side: 'land', kind: 'move', label: 'Horse d6→c6' });
+    f.push();
+    await wait(500);
+    ui.audio.play('endTurn');
+
+    // Sea: the Octopus stuns the Horse, the Crab tags the carrier. Land may duel.
     await f.roll('sea', 6);
     ui.setBotThinking(true);
     await wait(700);
+    f.spend(1);
+    st.statuses = [{ pieceId: 'land-n-b2', status: 'stunned', turnsLeft: 1 }];
+    ui.audio.play('tag');
+    ui.addLog({ side: 'sea', kind: 'move', label: 'Octopus tags Horse: stunned' });
+    f.push();
+    await ui.announce('Horse stunned!', 'bad');
+    await wait(500);
     ui.setBotThinking(false);
-    const info: DuelInfo = { attackerId: 'sea-p-g7', victimId: 'land-n-b2', via: 'tag', from: 'b6', to: 'c7', attacker: 'sea', defender: 'land', tokensLeft: st.duelTokens.land };
+    const info: DuelInfo = { attackerId: 'sea-p-g7', victimId: 'land-p-g2', via: 'tag', from: 'a6', to: 'b6', attacker: 'sea', defender: 'land', tokensLeft: st.duelTokens.land };
     st.phase = 'duel';
     f.push();
     const call = await ui.askDuel(info);
@@ -552,19 +573,19 @@ export function addArenaControls(ui: MenagerieUi, section: Section, btn: Btn, no
       await ui.announce('Tag dodged!', 'good');
     } else {
       ui.audio.play('tag');
-      f.place({ 'land-n-b2': 'c1' });
-      st.treasures[1] = { ...st.treasures[1], square: 'c7', carrier: null };
+      f.place({ 'land-p-g2': 'b1' });
+      st.treasures[1] = { ...st.treasures[1], square: 'b6', carrier: null };
       ui.audio.play('drop');
-      ui.addLog({ side: 'sea', kind: 'move', label: 'Crab tags Horse: sent home, pearl dropped on c7' });
+      ui.addLog({ side: 'sea', kind: 'move', label: 'Crab tags Dachshund: sent home, pearl dropped on b6' });
       f.push();
       await ui.announce('Pearl dropped!', 'bad');
       await wait(500);
       // Its owner steps on it: the pearl flies home.
-      f.place({ 'sea-b-c7': 'c7' });
+      f.place({ 'sea-p-g7': 'b6' });
       f.spend(1);
-      st.treasures[1] = { ...st.treasures[1], square: 'd8' };
+      st.treasures[1] = { ...st.treasures[1], square: 'd6' };
       ui.audio.play('treasureHome');
-      ui.addLog({ side: 'sea', kind: 'move', label: 'Pufferfish c8→c7, the pearl flies home' });
+      ui.addLog({ side: 'sea', kind: 'move', label: 'Crab a6→b6, the pearl flies home' });
       f.push();
       await ui.announce('Pearl back home!', 'info');
     }

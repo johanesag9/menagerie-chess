@@ -381,7 +381,7 @@ const wheel: Record<WheelOutcome, CueFn> = {
 
 // ---------- Phase 4: party modes (Sumo, Raid) ----------
 
-const party: Record<'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 'anchor' | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn', CueFn> = {
+const party: Record<'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 'anchor' | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn' | 'toss' | 'catch' | 'intercept', CueFn> = {
   // One light hop: a soft pad and a puff of sand. Quieter and shorter than a chess move (a turn has several).
   step: (o, t) => {
     tone(o, { t, dur: 0.09, f: 210, f2: 95, gain: 0.32 });
@@ -457,6 +457,24 @@ const party: Record<'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 
   endTurn: (o, t) => {
     tone(o, { t, dur: 0.14, f: midi(74), type: 'triangle', gain: 0.16 });
     tone(o, { t: t + 0.1, dur: 0.22, f: midi(67), type: 'triangle', gain: 0.14 });
+  },
+  // Pass! A quick whoosh-up as the treasure leaves the paw.
+  toss: (o, t) => {
+    noise(o, { t, dur: 0.24, f: 700, f2: 3800, q: 1.8, gain: 0.2, attack: 0.04 });
+    tone(o, { t, dur: 0.2, f: 260, f2: 900, gain: 0.08 });
+  },
+  // Caught: a bright pluck.
+  catch: (o, t) => {
+    tone(o, { t, dur: 0.22, f: midi(81), f2: midi(80), type: 'triangle', gain: 0.18 });
+    tone(o, { t, dur: 0.12, f: midi(93), type: 'sine', gain: 0.05 });
+    noise(o, { t, dur: 0.02, f: 4000, type: 'highpass', gain: 0.08 });
+  },
+  // Intercepted: a cheeky "nope" boing, down then up then down.
+  intercept: (o, t) => {
+    tone(o, { t, dur: 0.12, f: 520, f2: 300, type: 'triangle', gain: 0.18 });
+    tone(o, { t: t + 0.1, dur: 0.12, f: 240, f2: 440, gain: 0.2 });
+    tone(o, { t: t + 0.2, dur: 0.3, f: 440, f2: 190, gain: 0.2, vib: [18, 30] });
+    noise(o, { t, dur: 0.03, f: 2800, q: 0.8, gain: 0.15 });
   },
 };
 
@@ -547,6 +565,10 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   treasureHome: 1.6,
   score: 1.05,
   endTurn: 1.43,
+  // Raid pass and run, measured 2026-10-28: next to pickup and tag.
+  toss: 3.0,
+  catch: 2.0,
+  intercept: 1.32,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;

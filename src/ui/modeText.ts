@@ -10,7 +10,7 @@ export const MODE_TEXT: Record<PlayMode, { name: string; pitch: string; icon: st
   crazy: { name: 'Crazy', pitch: 'Powers, dice, duels, cards and the Wheel of Chaos. Bonk the king to win.', icon: '🎲' },
   // Phase 4: party modes (not chess).
   sumo: { name: 'Sumo', pitch: 'Shove the enemy king into the sea while the island sinks.', icon: '🏝️' },
-  raid: { name: 'Raid', pitch: "Steal their treasure and carry it home. First to 3 wins.", icon: '🦴' },
+  raid: { name: 'Raid', pitch: "Grab their treasure, pass and run it home. First to 5 wins.", icon: '🦴' },
 };
 
 export const MODES: GameMode[] = ['classic', 'normal', 'crazy'];
@@ -185,23 +185,27 @@ export const HOW_TO: Record<PlayMode, { title: string; items: string[] }[]> = {
   ],
   raid: [
     { title: 'Win', items: [
-      'First to 3 points. After round 20, more points wins; equal is a draw.',
+      'First to 5 points. After round 12, more points wins; equal is a draw.',
     ] },
     { title: 'The treasures', items: [
       'Land\'s half is the meadow (ranks 1–4). Sea\'s half is the beach (ranks 5–8).',
-      '🦴 Land\'s bone lies at e1, by the dog house. 🦪 Sea\'s pearl lies at d8, by the water.',
-      'No guarding: you can\'t stand on your own treasure\'s square.',
-      'Step onto the enemy treasure to pick it up (free). Carrying is slow: each step costs 2 AP, and no power.',
-      'Carry it into your own half to score 1 point, however it gets there (the tide counts too). It then goes back home.',
+      '🦴 Land\'s bone lies at e3. 🦪 Sea\'s pearl lies at d6. Both are close to the middle, so raids are quick.',
+      'No guarding: you can\'t stand on your own treasure\'s square. While a treasure is away, its home square is closed.',
+      'Grab (free): step onto the enemy treasure at its home to pick it up. +1 point.',
+      'Carrying is slow: each step costs 2 AP, and no power.',
+      'Bring it home: carry it into your own half for +2 points, however it gets there (the tide counts too). It then goes back home.',
       'Only the square an animal finishes on picks a treasure up, not the middle of a double jump.',
     ] },
     { title: 'Your turn', items: [
       'Six animals a side. Roll the die for action points (AP): 1–2 gives 2 AP, 3–4 gives 3, 5–6 gives 4.',
       'Spend AP on any animals, in any order, then press End turn. Unused AP is lost.',
       '👣 Step (1 AP): one square in any direction, onto an empty square.',
-      '👋 Tag (1 AP): in your own half, tag a neighbouring enemy. It is sent to the nearest free square on its back rank and drops anything it carries.',
+      '🤾 Pass and run (1 AP): the carrier throws the treasure to a teammate in a straight line, up to 2 squares away. If the catcher is in its own half, the +2 scores at once.',
+      'An enemy on the square in between intercepts the throw, and the treasure flies straight home.',
+      '👋 Tag (1 AP): in your own half, tag a neighbouring enemy that is in your half too. An animal that isn\'t carrying is stunned for its next turn (and can\'t be tagged again while stunned).',
+      'A tagged carrier is sent to the nearest free square on its back rank and drops the treasure where it was tagged.',
       'If you have AP left but nothing you can afford, the turn ends by itself.',
-      'A dropped treasure can be picked up again. If its owner steps on it, it flies home.',
+      'A dropped treasure can be picked up again, but scores no grab point. If its owner steps on it, it flies home.',
     ] },
     { title: 'Powers (2 AP, once per game)', items: [
       'The same as Normal mode: Sidestep, Double jump, Headbutt, Stomp, Block, Escape. Sidestep costs no AP.',
@@ -211,7 +215,7 @@ export const HOW_TO: Record<PlayMode, { title: string; items: string[] }[]> = {
     { title: 'Duels and the wheel', items: [
       '✊ When your carrier is tagged, you may call rock-paper-scissors. 2 tokens per game. Win and the tag fails.',
       '🎡 Every 5 rounds the Wheel of Chaos spins.',
-      '🌊 Tide: Land animals on the beach are swept back a rank.',
+      '🌊 Tide: every animal in the other side\'s half is swept back a rank toward home.',
       '🐦 Pigeon: grabs a carried or dropped treasure and drops it on a random empty square in its owner\'s half.',
       '🌋 Earthquake: every animal shifts one file.',
       '🪩 Disco: every power recharges.',
@@ -240,7 +244,7 @@ export const ARENA_POWER_TEXT: Record<ArenaMode, Partial<Record<PowerKind, { nam
 
 /** The Wheel of Chaos in Raid moves animals and treasures, not chess pieces. */
 export const RAID_WHEEL_LINE: Record<WheelOutcome, string> = {
-  tide: 'Land animals on the beach are swept back a rank.',
+  tide: 'Every animal in the other side\'s half is swept back a rank.',
   pigeon: 'It grabs a loose or carried treasure and drops it in its owner\'s half.',
   earthquake: 'Every animal shifts one file sideways.',
   disco: 'Every used power recharges.',
