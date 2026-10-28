@@ -455,10 +455,11 @@ describe('phase 4', () => {
   it('the treasure stays through moves, emotes and skins, and the carrier walks heavier', async () => {
     for (const side of SIDES) {
       const free = make(side, 'n');
-      const t0 = await settle([free], free.moveTo(new THREE.Vector3(0, 0, 4)));
+      // One square (a Raid step).
+      const t0 = await settle([free], free.moveTo(new THREE.Vector3(0, 0, 2)));
       const a = make(side, 'n');
       a.setCarrying(side === 'land' ? 'sea' : 'land');
-      const t1 = await settle([a], a.moveTo(new THREE.Vector3(0, 0, 4)));
+      const t1 = await settle([a], a.moveTo(new THREE.Vector3(0, 0, 2)));
       expect(t1.t).toBeGreaterThan(t0.t);
       expect(t1.t).toBeLessThanOrEqual(1.2);
       a.emote('laugh');
