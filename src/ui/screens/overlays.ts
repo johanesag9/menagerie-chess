@@ -5,6 +5,7 @@ import type { UiCtx, View } from '../ctx';
 import { button, h } from '../dom';
 import { animalIcon } from '../icons';
 import { TREASURE } from '../modeText';
+import { boardLine } from '../boardText';
 
 type PromoKind = Exclude<PieceKind, 'p' | 'k'>;
 
@@ -109,6 +110,9 @@ export class ResultView implements View {
       for (const s of sunk) this.art.append(h('span', { class: 'mc-result__overboard', html: animalIcon(s, 'k', { disc: true }) }, h('span', { class: 'mc-result__waves', text: '🌊' })));
     }
     if (r.reason === 'treasure' && r.winner) this.art.append(h('span', { class: 'mc-result__loot', text: TREASURE[r.winner === 'land' ? 'sea' : 'land'].icon }));
+    // Phase 6: the winner's castle with its flag up, or the far shore reached.
+    if (r.reason === 'castle' && r.winner) this.art.append(h('span', { class: 'mc-result__loot mc-result__castle', 'data-side': r.winner, text: '🏰' }));
+    if (r.reason === 'crossed' && r.winner) this.art.append(h('span', { class: 'mc-result__loot', text: '🪨' }));
     this.el.dataset.reason = r.reason;
     this.confetti.replaceChildren();
     if (mood === 'win' && !this.ctx.settings.reducedMotion) {
@@ -127,6 +131,8 @@ export class ResultView implements View {
 
 /** Phase 4: the result line for the party modes' own endings, else null (the chess wording applies). */
 export function partyLine(r: GameOver, st: ArenaState | null, mode: string | undefined): string | null {
+  // Phase 6: the board games word their own endings (boardText.ts).
+  if ((st?.mode ?? mode) === 'castle' || (st?.mode ?? mode) === 'stones') return boardLine(r, st, (st?.mode ?? mode) as 'castle');
   const other = (x: Side): Side => (x === 'land' ? 'sea' : 'land');
   const score = (w: Side) => (st ? ` ${st.score[w]}–${st.score[other(w)]}` : '');
   switch (r.reason) {

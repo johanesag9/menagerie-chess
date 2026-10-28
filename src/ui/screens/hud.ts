@@ -3,12 +3,13 @@
  * the emote picker, and the check banner / Weird Mode toast. The middle stays clear for the board.
  */
 import type { ActionRecord, ArenaState, EmoteKind, GameOptions, ModeState, MoveResult, PieceKind, Side, WeirdEvent } from '../../contracts/types';
-import { isArenaMode } from '../../contracts/types';
+import { isArenaMode, isBoardMode } from '../../contracts/types';
 import { ANIMAL_NAME, EMOTES, SIDE_NAME, WEIRD_TEXT, botName } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
 import { formatClock, listRows, otherSide, spokenClock, tallyCaptures, tallyFromCaptured, type CapturedTally, type ListEntry } from '../format';
 import { animalIcon } from '../icons';
+import { BoardHud } from '../hud/board';
 import { ArenaHud } from './arenaHud';
 import { ModeHud } from './modeHud';
 
@@ -56,6 +57,8 @@ export class Hud {
   readonly mode: ModeHud;
   /** Phase 4: the party-mode HUD (Sumo, Raid). */
   readonly arena: ArenaHud;
+  /** Phase 6: the board-game HUD (Sandcastle King, Stepping Stones). */
+  readonly board: BoardHud;
   private info: GameOptions | null = null;
   private turn: Side = 'land';
   private thinking = false;
@@ -71,7 +74,9 @@ export class Hud {
     this.cards = { land: this.card('land'), sea: this.card('sea') };
     this.mode = new ModeHud(ctx);
     this.arena = new ArenaHud(ctx);
+    this.board = new BoardHud(ctx);
     this.mode.setArena(this.arena.bar, false);
+    this.mode.dock.prepend(this.board.bar);
 
     this.movesBtn = button('', { variant: 'icon', label: 'Move list', icon: ICON.moves, onClick: () => this.toggleMoves() });
     this.movesBtn.setAttribute('aria-expanded', 'false');
@@ -115,7 +120,7 @@ export class Hud {
     this.toast = h('div', { class: 'mc-toast', 'aria-hidden': 'true' });
     this.live = h('div', { class: 'mc-sr', 'aria-live': 'polite', 'aria-atomic': 'true' });
 
-    this.top = h('div', { class: 'mc-hud__bar mc-hud__bar--top' }, h('div', { class: 'mc-hud__slot' }), this.mode.chip, this.arena.chip, h('div', { class: 'mc-hud__tools' }, this.movesBtn, menuBtn));
+    this.top = h('div', { class: 'mc-hud__bar mc-hud__bar--top' }, h('div', { class: 'mc-hud__slot' }), this.mode.chip, this.arena.chip, this.board.chip, h('div', { class: 'mc-hud__tools' }, this.movesBtn, menuBtn));
     this.bottom = h('div', { class: 'mc-hud__bar mc-hud__bar--bottom' }, h('div', { class: 'mc-hud__slot' }), this.mode.dock, h('div', { class: 'mc-hud__tools' }, this.undoBtn, h('div', { class: 'mc-emote-anchor' }, this.emotePicker, this.emoteBtn)));
 
     this.el = h('section', { class: 'mc-screen mc-hud', 'aria-label': 'Game' }, this.top, this.movesPanel, this.banner, this.toast, this.bottom, this.live);
@@ -147,10 +152,11 @@ export class Hud {
     const bot = info?.opponent.type === 'bot' ? info.opponent : null;
     const bottomSide: Side = bot ? otherSide(bot.botSide) : 'land';
     const topSide = otherSide(bottomSide);
-    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide], this.arena.strips[topSide]);
-    this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide], this.arena.strips[bottomSide]);
+    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide], this.arena.strips[topSide], this.board.strips[topSide]);
+    this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide], this.arena.strips[bottomSide], this.board.strips[bottomSide]);
     this.mode.setInfo(info);
     this.arena.setInfo(info);
+    this.board.setInfo(info);
     this.mode.setArena(this.arena.bar, false);
     this.lastTally = null;
     this.renderTrays();
@@ -192,6 +198,7 @@ export class Hud {
   setBotThinking(thinking: boolean): void {
     this.thinking = thinking;
     this.arena.setThinking(thinking);
+    this.board.setThinking(thinking);
     this.refresh();
   }
 
@@ -279,11 +286,18 @@ export class Hud {
     this.renderTrays();
   }
 
-  /** Phase 4: the party HUD. The live and fallen animals also feed names to the duel and selection panels. */
+  /** Phase 4: the party HUD. The live and fallen animals also feed names to the duel and selection panels. Phase 6: board games go to their own HUD. */
   setArenaState(st: ArenaState | null): void {
     if (st) this.mode.setPieces([...st.pieces, ...st.out]);
-    this.arena.setState(st);
+    const board = !!st && isBoardMode(st.mode);
+    this.arena.setState(board ? null : st);
+    this.board.setState(board ? st : null);
     this.mode.setArena(this.arena.bar, !!st);
+  }
+
+  /** The latest Sumo/Raid or board-game snapshot. */
+  get arenaState(): ArenaState | null {
+    return this.board.arenaState ?? this.arena.arenaState;
   }
 
   private renderMoves(): void {
@@ -418,6 +432,7 @@ export class Hud {
 
   dispose(): void {
     this.arena.dispose();
+    this.board.dispose();
     document.removeEventListener('pointerdown', this.onOutside, true);
     this.timers.forEach((t) => window.clearTimeout(t));
   }
