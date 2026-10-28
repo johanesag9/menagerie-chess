@@ -1,8 +1,88 @@
 # ui + audio stream report
 
-Status: **Phase 3 done** (2026-10-27), branch `claude/p3-ui-518806`. Phase 1 work is unchanged (summary at the end).
+Status: **Phase 4 done** (2026-10-28), branch `claude/p4-ui-cce429`. Phase 3 and Phase 1 work is unchanged (reports further down).
 
-## What's done (Phase 3: Normal and Crazy)
+## What's done (Phase 4: Sumo and Raid)
+
+**Setup**
+- A second row, "Party modes · Not chess", with Sumo and Raid and a one-line pitch each. It is one radio group with the chess modes, so the arrow keys run through all five.
+- For Sumo and Raid the clock, Weird Mode and FEN are hidden, and `toGameOptions` sends no clock, `weirdMode: false` and no FEN.
+- "How it works" has tabs for all five modes. The Sumo and Raid text follows GAME_SPEC "Party modes" (`modeText.ts`).
+
+**Party HUD (`setArenaState`)**
+- By each player card: the six animals. Fallen ones are crossed out. A gold dot marks each power that's still ready. It also shows duel tokens (2 dots) and status (stunned, frozen, dug in). In Raid it shows where that side's treasure is: "Home", "Dropped on f4" or, in red, "Horse has it!". The carrier's icon wears the treasure.
+- Top chip: "Round 4 / 15". Sumo: "Island sinks in N", which turns red and pulses as "Island sinks this round!". Raid: "Land 1 – 2 Sea (to 3)" and "Wheel in N".
+- Bottom turn bar: the die face, AP pips with "3 AP", and a big **End turn** button. The button emits `endTurn` and plays `endTurn`. It shows only for a human side to move, with AP left and outside a duel. During a duel the bar says "Duel!"; on the bot's turn it shows thinking dots. **E** on the keyboard ends the turn too.
+- The selected-animal panel uses the party power names and lines ("Dig in: Can't be pushed until your next turn.").
+- No clocks and no undo in party games. `setArenaState(null)` hides it all.
+
+**Banners, die, duels, wheel, result**
+- `announce(text, tone)`: a big bouncy banner, about 1.2s. Tones: info (teal), good (green), bad (red). Clicks pass through it; a tap or Space skips it; a new one cuts the old one short. With reduced motion it is a fade.
+- `rollDie` in party modes says "5 → 4 AP" (no banana or lucky).
+- Duel question by `via`:
+  - shove: "Sea's Sea Turtle wants to shove your Pug into the sea!" / "Let it go: The Pug falls in".
+  - tag: "Sea's Crab tags your Horse! It would drop the pearl." / "The Horse drops it and goes home".
+- `spinWheel` in Raid uses the Raid lines (the pigeon grabs a treasure, and so on).
+- Results:
+  - `kingOverboard`: "Sea wins: Land's Pug fell into the sea!" (the king sinks in the waves), or "Both kings fell into the sea at the same moment."
+  - `treasure`: "Land wins 3–1 by raiding the pearl!"
+  - `rounds`: "Round 15 is over. Land wins with more animals left (3 to 1)." / "Round 20 is over, level on points (1–1)."
+- The move list shows the party `'move'` lines (steps, shoves, tags) with a 👣. Chess modes still skip them.
+
+**Audio.** All 12 new cues are synthesized and level-matched (trims in `cues.ts`, no peak above −3 dBFS):
+- step, shove, tag, splash
+- sinkWarn (low creak), sink (rumble and rush)
+- anchor (dig in)
+- pickup, drop, treasureHome
+- score (brass fanfare), endTurn
+
+**Who plays which sound.**
+- The UI plays `endTurn` (button or E), plus everything it already played: die, duel throws, wheel.
+- Integration plays the rest, timed with the board: step, shove, tag, splash, sinkWarn, sink, anchor, pickup, drop, treasureHome and score. `announce` plays no sound of its own, so pair it: score with "+1 Sea!", splash with "Pug overboard!".
+
+**Notes for integration**
+- Call `setArenaState` on every `state`. It also gives the duel and selection panels their animal names. Call it with the final state *before* `showResult`, because the result line reads the score and the animals left from it.
+- `setGameInfo` with `mode: 'sumo' | 'raid'` hides the clocks and undo.
+- `addLog` shows `'move'` records in party modes (chess still uses `addMove`).
+- `rollDie(side, value, 'none', ap)`: the 4th argument is an extra (see contract request 1).
+
+**Tests** (`ui.test.ts`, now 24): party setup (no clock, Weird Mode or FEN), text for every mode, die to AP, shove and tag wording, every party ending, step lines in party mode only, and every Phase 4 cue has a sound. `npm run typecheck` passes.
+
+## How to run the demo
+1. Start the `ui-demo` launch config (port 4414; it moves to 4415 if 4414 is busy) and open `/src/ui/demo.html`.
+2. Open **Demo controls** on the left. New sections:
+   - **Party HUD:** Sumo start, sinks this round, round 8 (two rings gone, fallen animals, a dug-in crab, bot's turn), Raid start, pearl carried, Raid 2-player, out of AP, bot thinking, Pup selected.
+   - **Party: banners, die, duels:** each announce tone, "5 → 4 AP", shove and tag duel questions, the Raid wheel.
+   - **Party results:** all three endings.
+   - **▶ Sumo turn:** roll, step, shove the Crab off the board, Sea calls a duel (you throw), Crab overboard. Then it waits for End turn (tap it or press E), the bot steps, and the edge sinks with the Seahorse.
+   - **▶ Raid turn:** the Horse grabs the pearl, the carrier walks slowly, the Crab tags it (you choose to duel), the pearl drops and flies home, then the wheel (Disco) and the next roll.
+   - Choosing Sumo or Raid in **setup** and pressing Start gives a free-play fake. End turn works there; the bot takes random legal steps.
+3. The stand-in board draws the animals, water, the wobbling ring and the treasures so the scripts make sense. It is a CSS stand-in, not the world. The fake states follow the party rules (start squares, rings 3/6/9, AP 2/3/4, costs, halves). They are not core.
+
+Checked in the browser pane at desktop size and 390×844, with real taps and keys (Start, End turn, E, N). No console errors. Reduced motion works. Normal and Crazy show none of the party HUD.
+
+## Contract requests
+1. **AP for the die.** `rollDie` doesn't get the AP the roll gives. *Workaround:* `MenagerieUi.rollDie(side, value, effect, ap?)`; without `ap` it uses the spec table. Ask: add `ap?` to the contract.
+2. **How many AP pips.** `ArenaState` has the AP left but not the AP the turn started with, so the HUD counts the highest AP it saw this turn. Ask: add `apStart` (or `apMax`).
+3. **What `nextSinkIn` counts.** I read it as 1 = "sinks at the end of this round", as the brief says. The urgent look also turns on whenever `sinkingNext` isn't empty, so the warning round is right either way. Ask core to confirm.
+4. **Log kind for steps, shoves and tags.** The HUD shows `'move'` records in party modes. Ask core to log them as `'move'` (or tell me the kind).
+
+## Open design questions for Johanes
+- **Treasure icons** are system emoji: 🦴 bone and 🦪 for the pearl (an oyster, the closest one). Draw our own later?
+- **Setup colours:** Sumo turns coral red when picked, Raid a deep amber. OK?
+- **End turn** hides at 0 AP, because the turn ends by itself then. Should it stay visible?
+- **Banner tone** is the caller's choice. I suggest it's from your side in bot games ("Pug overboard!" is bad when it's your Pug).
+- **Fallen animals** are crossed out in the strip; the capture trays stay empty in party modes. Show fallen enemies as trophies too?
+- **Sounds:** balanced by numbers only, not heard yet. Please try them on the sound board.
+
+## Known issues
+- AP pips can undercount if the first state of a turn arrives with AP already spent (see contract request 2).
+- In the demo's free play you can only press End turn, because the stand-in board isn't clickable.
+- The demo drawer's tab covers the left edge of the setup screen at 390px. This happens in the demo only.
+
+## Phase 3 report (Normal and Crazy, unchanged)
+
+### What's done
 
 **Setup**
 - Three big mode cards (Classic, Normal, Crazy), each with a one-line pitch. The choice goes into `GameOptions.mode` and is remembered.
@@ -49,7 +129,7 @@ Status: **Phase 3 done** (2026-10-27), branch `claude/p3-ui-518806`. Phase 1 wor
 
 **Tests** (`ui.test.ts`, now 17): mode saved and loaded, Crazy turns Weird Mode off, move-list rows with log lines (round numbers, "1. … e5" rows), trays from the mode state, power counts (exact and guessed), id parsing, and that every Phase 3 cue has a sound.
 
-## How to run the demo
+### How to run the demo
 1. Start the `ui-demo` launch config (port 4414, or 4415 if that's busy) and open `/src/ui/demo.html`.
 2. Open the **Demo controls** tab on the left. New sections:
    - **Fake game:** "Normal vs bot" and "Crazy vs bot". These play chess.js moves with fake mode state. In Crazy you get the wheel, card draws and a die roll before every turn, and the lucky question on your 6s.
@@ -62,12 +142,12 @@ Status: **Phase 3 done** (2026-10-27), branch `claude/p3-ui-518806`. Phase 1 wor
 
 Checked in headless Chrome at 1280×800 and 390×844: no console errors, nothing scrolls sideways, and Classic looks as before. Keys, Esc-to-cancel, skipping and reduced motion work.
 
-## Contract requests
+### Contract requests
 1. **Live pieces for the HUD.** `ModeState` has no pieces, so "powers left per kind" has to guess from the standard start minus captures. A promoted piece reads as a pawn. Ask: add `pieces: PieceState[]` to `ModeState`, or a `Ui.setPieces(pieces)`. *Workaround:* `MenagerieUi.setPieces()` exists. Call it after each move and use the exact counts.
 2. **Animal kinds in `DuelInfo`.** It has only ids, so the duel question reads the kind from `setPieces`, or else from the id (wrong for promoted pieces). Ask: add `attackerKind` and `victimKind`.
 3. **Earthquake direction.** `spinWheel(outcome)` doesn't get `direction`, so the line says "shifts one file sideways". Ask: `spinWheel(outcome, direction?)`.
 
-## Open design questions for Johanes
+### Open design questions for Johanes
 - **Bot's cards** show face up in its strip (the rules don't say hands are secret). Keep, or show card backs?
 - **The big hand:** yours vs the bot. In 2-player games it's the side to move's hand, and the other side's shows small. OK?
 - **Hands and wheel icons** use system emoji (✊ ✋ ✌️, 🌊 🐦 🌋 🪩), like the emotes. Draw our own later?
@@ -76,7 +156,7 @@ Checked in headless Chrome at 1280×800 and 390×844: no console errors, nothing
 - **Names:** the UI says "Dachshund" (roster), while the power table calls it the pup. Fine?
 - **Sounds:** balanced by numbers only, not yet heard. Please try the sound board.
 
-## Known issues
+### Known issues
 - The high-pass noise in `synth.ts` can spike at random when a sound starts. I found it on the freeze crackle and switched that one to band-pass. Older cues that use high-pass noise (clicks, capture, promote) may rarely play a louder tick; the master compressor softens it.
 - "Powers left" is a guess until `setPieces` is called (see contract request 1).
 - When the browser tab is hidden, the CSS animations pause, but every overlay's promise still resolves on a timer. Nothing hangs.
