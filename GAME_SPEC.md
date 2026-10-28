@@ -439,14 +439,16 @@ Play a friend over the internet by sharing a link. No accounts, no strangers, no
 - A small server on Cloudflare (Workers + a Durable Object per room) runs the rules and checks every move. Both browsers run the same rules from the same seed and replay every move the server confirms. So animations look exactly like a local game.
 - Duel throws stay secret until both are in.
 - **Known limit:** a player with browser dev tools could predict dice and cards. That's fine for friends; it needs fixing before any public matchmaking.
+- **Live (2026-10-28):** https://menagerie-chess.pages.dev (site, Cloudflare Pages) and https://menagerie-chess-online.johanes0499.workers.dev (rooms). Redeploy: `npm run server:deploy`, then build with `VITE_ONLINE_URL` set to the rooms URL and `npx wrangler pages deploy dist --project-name menagerie-chess --branch main`.
 - **Cost:** Cloudflare's free plan (Durable Objects with SQLite: 100,000 requests a day). If a limit is hit, new games fail with an error until the next day; nothing is billed. Pages hosts the website for free.
 
 **Defaults (picked by the orchestrator, easy to change; Johanes to confirm)**
 | Topic | Default |
 |---|---|
-| Modes online | All five. Classic has no clock online (the turn timer replaces it); Weird Mode is off. |
+| Modes online | All five; the two board games are being added (2026-10-28). Classic has no clock online (the turn timer replaces it); Weird Mode is off. |
 | Turn timer | 60s, starting once your screen has finished animating (at most 5s after the last move). The last 10s tick. |
 | Time runs out | Party modes: your turn ends. Chess modes: a random legal move is played for you. Duel answer: no duel. Throw: a random hand. Lucky 6: skipped. |
+| Board games (Johanes, 2026-10-28) | 60s for the whole turn (all its stages). When it runs out, the room plays a random legal action for each stage left (move, build/dig, raise/sink); in the Sandcastle King draft, a random animal. |
 | Friend drops | They have 2 minutes to come back, with a countdown on your screen. After that they resign. |
 | Leaving on purpose | Going back to the title resigns the game. |
 | Rematch | Both press Rematch; the new game swaps sides. |
@@ -507,5 +509,5 @@ Each stream works only in its own folder, builds a standalone demo page for itse
 3. Game modes (Normal and Crazy): four parallel sessions again, against the mode contracts (`docs/phase3-briefs.md`). Core's 2D demo is the first playtest. Started 2026-10-27.
 4. Party modes (Sumo, Raid): four parallel sessions against the arena contracts (`docs/phase4-briefs.md`), on top of the `phase3` branch. Started 2026-10-28.
 5. Online play with a friend by invite link: three parallel sessions (server, net, ui) against `src/contracts/net.ts` (`docs/phase5-briefs.md`), on the `phase3` branch. Started 2026-10-28.
-6. Board-game modes (Sandcastle King, Stepping Stones): four parallel sessions (core, world, cast, ui) against the Phase 6 contracts (`docs/phase6-briefs.md`), on the `phase6` branch cut from `phase3`. Online once Phase 5 is merged. Started 2026-10-28.
+6. Board-game modes (Sandcastle King, Stepping Stones): four parallel sessions (core, world, cast, ui) against the Phase 6 contracts (`docs/phase6-briefs.md`), on the `phase6` branch cut from `phase3`. Started 2026-10-28. Merged into `phase3` 2026-10-28; online support next (`docs/phase6-online-briefs.md`).
 7. Later: public matchmaking, campaign, achievements.
