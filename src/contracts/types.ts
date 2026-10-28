@@ -190,6 +190,14 @@ export interface PowerInfo {
   available: boolean;
   /** Present when not available. */
   reason?: PowerBlock;
+  /**
+   * Phase 4: a mode-specific name and one-line rule; the HUD shows these instead of its own text when present.
+   * E.g. Sumo pawn: power 'sidestep' (same animation) but name "Dig in".
+   */
+  name?: string;
+  line?: string;
+  /** Phase 4: a plain reason that beats `reason` in the HUD ("Not enough AP", "Carrying the treasure"). */
+  note?: string;
 }
 
 /**
@@ -258,9 +266,17 @@ export type BoardChange = { step: number } & (
   | { type: 'block'; square: Square; by: Side }
   | { type: 'recharge'; pieceIds: PieceId[] }
   // Phase 4 (party modes)
-  /** Sumo: pushed (or left standing) onto water: it topples in from `square` toward `dir` and is out. dir = [dFile, dRank], e.g. [0, 1] = toward rank 8. */
+  /**
+   * Sumo: it falls into the water and is out. `square` = where it stood before (it gets no `move`; its `fall` shares the step
+   * of the shove that pushed it). dir = [dFile, dRank]: the push direction, or for a sinking ring the way outward from the
+   * board centre (never [0, 0]). World mapping: +dFile = +X (toward the h-file), +dRank = -Z (toward rank 8).
+   */
   | { type: 'fall'; pieceId: PieceId; square: Square; dir: [number, number] }
-  /** Raid: a treasure changed hands or place. `square` = where it now lies (null while carried); `carrier` = who holds it now. */
+  /**
+   * Raid: a treasure changed hands or place. `square` = where it now lies (null while carried); `carrier` = who holds it now.
+   * pickup: the step after the arrival move · drop (tag, headbutt): before the `sentHome`/`pushed` move, at the carrier's old square ·
+   * return (owner touched a dropped one) and score: it is back at `home` (`square` = home) · snatch (pigeon): one change, `square` = where it lands.
+   */
   | { type: 'treasure'; owner: Side; event: 'pickup' | 'drop' | 'return' | 'score' | 'snatch'; square: Square | null; carrier: PieceId | null }
 );
 
@@ -519,8 +535,8 @@ export interface ArenaEventMap {
   rolled: { side: Side; value: DieValue; ap: number };
   /** One action resolved. `changes` (with steps, as in Phase 3) say what to animate. Then `logged`, `state`. */
   acted: { side: Side; action: ArenaAction; power?: PowerKind; changes: BoardChange[] };
-  /** Sumo, end of a round: a ring sank. `changes` = the animals that fell with it. */
-  sank: { squares: Square[]; changes: BoardChange[] };
+  /** Sumo, end of a round: a ring sank. `squares` = newly sunk; `sunk`/`sinkingNext` = the full lists after it (for `world.setSunk`). `changes` = falls, all in step 0. */
+  sank: { squares: Square[]; sunk: Square[]; sinkingNext: Square[]; changes: BoardChange[] };
   /** Raid, every 5 rounds at the start of Land's turn. */
   wheelSpun: { outcome: WheelOutcome; direction?: 'left' | 'right'; changes: BoardChange[] };
   /** As in Crazy (`via` 'shove' or 'tag'). Nothing has moved yet. Core waits for `answerDuel`, then `throwHand`; a `state` with phase 'duel' starts each throw round. */
@@ -537,6 +553,10 @@ export interface ArenaEventMap {
 
 /**
  * Phase 4: runs Sumo and Raid (GAME_SPEC "Party modes"). Separate from `GameController`: no chess here.
+ * Game start: started -> state (die null, ap 0) -> turnChanged -> rolled -> state. `botThinking` fires around each bot action.
+ * Log kinds (no new ones): step/hit 'move', power 'power', bonk 'bonk', ring sink and wheel 'wheel' (side null), end of turn 'pass'.
+ * Party modes show 'move' records in the move list too. `endTurn` (or running out of affordable actions: core ends the turn itself)
+ * emits no `acted`.
  * Event order after an action: (duelOffered, duelRound*, duelEnded, bonked?) -> acted -> logged -> state;
  * when AP hits 0 or on endTurn: (Sumo, end of a round: sank, logged) -> state -> gameOver? -> turnChanged ->
  * (Raid: wheelSpun, logged) -> rolled -> state.
@@ -552,7 +572,7 @@ export interface ArenaController extends EventSource<ArenaEventMap> {
   /** Next squares for a half-built power (same shape as Phase 3). */
   targets(pending: { pieceId: PieceId; targets: Square[] }): TargetStep;
   /** Squares the power or a hit would affect, for a preview (the shove line, the stomp ring, where a pushed animal lands). */
-  previewArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): Square[];
+  previewArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): { area: Square[]; falls: Square[] };
   act(action: ArenaAction): ActResponse;
   answerDuel(call: boolean): void;
   throwHand(side: Side, hand: Hand): void;
@@ -626,8 +646,10 @@ export interface World extends EventSource<WorldEventMap> {
    *   Detach `carry` before resolving and don't dispose it; integration disposes the actor afterwards.
    * - earthquake: the board rumbles; `direction` hints which way the pieces slide.
    * - disco: party lights and sparkles over the board.
+   * - Phase 4, Raid pigeon: `treasure` = the pigeon grabs that treasure at `from` (from the ground, or out of a carrier's mouth: integration
+   *   clears the carrier first) and drops it at `to`. Show the treasure in its beak; integration calls `setTreasures` after.
    */
-  playChaos(outcome: WheelOutcome, opts?: { squares?: Square[]; carry?: Object3D; direction?: 'left' | 'right' }): Promise<void>;
+  playChaos(outcome: WheelOutcome, opts?: { squares?: Square[]; carry?: Object3D; direction?: 'left' | 'right'; treasure?: { owner: Side; from: Square; to: Square } }): Promise<void>;
   /**
    * Phase 4 (Sumo): show exactly these squares as sunk (the tile drops under rising water, waves lap over it) and `warn` as
    * about to sink (a wobble and a dark wet edge). Animates the change; pass [] [] to restore the board. `noPick` on the water.
@@ -641,6 +663,8 @@ export interface World extends EventSource<WorldEventMap> {
   setTreasures(treasures: TreasureState[]): void;
   /** Phase 4: a splash (an animal falling in, a treasure flying home). `big` for a king. */
   splash(point: Vector3, big?: boolean): void;
+  /** Phase 4 (Sumo), optional: make the island read as surrounded by sea (water all round the frame, the meadow props tucked away). false restores. */
+  setIslandMode?(on: boolean): void;
   skipIntro(): void;
   /** Read-only access for shader warm-up (`cast.preload`) and screen projection. Don't move the camera yourself. */
   readonly renderer: WebGLRenderer;
@@ -839,7 +863,7 @@ export interface Ui extends EventSource<UiEventMap> {
   /** Aiming hint with a Cancel button (emits `cancelAction`), e.g. "Pick an empty square to block". null hides it. */
   setPrompt(text: string | null): void;
   /** The fate die tumbles and lands on `value`, with its effect called out. Resolves when it has settled (about 1s, skippable). */
-  rollDie(side: Side, value: DieValue, effect: DieEffect): Promise<void>;
+  rollDie(side: Side, value: DieValue, effect: DieEffect, opts?: { ap?: number }): Promise<void>;
   /** After a 6: choose the bonus. Options that can't be used are disabled. */
   askLucky(side: Side, opts: { canRecharge: boolean; canStep: boolean }): Promise<'recharge' | 'pawnStep' | 'skip'>;
   /** A card flies into the hand. */

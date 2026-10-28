@@ -286,6 +286,40 @@ Core runs both with its own engine (`ArenaController`) and a simple bot. The set
 | **Earthquake** | Every animal shifts one file. |
 | **Disco** | Every power recharges. |
 
+### Fine print (party modes)
+- **Both kings fall at once:** it's a draw, even on your own turn. If only your own king falls, you lose.
+- **Shove chains**
+  - If an anchored animal or a block is anywhere in the line, the shove is refused.
+  - Only the animal you shove directly decides whether the cost is 3 AP.
+  - Your own animals in the line can fall.
+- **Shove duels**
+  - You can call a duel only when one of your animals would fall into the water. You are the defender.
+  - Powers can't be dueled. That covers headbutt and stomp.
+- **Headbutt (Sumo)** is two 1-square shoves. If the second one isn't possible, it stops after the first.
+- **Stomp (Sumo)**
+  - Each neighbour is pushed straight away on its own line.
+  - A line that's refused is skipped.
+  - The king can be stomped.
+- **Dig in** lasts until the start of your next turn.
+- **Sinking**
+  - "Island sinks in 1" means it sinks at the end of this round.
+  - Sea always gets the last turn before a ring sinks. This is a fairness question for Johanes.
+- **Turn ends by itself** when you have AP left but nothing you can afford.
+- **Raid pawn power:** Sidestep costs no AP.
+- **Raid stomp** needs at least one enemy neighbour. Kings can't be stunned.
+- **No guarding (Raid)**
+  - Nothing can put an animal on its own treasure's home square.
+  - A push, tide, earthquake or escape that would do it leaves the animal where it is instead.
+- **Sent home (Raid)**
+  - The animal goes to the nearest free square on its back rank, by file. Ties go toward the centre.
+  - If the back rank is full, it goes to the next rank in.
+- **Picking up and scoring (Raid)**
+  - **Picking up:** only the square where an animal finishes counts. The middle hop of a double jump doesn't.
+  - **Scoring:** a carrier that ends up in its own half scores, however it got there, the tide included.
+  - **Headbutted carrier:** it drops the treasure where it stood.
+- **The pigeon (Raid)** drops the treasure on a random empty square in the treasure owner's half. It never uses a back rank or a home square.
+- **The treasure flying home** is a hop out at the old square and a hop in at home, with a sparkle. There's no flight path.
+
 ### Defaults in the party modes (picked by the orchestrator, easy to change)
 Johanes may want to change any of these after playtesting:
 - Team size: 6 per side.
