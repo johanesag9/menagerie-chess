@@ -445,7 +445,7 @@ Play a friend over the internet by sharing a link. No accounts, no strangers, no
 **Defaults (picked by the orchestrator, easy to change; Johanes to confirm)**
 | Topic | Default |
 |---|---|
-| Modes online | All five; the two board games are being added (2026-10-28). Classic has no clock online (the turn timer replaces it); Weird Mode is off. |
+| Modes online | All seven (the two board games since 2026-10-28). Classic has no clock online (the turn timer replaces it); Weird Mode is off. |
 | Turn timer | 60s, starting once your screen has finished animating (at most 5s after the last move). The last 10s tick. |
 | Time runs out | Party modes: your turn ends. Chess modes: a random legal move is played for you. Duel answer: no duel. Throw: a random hand. Lucky 6: skipped. |
 | Board games (Johanes, 2026-10-28) | 60s for the whole turn (all its stages). When it runs out, the room plays a random legal action for each stage left (move, build/dig, raise/sink); in the Sandcastle King draft, a random animal. |
@@ -509,5 +509,5 @@ Each stream works only in its own folder, builds a standalone demo page for itse
 3. Game modes (Normal and Crazy): four parallel sessions again, against the mode contracts (`docs/phase3-briefs.md`). Core's 2D demo is the first playtest. Started 2026-10-27.
 4. Party modes (Sumo, Raid): four parallel sessions against the arena contracts (`docs/phase4-briefs.md`), on top of the `phase3` branch. Started 2026-10-28.
 5. Online play with a friend by invite link: three parallel sessions (server, net, ui) against `src/contracts/net.ts` (`docs/phase5-briefs.md`), on the `phase3` branch. Started 2026-10-28.
-6. Board-game modes (Sandcastle King, Stepping Stones): four parallel sessions (core, world, cast, ui) against the Phase 6 contracts (`docs/phase6-briefs.md`), on the `phase6` branch cut from `phase3`. Started 2026-10-28. Merged into `phase3` 2026-10-28; online support next (`docs/phase6-online-briefs.md`).
+6. Board-game modes (Sandcastle King, Stepping Stones): four parallel sessions (core, world, cast, ui) against the Phase 6 contracts (`docs/phase6-briefs.md`), on the `phase6` branch cut from `phase3`. Started 2026-10-28. Merged into `phase3` and online (`docs/phase6-online-briefs.md`), 2026-10-28.
 7. Later: public matchmaking, campaign, achievements.

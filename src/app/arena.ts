@@ -91,6 +91,16 @@ export class ArenaMatch {
     this.firstTurn = false;
     this.statuses.clear();
     this.carrying.clear();
+    // Board games: the ground first, so animals land on the right heights.
+    const show = this.d.show;
+    show.levels = { ...(s.levels ?? {}) };
+    show.sunk = new Set(s.sunk);
+    world.setLevels?.(show.levels, { instant: true });
+    world.setFlag?.(s.crowned ? { square: s.crowned.square, side: s.crowned.side } : null);
+    world.setFresh?.(s.fresh ?? []);
+    ui.setShapeMode?.(null);
+    this.shapes = [];
+    this.draftAsked = -1;
     board.sync(s.pieces, true);
     for (const a of board.all()) {
       a.setStatus(null);
