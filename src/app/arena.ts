@@ -357,6 +357,9 @@ export class ArenaMatch {
     const draft = s.draft;
     if (!draft || !this.d.ui.askDraft || s.turn === this.vsBot || !this.d.isActive()) return;
     const n = draft.picks.land.length + draft.picks.sea.length;
+    // Picks alternate Land, Sea. The snapshot right after a pick still shows the picker's turn: wait for the next one.
+    const due: Side = draft.picks.land.length <= draft.picks.sea.length ? 'land' : 'sea';
+    if (s.turn !== due || n >= draft.size * 2) return;
     if (this.draftAsked === n || this.asking) return;
     this.draftAsked = n;
     this.asking = true;
