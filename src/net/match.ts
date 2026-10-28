@@ -4,7 +4,7 @@
  */
 import type { NetInput } from '../contracts/net';
 import type {
-  ArenaController, ArenaEventMap, DuelInfo, GameController, GameEventMap, GameOptions, Hand, Side, Square,
+  ArenaController, ArenaEventMap, DuelInfo, GameController, GameEventMap, GameOptions, GameOver, Hand, Side, Square,
 } from '../contracts/types';
 import { isArenaMode } from '../contracts/types';
 
@@ -37,7 +37,8 @@ export type Awaiting =
 export class Match {
   readonly core: Core;
   duel: { stage: 'offer' | 'throw'; info: DuelInfo; thrown: Partial<Record<Side, true>> } | null = null;
-  over = false;
+  /** The result once the game ends (from core's `gameOver`, which fires even while the client mutes events). */
+  result: GameOver | null = null;
 
   constructor(core: Core) {
     this.core = core;
@@ -45,9 +46,9 @@ export class Match {
     c.on('duelOffered', (info: DuelInfo) => (this.duel = { stage: 'offer', info, thrown: {} }));
     c.on('duelRound', () => this.duel && (this.duel.thrown = {}));
     c.on('duelEnded', () => (this.duel = null));
-    c.on('gameOver', () => {
+    c.on('gameOver', (g: GameOver) => {
       this.duel = null;
-      this.over = true;
+      this.result = g;
     });
   }
 
@@ -60,7 +61,7 @@ export class Match {
   }
 
   isOver(): boolean {
-    return this.over || (this.core.kind === 'game' ? !!this.core.ctl.isOver() : this.core.ctl.state.phase === 'over');
+    return !!this.result || (this.core.kind === 'game' ? !!this.core.ctl.isOver() : this.core.ctl.state.phase === 'over');
   }
 
   awaiting(): Awaiting {

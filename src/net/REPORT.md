@@ -22,7 +22,7 @@ Branch `claude/p5-net-e0d74f`. Owns `src/net/` only. No new packages.
   - Interactive reads only offer your pieces on your turn: `legalTargets`, `powerInfo`, `canPlayCard`, `targets`, `pieceOptions`. The friend's moves never light up.
   - `resume()` sends `idle` once per (game, count). `newGame`, `undo`, `pause` and `dispose` do nothing.
   - Listeners live on the proxy, so they survive new games and rematches.
-- **Catch-up**: after `welcome`, the room replays the game. Mirror events are muted until the first message that isn't `start`/`inputs` (or 400 ms). Then it emits `started` (if the game is new to this screen) and `resync`.
+- **Catch-up**: after `welcome`, the room replays the game. Mirror events are muted until the first message that isn't `start`/`inputs` (or 400 ms). Then it emits `started` (if the game is new to this screen) and `resync`. `resync.over` carries the result when the game had already ended (its `gameOver` was muted), else null.
   A brand-new game with no inputs yet is rebuilt with its events instead, so it starts like any game (`gameStarted`, etc.).
 - **Other events**:
   - `presence` (with `graceEndsAt` as local time) and `timer` (`msLeft` → local `endsAt`).
