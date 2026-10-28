@@ -3,6 +3,18 @@
 The small online server for "play a friend by invite link". It's a Cloudflare Worker with one Durable Object "room" per match, on the free plan.
 
 ## What's done
+- **Phase 6 update (2026-10-28): board games online, plus a live Raid fix**
+  - **Raid fix**: the room refused the carrier's `throw` (pass and run) as "Bad input". It's accepted now. The Raid determinism seeds that failed (10, 36, 88, 97) pass.
+  - **Sandcastle King and Stepping Stones** work online: `pick` and `shape` inputs are accepted and checked, and the castle draft counts as the picker's turn.
+  - **Timer, Johanes's rule**: one 60 s timer covers the whole turn and doesn't restart between stages. (Sumo and Raid still restart it after each action.) Each draft pick is its own turn.
+  - **Time runs out**: the room plays a random legal action for each stage left, all flagged `auto: 'timeout'` and sent together in one `inputs`:
+    - draft: a random animal not yet picked
+    - move: a step or hit from `pieceOptions`
+    - shape: an option from `shapeOptions`
+    - the Digger's optional extra: end the turn
+    - stones: shape first, then move
+  - **Tests**: draft, castle move then shape, the timer not restarting, the Digger's extra, stones shape then move, stones move only, the Raid throw, and 100 seeded games each for castle and stones.
+  - **Smoke** now plays Sumo, Sandcastle King and Stepping Stones to the end. Last run: SMOKE OK for all three.
 - **Worker** (`src/index.ts`)
   - `POST /rooms`, `GET /rooms/:room` and the WebSocket at `/rooms/:room/ws`, as in `src/contracts/net.ts`.
   - CORS: any `http://localhost:*` or `127.0.0.1:*`, plus `ALLOWED_ORIGINS` (comma-separated). Other browser origins get 403.
@@ -27,7 +39,7 @@ The small online server for "play a friend by invite link". It's a Cloudflare Wo
   - It imports `MenagerieGame` (`src/core/controller.ts`) and `ArenaGame` (`src/core/arena/game.ts`) directly, never `src/core/index.ts`. Core bundles into the Worker as-is.
   - After hibernation, the room rebuilds core by replaying the stored inputs.
   - If core ever throws mid-input, the room rebuilds from storage rather than trust a half-changed state.
-- **Tests** (`test/`, 33 room tests plus the determinism suite)
+- **Tests** (`test/`, 41 room tests plus the determinism suite, 119 in all)
   - Joining, rejoining and catch-up; wrong-side, wrong-turn, illegal and junk inputs.
   - The throw hold; every timeout kind on a fake clock; away, grace and forfeit; leave; rematch swapping sides; hibernation; expiry.
 - **Determinism**: per mode, 100 seeded games of random legal inputs, played through the room by two mirror clients.
@@ -60,7 +72,7 @@ The free plan is enough.
   - `"server:smoke": "NODE_OPTIONS=--experimental-websocket vite-node server/smoke.ts"`
   - `"server:deploy": "wrangler deploy --config server/wrangler.jsonc"`
 - **Packages added** (root devDependencies, allowed by the brief): `wrangler@^4.86.0`, `@cloudflare/workers-types`.
-- **Root `npm test` now also runs `server/`**: it goes from about 14 s to 35 s, mostly Classic determinism (chess.js is slow on long games) (see Known issues). If that's too slow, exclude `server/**` from the root vitest config and rely on `server:test`.
+- **Root `npm test` now also runs `server/`**: about 37 s for `server/` alone, mostly Classic determinism (chess.js is slow on long games) (see Known issues). If that's too slow, exclude `server/**` from the root vitest config and rely on `server:test`.
 - **`net.ts`, small gaps the server fills its own way** (also in the shared notes file `p5-server.md` for net):
   - `timer.side` during throws: both sides throw, but `side` is a single side. The room sends the side that hasn't thrown, or the attacker when neither has. A `'both'` value might be clearer.
   - `join` has no game number. The room tracks which game each player was last sent, and sends `inputs` from 0 when the player's `have` belongs to an older game.
@@ -69,7 +81,7 @@ The free plan is enough.
 ## Open design questions for Johanes
 | Topic | Default I picked | Easy to change in |
 |---|---|---|
-| Turn timer in party modes | 60 s **per action** (it restarts after each action), not per whole turn | `armTimer` in `src/logic/room.ts` |
+| Turn timer in Sumo and Raid | 60 s **per action** (it restarts after each action), not per whole turn. The board games use one timer per turn (Johanes's decision) | `armTimer` in `src/logic/room.ts` |
 | Changing your throw | Allowed until the friend's throw is in (so a reload can't leave you stuck) | `onInput` |
 | Leaving on purpose | Shows the friend the same "Your friend left" as a drop that ran out of time (`auto: 'left'`) | `onLeave` |
 | Custom start position online | Not allowed (any `fen` is dropped) | `coreOptions` |
@@ -77,6 +89,8 @@ The free plan is enough.
 | Free-plan budget | Each move writes about 2 rows. Free SQLite DOs allow 100,000 row writes a day: roughly 150+ full games a day | — |
 
 ## Known issues
+- **Not mine, seen on `phase3`**: `src/cast/phase6.test.ts` has 11–12 failing "builds and digs" tests (e.g. "expected 5 to be greater than 6"). They fail on their own too, and this branch changes nothing under `src/`.
+- Locally, a socket the client closes itself sometimes reports close code 1006 instead of 1000 (wrangler dev). The room now answers the close; this doesn't affect play.
 - **Classic determinism games are capped at 150 inputs** (other modes 300). chess.js re-checks threefold repetition over the whole history on every move, so long Classic games get slow (quadratic), in tests and a little on the server too. Past the cap, one side resigns. Core may want to keep its own position count instead.
 - **Phone testing over the LAN**: the server only allows `localhost` origins and `wrangler dev` listens on localhost only. Testing from a phone on the same Wi-Fi needs `--ip 0.0.0.0` plus the LAN origin in `ALLOWED_ORIGINS` (or a deploy).
 - The installed wrangler (4.86) supports compatibility dates up to 2026-05-03, so `compatibility_date` is 2026-05-01.

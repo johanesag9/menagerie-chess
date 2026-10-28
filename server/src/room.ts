@@ -93,7 +93,9 @@ export class RoomObject extends DurableObject<Env> {
     await this.run(this.room.message(at.token, data), ws);
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> {
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    // Finish the close handshake, so the browser sees a clean close (not 1006).
+    tryClose(ws, code === 1005 || code === 1006 ? 1000 : code, reason);
     await this.socketGone(ws);
   }
 

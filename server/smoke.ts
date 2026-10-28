@@ -1,13 +1,15 @@
 /**
  * Smoke test against a running server (the `online-server` launch config, or `npm run server:dev`).
- * Creates a Sumo room over HTTP, opens two sockets (Land and Sea), plays random legal inputs to the end
- * (duels and secret throws included), checks both mirrors agree, and prints the result.
+ * For each mode (Sumo, Sandcastle King, Stepping Stones): creates a room over HTTP, opens two sockets (Land and Sea),
+ * plays random legal inputs to the end (duels, secret throws, the castle draft and shaping included), checks both
+ * mirrors agree, and prints the result.
  *
- *   npm run server:smoke                      (http://localhost:8787)
- *   SMOKE_URL=https://… npm run server:smoke  (a deployed Worker)
+ *   npm run server:smoke                         (http://localhost:8787)
+ *   SMOKE_URL=https://… npm run server:smoke     (a deployed Worker)
+ *   SMOKE_MODES=stones npm run server:smoke      (just some modes)
  */
 import type { ClientMsg, CreateRoomResponse, NetInput, RoomInfo, ServerMsg } from '../src/contracts/net';
-import type { GameOptions, Side } from '../src/contracts/types';
+import type { GameOptions, PlayMode, Side } from '../src/contracts/types';
 import { legalActions } from '../src/core/arena/rules';
 import { HANDS, Match } from './src/logic/match';
 
@@ -82,9 +84,10 @@ class Player {
   }
 }
 
-async function main(): Promise<void> {
-  console.log(`Smoke test against ${BASE}`);
-  const options: GameOptions = { mode: 'sumo', opponent: { type: 'online', you: 'land' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false };
+/** One game from room to result. True when it went right. */
+async function playGame(mode: PlayMode): Promise<boolean> {
+  console.log(`${mode}:`);
+  const options: GameOptions = { mode, opponent: { type: 'online', you: 'land' }, time: { initialMs: null, incrementMs: 0 }, weirdMode: false };
   const created = await fetch(`${BASE}/rooms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ options }) });
   if (created.status !== 201) throw new Error(`POST /rooms: ${created.status} ${await created.text()}`);
   const room = (await created.json()) as CreateRoomResponse;
@@ -158,16 +161,24 @@ async function main(): Promise<void> {
   const after = (await (await fetch(`${BASE}/rooms/${room.room}`)).json()) as RoomInfo;
   const st = land.mirror!.arenaController!.state;
   console.log(`  ${land.have} inputs broadcast (${land.autos} auto), ${duels} duel offers, round ${st.round}`);
-  console.log(`  result: ${over.winner ? `${over.winner} wins` : 'a draw'} by ${over.reason}; out of the ring: land ${st.out.filter((p) => p.side === 'land').length}, sea ${st.out.filter((p) => p.side === 'sea').length}`);
+  console.log(`  result: ${over.winner ? `${over.winner} wins` : 'a draw'} by ${over.reason}${mode === 'sumo' ? `; out of the ring: land ${st.out.filter((p) => p.side === 'land').length}, sea ${st.out.filter((p) => p.side === 'sea').length}` : ''}`);
   console.log(`  mirrors agree: ${same}; rejects: ${land.rejects.length + sea.rejects.length}; room status: ${after.status}`);
   land.ws.close();
   sea.ws.close();
   third.ws.close();
-  if (!same || land.rejects.length + sea.rejects.length > 0 || after.status !== 'over') {
-    console.log('SMOKE FAILED');
+  return same && land.rejects.length + sea.rejects.length === 0 && after.status === 'over';
+}
+
+async function main(): Promise<void> {
+  console.log(`Smoke test against ${BASE}`);
+  const modes = (process.env.SMOKE_MODES ?? 'sumo,castle,stones').split(',').map((m) => m.trim()) as PlayMode[];
+  const failed: PlayMode[] = [];
+  for (const mode of modes) if (!(await playGame(mode))) failed.push(mode);
+  if (failed.length) {
+    console.log(`SMOKE FAILED (${failed.join(', ')})`);
     process.exit(1);
   }
-  console.log('SMOKE OK');
+  console.log(`SMOKE OK (${modes.join(', ')})`);
   process.exit(0);
 }
 
