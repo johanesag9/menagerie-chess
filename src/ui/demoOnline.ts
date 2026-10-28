@@ -120,6 +120,17 @@ export function addOnlineControls(
   });
   btn(games, 'Friend draws a card', () => void ui.showCardDrawn(other(you()), { id: `demo-${Math.random()}`, suit: 'spades' }));
   btn(games, 'Duel throw (no cover)', () => void ui.askThrow(you(), { hotSeat: true }).then((hd) => note('askThrow →', hd)));
+  // The room answered for you (time ran out): any open question closes with its default.
+  btn(games, 'Ask duel, time runs out', () => {
+    void ui.askDuel({ attackerId: 'land-n-g1', victimId: 'sea-p-e7', via: 'move', from: 'g1', to: 'e7', attacker: other(you()), defender: you(), tokensLeft: 3 })
+      .then((call) => note('askDuel →', call));
+    window.setTimeout(() => ui.closeQuestion(), 1500);
+  });
+  btn(games, 'Promotion, time runs out', () => {
+    void ui.askPromotion(you()).then((k) => note('askPromotion →', k));
+    window.setTimeout(() => ui.closeQuestion(), 1500);
+  });
+  btn(games, 'Close question now', () => ui.closeQuestion());
   btn(games, 'Sumo, you Sea', () => begin(online('sumo', 'sea')));
   btn(games, 'Raid, you Land', () => begin(online('raid', 'land')));
 

@@ -603,6 +603,20 @@ export class Chaos {
   }
 
   /** Skip every running show (e.g. the game was left). Open questions get their safe default. */
+  /**
+   * Phase 5: close the open question (duel, throw, lucky 6, revive) with its default answer, without the player.
+   * Online, the room answers for you when your timer runs out. Shows that are running keep playing.
+   */
+  closeQuestion(): void {
+    this.cancelDialog?.();
+    this.cancelDialog = null;
+    this.dialog = null;
+    window.clearTimeout(this.coverTimer);
+    this.cover.hidden = true;
+    this.cover.replaceChildren();
+    this.sheet.hidden = true;
+  }
+
   reset(): void {
     this.runs.forEach((r) => r.skip());
     this.cancelDialog?.();

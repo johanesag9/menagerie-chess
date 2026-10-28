@@ -23,6 +23,8 @@ Status: **Phase 5 done** (2026-10-28), branch `claude/p5-ui-2d8a97`. Phase 4, 3 
 
 **"You" online**: one helper (`youSide`, `playerName`) now drives every place that used to look only at the bot: card names ("You", "Friend"), you at the bottom, "Your move", "Friend's turn" in party modes, duel and lucky wording, the big card fan for your hand. Online there's no undo (HUD and pause), the throw never uses the hot-seat cover, the friend's Crazy hand shows card backs, and the friend's drawn card stays face down ("Friend draws a card"). Pause is called "Menu" online ("The game keeps going online while this is open"), and Quit warns "It counts as resigning."
 
+**`closeQuestion()`** (optional Ui method, asked for by the orchestrator): closes any open duel, throw, lucky 6, revive or promotion question without the player. Each promise resolves with its default (no duel, a random hand, skip, none, the queen-rank animal); promotion emits no `promotionChosen`. Shows that are running (die, cards, wheel, banners) keep playing. Safe to call when nothing is open. Online, integration calls it when the room answers for you after a timeout. Demo: "Ask duel, time runs out", "Promotion, time runs out", "Close question now".
+
 **How it works**: a sixth tab, **Online**, with "Play a friend online" and "Turns and leaving" (all from GAME_SPEC "Online play").
 
 **Audio**: `friendJoined` (pop and a bright two-note ding, −19 dB), `friendLeft` (soft down-blip, −23 dB), `timeLow` (light tick-tock, −27 dB). Peaks stay under −9 dBFS.

@@ -266,6 +266,18 @@ export class PromotionPicker {
     r(k);
   }
 
+  /** Phase 5: close without the player (the room picked): resolves the default, the Octopus/Cat ('q'), and emits nothing. */
+  cancel(): void {
+    const r = this.resolve;
+    if (!r) return;
+    this.resolve = null;
+    this.el.hidden = true;
+    const f = this.prevFocus;
+    this.prevFocus = null;
+    if (f?.isConnected) f.focus({ preventScroll: true });
+    r('q');
+  }
+
   dispose(): void {
     const r = this.resolve;
     this.resolve = null;
