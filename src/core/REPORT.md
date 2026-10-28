@@ -10,7 +10,7 @@
 - `window.arena` is the controller, for the console. The Phase 3 page (`/src/core/demo.html`) still works.
 
 ### Status
-Work in progress: Sumo is playable; see below for what is still open.
+Work in progress: Sumo and Raid are both playable, local and vs bot. Tests and the final report come next.
 
 # Phase 3 report (Normal and Crazy, unchanged)
 

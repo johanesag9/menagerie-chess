@@ -87,9 +87,10 @@ function waterDistance(s: AState, i: number, doomed: Set<number>): number {
 
 function evalSumo(s: AState, side: Side, lookahead: boolean): number {
   const enemy = opposite(side);
-  // The warned ring sinks after Sea's turn: Sea animals still on it are doomed now; Land ones only if it's Sea to move.
+  // The warned ring sinks after Sea's turn. Land animals still on it when Land's turn ends are doomed;
+  // Sea ones only once it's Sea's turn (during Land's turn they can still walk off).
   const warn = sinkingNext(s);
-  const doomedFor = (who: Side) => new Set(warn.length && (who === 'sea' || s.turn === 'sea') ? warn : []);
+  const doomedFor = (who: Side) => new Set(warn.length && (who === 'land' || s.turn === 'sea') ? warn : []);
   const doomed: Record<Side, Set<number>> = { land: doomedFor('land'), sea: doomedFor('sea') };
   let score = 0;
   let mine = 0;

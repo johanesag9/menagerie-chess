@@ -450,7 +450,7 @@ export class ArenaGame implements ArenaController {
     const raid = s.mode === 'raid';
     return {
       mode: s.mode,
-      round: s.round,
+      round: s.over ? Math.min(s.round, maxRoundsOf(s)) : s.round,
       turn: s.turn,
       phase: s.over ? 'over' : this.duel ? 'duel' : 'action',
       die: s.die,
