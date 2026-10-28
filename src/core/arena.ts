@@ -153,7 +153,9 @@ function render(): void {
   const showIds = $<HTMLInputElement>('show-ids').checked;
   const opts = selected && !aim ? game.pieceOptions(selected) : null;
   const aimStep = aim ? game.targets(aim) : null;
-  const area = new Set<Square>(aim ? game.previewArea(aim) : selected && hoverHit ? game.previewArea({ pieceId: selected, hit: hoverHit }) : []);
+  const preview = aim ? game.previewArea(aim) : selected && hoverHit ? game.previewArea({ pieceId: selected, hit: hoverHit }) : { area: [], falls: [] };
+  const area = new Set<Square>(preview.area);
+  const falls = new Set<Square>(preview.falls);
   const sunk = new Set(st.sunk);
   const warn = new Set(st.sinkingNext);
   const blocks = new Map(st.squares.map((b) => [b.square, b]));
@@ -176,6 +178,7 @@ function render(): void {
       if (selSq === sq && !aim) el.classList.add('selected');
       if (aim && aim.targets.includes(sq)) el.classList.add('picked');
       if (area.has(sq)) el.classList.add('area');
+      if (falls.has(sq)) el.classList.add('falls');
       if (opts?.steps.includes(sq)) el.classList.add('target');
       const hitIdx = opts ? opts.hits.indexOf(sq) : -1;
       if (hitIdx >= 0) {
@@ -351,7 +354,7 @@ function renderSelection(opts: ReturnType<ArenaController['pieceOptions']> | nul
     return;
   }
   el.hidden = false;
-  const [pname, help] = POWER_TEXT[st.mode][p.kind];
+  const [pname, help] = [opts.power.name ?? POWER_TEXT[st.mode][p.kind][0], opts.power.line ?? POWER_TEXT[st.mode][p.kind][1]];
   const carrying = st.treasures.some((t) => t.carrier === p.id);
   const lines = [
     tag('span', 'sel-name', `${name(p)}${carrying ? ' (carrying)' : ''}`),
@@ -359,7 +362,7 @@ function renderSelection(opts: ReturnType<ArenaController['pieceOptions']> | nul
   ];
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.textContent = opts.power.available ? `Use ${pname} (${st.mode === 'raid' && p.kind === 'p' ? 0 : 2} AP)` : `${pname}: ${REASON[opts.power.reason ?? ''] ?? opts.power.reason}`;
+  btn.textContent = opts.power.available ? `Use ${pname} (${st.mode === 'raid' && p.kind === 'p' ? 0 : 2} AP)` : `${pname}: ${opts.power.note ?? REASON[opts.power.reason ?? ''] ?? opts.power.reason}`;
   btn.disabled = !opts.power.available || !myTurn();
   btn.addEventListener('click', () => {
     aim = { pieceId: p.id, targets: [] };

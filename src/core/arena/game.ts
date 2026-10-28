@@ -17,7 +17,7 @@ import { opposite, sqIndex, sqName } from '../modes/state';
 import { createLocalArenaBot, type ArenaBotEngine } from './botClient';
 import { wantsDuel } from './bot';
 import {
-  ANIMAL, actionKey, applyAction, carriedBy, cloneArena, createArenaState, detectOver, endTurn, findA, hasAnyAction,
+  ANIMAL, actionKey, applyAction, powerLine, powerNote, carriedBy, cloneArena, createArenaState, detectOver, endTurn, findA, hasAnyAction,
   hitCostOf, hitTargets, isSunk, legalActions, maxRoundsOf, nextSinkIn, nextWheelIn, piecesOn, powerBlock, powerName,
   powerOptions, pushLine, roll, roundCapResult, sentHomeSquare, shoveLine, sinkingNext,
   spinWheel, stepCostOf, stepTargets, stompShoves, stunVictims, wheelDue, type AState,
@@ -93,16 +93,18 @@ export class ArenaGame implements ArenaController {
     const stepCost = stepCostOf(s, p);
     if (!this.humanCanAct() || p.side !== s.turn) {
       const reason = s.over || this.duel ? 'wrongPhase' : 'notYourTurn';
-      return { ...none, stepCost, power: { power, available: false, reason } };
+      return { ...none, stepCost, power: { power, available: false, reason, name: powerName(s.mode, p.kind), line: powerLine(s, p.kind) } };
     }
     const hits = hitTargets(s, i);
     const block = powerBlock(s, i);
+    const text = { name: powerName(s.mode, p.kind), line: powerLine(s, p.kind) };
+    const note = block ? powerNote(s, i, block) : undefined;
     return {
       steps: stepTargets(s, i).map(sqName),
       hits: hits.map((h) => sqName(h.target)),
       stepCost,
       hitCosts: hits.map((h) => h.cost),
-      power: block ? { power, available: false, reason: block } : { power, available: true },
+      power: block ? { power, available: false, reason: block, ...text, ...(note ? { note } : {}) } : { power, available: true, ...text },
     };
   }
 
@@ -119,7 +121,25 @@ export class ArenaGame implements ArenaController {
     return { squares: [...next], complete, prompt: lists.length ? this.promptFor(pending.pieceId, picked.length, complete) : 'Nothing to pick' };
   }
 
-  previewArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): Square[] {
+  previewArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): { area: Square[]; falls: Square[] } {
+    const area = this.area(pending);
+    // Which animals would fall: play the finished action on a copy (only hits and complete powers can drop anything).
+    const s = this.s;
+    let falls: Square[] = [];
+    const p = s.board[findA(s, pending.pieceId)];
+    if (p && s.mode === 'sumo' && !s.over) {
+      const action: ArenaAction = 'hit' in pending
+        ? { type: 'hit', pieceId: pending.pieceId, target: pending.hit }
+        : { type: 'power', pieceId: pending.pieceId, targets: pending.targets };
+      const key = actionKey(action);
+      if (legalActions(s).some((a) => actionKey(a) === key)) {
+        falls = applyAction(cloneArena(s), action, false).changes.flatMap((c) => (c.type === 'fall' ? [c.square] : []));
+      }
+    }
+    return { area, falls };
+  }
+
+  private area(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): Square[] {
     const s = this.s;
     const i = findA(s, pending.pieceId);
     const p = s.board[i];
@@ -275,10 +295,9 @@ export class ArenaGame implements ArenaController {
     let victimId: PieceId | null = null;
     let to: Square;
     let via: DuelInfo['via'];
+    if (a.type !== 'hit') return null; // powers can't be dueled
     if (s.mode === 'sumo') {
-      const isHeadbutt = a.type === 'power' && attacker.kind === 'b';
-      if (a.type !== 'hit' && !isHeadbutt) return null;
-      to = a.type === 'hit' ? a.target : (a as Extract<ArenaAction, { type: 'power' }>).targets[0];
+      to = a.target;
       const trial = cloneArena(s);
       const out = applyAction(trial, a);
       const fall = out.changes.find((c) => c.type === 'fall' && trial.out.some((p) => p.id === c.pieceId && p.side === defender));
@@ -286,7 +305,6 @@ export class ArenaGame implements ArenaController {
       victimId = fall.pieceId;
       via = 'shove';
     } else {
-      if (a.type !== 'hit') return null;
       const victim = s.board[sqIndex(a.target)]!;
       if (!carriedBy(s, victim.id)) return null;
       victimId = victim.id;
@@ -343,17 +361,13 @@ export class ArenaGame implements ArenaController {
     if (winner === 'attacker') return this.resolve(d.action);
     // Bonked: the AP is spent (a Headbutt counts as used) and nothing moves.
     const s = this.s;
-    const a = d.action as Extract<ArenaAction, { type: 'hit' | 'power' }>;
+    const a = d.action as Extract<ArenaAction, { type: 'hit' }>;
     const p = s.board[findA(s, a.pieceId)]!;
     const victim = s.board[findA(s, d.info.victimId)];
-    if (a.type === 'hit') s.ap -= hitCostOf(s, s.board[sqIndex(a.target)]!);
-    else {
-      s.ap -= s.cfg.powerCost;
-      s.powersUsed.push(p.id);
-    }
+    s.ap -= hitCostOf(s, s.board[sqIndex(a.target)]!);
     const record: ActionRecord = {
       side: p.side, kind: 'bonk',
-      label: `Bonked! ${victim ? `${ANIMAL[victim.side][victim.kind]} won the duel` : 'The defender won the duel'}; ${ANIMAL[p.side][p.kind]}'s ${a.type === 'hit' ? (s.mode === 'sumo' ? 'shove' : 'tag') : 'Headbutt'} failed`,
+      label: `Bonked! ${victim ? `${ANIMAL[victim.side][victim.kind]} won the duel` : 'The defender won the duel'}; ${ANIMAL[p.side][p.kind]}'s ${s.mode === 'sumo' ? 'shove' : 'tag'} failed`,
     };
     this.records.push(record);
     this.events.emit('bonked', { info: d.info });
@@ -366,9 +380,15 @@ export class ArenaGame implements ArenaController {
   private resolve(action: ArenaAction): void {
     const s = this.s;
     const mover = s.turn;
+    if (action.type === 'endTurn') {
+      const record: ActionRecord = { side: mover, kind: 'pass', label: applyAction(s, action).label };
+      this.records.push(record);
+      this.events.emit('logged', record);
+      return this.endOfTurn();
+    }
     const out = applyAction(s, action);
     const record: ActionRecord = {
-      side: mover, kind: action.type === 'power' ? 'power' : action.type === 'endTurn' ? 'pass' : 'move', label: out.label,
+      side: mover, kind: action.type === 'power' ? 'power' : 'move', label: out.label,
     };
     this.records.push(record);
     const over = detectOver(s, mover);
@@ -377,7 +397,6 @@ export class ArenaGame implements ArenaController {
     this.events.emit('logged', record);
     this.events.emit('state', this.snapshot());
     if (over) return this.finish(over);
-    if (action.type === 'endTurn') return this.endOfTurn();
     this.afterAction();
   }
 
@@ -397,7 +416,7 @@ export class ArenaGame implements ArenaController {
     if (sink) {
       const record: ActionRecord = { side: null, kind: 'wheel', label: sink.label };
       this.records.push(record);
-      e.emit('sank', { squares: sink.squares, changes: sink.changes });
+      e.emit('sank', { squares: sink.squares, sunk: sink.sunk, sinkingNext: sink.sinkingNext, changes: sink.changes });
       e.emit('logged', record);
     }
     let over = sink ? detectOver(s, null) : null;

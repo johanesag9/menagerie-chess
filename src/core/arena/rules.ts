@@ -56,6 +56,28 @@ export function powerName(mode: ArenaMode, kind: PieceKind): string {
   return { n: 'Double jump', b: 'Headbutt', r: 'Stomp', q: 'Block', k: 'Escape' }[kind];
 }
 
+/** The power's rule in one line, for the HUD (`PowerInfo.line`). */
+export function powerLine(s: AState, kind: PieceKind): string {
+  const sumo = s.mode === 'sumo';
+  switch (kind) {
+    case 'p': return sumo ? "Dig in: can't be pushed until your next turn." : `One free step sideways (${s.cfg.sidestepCost} AP).`;
+    case 'n': return sumo ? 'Two knight hops onto empty, dry squares.' : 'Two knight hops onto empty squares.';
+    case 'b': return sumo ? `Shove an enemy next to it ${s.cfg.headbuttSquares} squares, heavy or not.` : 'Push an enemy next to it one square; a carrier drops the treasure.';
+    case 'r': return sumo ? 'Shove every enemy next to it one square away.' : 'Stun every enemy next to it (not the king) for their next turn.';
+    case 'q': return `Block an empty square for ${s.cfg.blockPlies} plies.`;
+    case 'k': return 'Teleport to an empty square up to 2 away.';
+  }
+}
+
+/** A plain reason the power can't be used, when `reason` alone would mislead (`PowerInfo.note`). */
+export function powerNote(s: AState, i: number, block: PowerBlock): string | undefined {
+  const p = s.board[i];
+  if (!p || block !== 'wrongPhase' || s.over) return undefined;
+  if (s.mode === 'raid' && carriedBy(s, p.id)) return 'Carrying the treasure';
+  if (s.ap < powerCostOf(s, p)) return 'Not enough AP';
+  return undefined;
+}
+
 /** The team: one of each kind, in files b..g of rank 2 (Land) and rank 7 (Sea). */
 const TEAM: [PieceKind, number][] = [['n', 1], ['b', 2], ['q', 3], ['k', 4], ['r', 5], ['p', 6]];
 const KNIGHT = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
@@ -235,16 +257,16 @@ function relocate(s: AState, from: number, to: number): void {
   s.board[from] = null;
 }
 
-/** Apply a line: its moves in `step`, a fall in the step after. Returns the next free step. */
+/** Apply a line in one step: its moves, then the fall of the animal pushed off the end (it gets no move). Returns the next step. */
 function applyLine(s: AState, line: Line, step: number, changes: BoardChange[]): number {
-  const fall = line.fall !== null ? knockOut(s, line.fall, line.dir, step + (line.moves.length ? 1 : 0)) : null;
+  const fall = line.fall !== null ? knockOut(s, line.fall, line.dir, step) : null;
   for (const [a, b] of line.moves) {
     const p = s.board[a]!;
     relocate(s, a, b);
     changes.push({ step, type: 'move', pieceId: p.id, from: sqName(a), to: sqName(b), how: 'pushed' });
   }
   if (fall) changes.push(fall);
-  return step + (line.moves.length ? 1 : 0) + (fall ? 1 : 0);
+  return step + 1;
 }
 
 /** A stomp's shoves: every enemy neighbour whose line can move, diagonals first. */
@@ -272,7 +294,8 @@ export function sentHomeSquare(s: AState, p: APiece, from: number): number | nul
     for (let f = 0; f < 8; f++) {
       const j = idx(f, r);
       if (!canEnter(s, p.side, j) || treasureAt(s, j)) continue;
-      const d = Math.abs(f - fileOf(from));
+      // By file distance; ties go toward the centre.
+      const d = Math.abs(f - fileOf(from)) + Math.abs(f - 3.5) / 100;
       if (d < bestD) {
         best = j;
         bestD = d;
@@ -371,7 +394,7 @@ export function powerOptionsRaw(s: AState, i: number): number[][] {
       for (const [a, b] of KNIGHT) {
         if (!onBoard(f + a, r + b)) continue;
         const mid = idx(f + a, r + b);
-        if (!canEnter(s, p.side, mid) || treasureAt(s, mid)) continue;
+        if (!canEnter(s, p.side, mid)) continue; // a treasure under the middle hop isn't picked up
         for (const [c, d] of KNIGHT) {
           if (!onBoard(f + a + c, r + b + d)) continue;
           const to = idx(f + a + c, r + b + d);
@@ -560,7 +583,7 @@ export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
             const line = n === 0 ? pushLine(s, at, df, dr)! : pushLine(s, at, df, dr);
             if (!line) break;
             step = applyLine(s, line, step, changes);
-            if (line.fall === at) break;
+            if (line.fall === at) break; // the headbutted animal itself fell in
             at += df + 8 * dr;
           }
         } else {
@@ -578,7 +601,6 @@ export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
           // The shove lines point away from the rook in different directions, so they never touch: one step for all.
           const lines = stompShoves(s, i).map((j) => shoveLine(s, i, j)!);
           const falls = lines.filter((l) => l.fall !== null).map((l) => knockOut(s, l.fall!, l.dir, 0));
-          const anyMove = lines.some((l) => l.moves.length);
           for (const l of lines) {
             for (const [a2, b2] of l.moves) {
               const q = s.board[a2]!;
@@ -586,7 +608,7 @@ export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
               changes.push({ step: 0, type: 'move', pieceId: q.id, from: sqName(a2), to: sqName(b2), how: 'pushed' });
             }
           }
-          for (const f of falls) changes.push({ ...f, step: anyMove ? 1 : 0 });
+          changes.push(...falls);
           label = `${pname} on ${sqName(i)} (${lines.length} shoved)`;
         } else {
           let n = 0;
@@ -669,7 +691,7 @@ export function sinkingNext(s: AState): number[] {
   return out;
 }
 
-export interface SinkResult { squares: Square[]; changes: BoardChange[]; label: string }
+export interface SinkResult { squares: Square[]; sunk: Square[]; sinkingNext: Square[]; changes: BoardChange[]; label: string }
 
 /** Sink the warned ring: everything on it falls in (all in one step), blocks on it vanish. */
 function sinkRing(s: AState): SinkResult {
@@ -685,7 +707,10 @@ function sinkRing(s: AState): SinkResult {
   s.blocks = s.blocks.filter((b) => !squares.includes(b.sq));
   s.sunkRings++;
   const label = `The ${['outer', 'second', 'third'][s.sunkRings - 1] ?? 'next'} ring sank${fell.length ? `: ${fell.join(', ')} fell in` : ''}`;
-  return { squares: squares.map(sqName), changes, label };
+  const sunk: Square[] = [];
+  for (let i = 0; i < 64; i++) if (isSunk(s, i)) sunk.push(sqName(i));
+  // The next warning only starts once the round has turned over (endTurn fills it in).
+  return { squares: squares.map(sqName), sunk, sinkingNext: [], changes, label };
 }
 
 /** The way off the board from a square: toward its nearest edge (a corner falls diagonally). */
@@ -719,6 +744,7 @@ export function endTurn(s: AState): SinkResult | null {
   s.statuses = s.statuses.filter((x) => !(x.status === 'anchored' && s.board[findA(s, x.id)]?.side === s.turn));
   s.die = null;
   s.ap = 0;
+  if (sink) sink.sinkingNext = sinkingNext(s).map(sqName);
   return sink;
 }
 
@@ -761,11 +787,20 @@ export function spinWheel(s: AState, forced?: WheelOutcome): WheelResult {
       break;
     }
     case 'pigeon': {
-      const grab = s.treasures.filter((t) => t.carrier || (t.sq !== null && t.sq !== t.home));
-      const spots: number[] = [];
-      for (let j = 0; j < 64; j++) if (!s.board[j] && !blockAt(s, j) && !isHome(s, j) && !treasureAt(s, j)) spots.push(j);
-      if (grab.length && spots.length) {
+      // It drops the treasure on an empty square of the owner's half: never a back rank or a home square.
+      const spotsFor = (owner: Side) => {
+        const out: number[] = [];
+        for (let j = 0; j < 64; j++) {
+          const r = rankOf(j);
+          if (halfOf(j) !== owner || r === 0 || r === 7) continue;
+          if (!s.board[j] && !blockAt(s, j) && !isHome(s, j) && !treasureAt(s, j)) out.push(j);
+        }
+        return out;
+      };
+      const grab = s.treasures.filter((t) => (t.carrier || (t.sq !== null && t.sq !== t.home)) && spotsFor(t.owner).length);
+      if (grab.length) {
         const t = grab[Math.floor(rand(s) * grab.length)];
+        const spots = spotsFor(t.owner);
         const to = spots[Math.floor(rand(s) * spots.length)];
         t.carrier = null;
         t.sq = to;
