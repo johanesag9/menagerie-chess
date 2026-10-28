@@ -480,9 +480,10 @@ const online: Record<'friendJoined' | 'friendLeft' | 'timeLow', CueFn> = {
   // 10 seconds left: a light wooden tick-tock, a touch brighter than the chess clock's tick.
   timeLow: (o, t) => {
     tone(o, { t, dur: 0.05, f: 2100, f2: 1700, type: 'triangle', gain: 0.12 });
-    noise(o, { t, dur: 0.025, f: 5000, type: 'highpass', gain: 0.08 });
+    noise(o, { t, dur: 0.025, f: 5000, type: 'highpass', gain: 0.035 });
+    // The tock is tones only: a noise burst that starts late can spike.
     tone(o, { t: t + 0.16, dur: 0.05, f: 1500, f2: 1250, type: 'triangle', gain: 0.1 });
-    noise(o, { t: t + 0.16, dur: 0.025, f: 4000, type: 'highpass', gain: 0.06 });
+    tone(o, { t: t + 0.16, dur: 0.02, f: 3600, type: 'sine', gain: 0.03 });
   },
 };
 
@@ -573,6 +574,11 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   treasureHome: 1.6,
   score: 1.05,
   endTurn: 1.43,
+  // Phase 5, measured 2026-10-28. friendJoined like a pickup (-19), friendLeft soft (-23), timeLow just over the
+  // chess clock tick (-27, it plays once).
+  friendJoined: 1.4,
+  friendLeft: 1.55,
+  timeLow: 1.88,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;
