@@ -1,11 +1,13 @@
 /**
- * Party modes playtest: a plain 2D DOM board to play Sumo and Raid locally or against the bot. Dev tool only.
- * It only uses the ArenaController contract (events, `state`, `pieceOptions`, `targets`, `previewArea`), like integration will.
+ * Arena playtest: a plain 2D DOM board to play Sumo, Raid and (Phase 6) Sandcastle King and Stepping Stones locally or
+ * against the bot. Dev tool only. It only uses the ArenaController contract (events, `state`, `pieceOptions`,
+ * `targets`, `previewArea`, `shapeOptions`), like integration will.
  */
 import type {
   ArenaAction, ArenaController, ArenaMode, ArenaState, BotLevel, DuelInfo, GameOptions, Hand, PieceId, PieceKind,
-  PieceState, Side, Square,
+  PieceState, ShapeOption, Side, Square,
 } from '../contracts/types';
+import { isBoardMode } from '../contracts/types';
 import { createArena } from './index';
 import { DEFAULT_ARENA_TUNING, getArenaTuning, setArenaTuning, type ArenaTuning } from './arena/tuning';
 
@@ -38,24 +40,25 @@ const POWER_TEXT: Record<ArenaMode, Record<PieceKind, [string, string]>> = {
     q: ['Block', 'Blocks an empty square for 4 plies.'],
     k: ['Escape', 'Teleport to an empty square up to 2 away.'],
   },
-  // Phase 6 stub (orchestrator): castle traits and stones powers, from GAME_SPEC "Board-game modes". Core owns these now.
+  // Phase 6: fallbacks only; the page shows `pieceOptions().power.name/line` from core.
   castle: {
-    p: ['Digger', 'Can dig twice in one turn.'],
-    n: ['Leaper', 'Can make a knight hop instead of a step.'],
-    b: ['Climber', 'Can go up 2 levels in one step.'],
-    r: ['Builder', 'Builds 2 levels at once.'],
-    q: ['Shover', 'Can push a neighbouring enemy instead of moving.'],
-    k: ['Zoomer', 'Can move 2 steps.'],
+    p: ['Digger', 'After a dig, it may dig once more.'],
+    n: ['Leaper', 'Its move may be a knight hop (still up at most 1 level).'],
+    b: ['Climber', 'It may go up 2 levels in one step.'],
+    r: ['Builder', 'A build adds 2 levels (up to 3).'],
+    q: ['Shover', 'Instead of moving, it may push an enemy next to it 1 square.'],
+    k: ['Zoomer', 'Its move may be 2 steps.'],
   },
   stones: {
-    p: ['Bridge', 'Raise two sunk squares in a row.'],
-    n: ['Double jump', 'Two knight hops onto dry squares, over water.'],
-    b: ['Headbutt', 'Push a neighbouring enemy one square; into the water sends it home.'],
-    r: ['Stomp', 'Sink every empty stone around the rook.'],
-    q: ['Block', "A stone nobody can sink or stand on, for 4 plies."],
-    k: ['Escape', 'Teleport to a dry square up to 2 away.'],
+    p: ['Bridge', 'Raise two sunk squares in a row; the first must touch dry land.'],
+    n: ['Double jump', 'Two knight hops onto empty dry squares; water in between doesn’t matter.'],
+    b: ['Headbutt', 'Push an enemy next to it 1 square. Into the water, it’s sent home.'],
+    r: ['Stomp', 'Sink every empty dry square around it in ranks 3–6 (fresh ones too).'],
+    q: ['Block', 'A vase or ink cloud on an empty dry square: no sinking, no standing, for 4 plies.'],
+    k: ['Escape', 'Teleport to an empty dry square up to 2 away.'],
   },
 };
+const MODE_NAME: Record<ArenaMode, string> = { sumo: 'Sumo', raid: 'Raid', castle: 'Sandcastle King', stones: 'Stepping Stones' };
 const REASON: Record<string, string> = {
   used: 'Used', stunned: 'Stunned', frozen: 'Frozen', noTarget: 'No target', notYourTurn: 'Not your turn',
   wrongPhase: 'Not now (too little AP, or carrying)', classic: '',
@@ -87,13 +90,17 @@ let paused = false;
 let duel: DuelInfo | null = null;
 let rolledAp = 0;
 let roundShownAt = -Infinity;
+/** Board-game modes: the Build/Dig (Raise/Sink) toggle. */
+let shapeDir: 'up' | 'down' = 'up';
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 const name = (p: { side: Side; kind: PieceKind }) => `${EMOJI[p.side][p.kind]} ${ANIMAL[p.side][p.kind]}`;
 const pieceById = (id: string) => st.pieces.find((p) => p.id === id) ?? st.out.find((p) => p.id === id);
 const pieceAt = (sq: Square) => st.pieces.find((p) => p.square === sq);
 const botSide = (): Side | null => (options?.opponent.type === 'bot' ? options.opponent.botSide : null);
-const myTurn = () => st.phase === 'action' && st.turn !== botSide();
+const myTurn = () => (st.phase === 'action' || st.phase === 'draft') && st.turn !== botSide();
+const boardMode = () => isBoardMode(st.mode);
+const shaping = () => boardMode() && (st.stage === 'shape' || st.stage === 'more') && myTurn();
 
 // ---------- setup form ----------
 
@@ -144,6 +151,12 @@ $('flip').addEventListener('click', () => {
   render();
 });
 $('show-ids').addEventListener('change', render);
+$('shape-up').addEventListener('click', () => setShapeDir('up'));
+$('shape-down').addEventListener('click', () => setShapeDir('down'));
+function setShapeDir(dir: 'up' | 'down'): void {
+  shapeDir = dir;
+  render();
+}
 $('end-turn').addEventListener('click', () => {
   if (!myTurn()) return;
   clearSelection();
@@ -179,6 +192,10 @@ function render(): void {
   const statuses = new Map(st.statuses.map((x) => [x.pieceId, x]));
   const used = new Set(st.powersUsed);
   const selSq = selected ? pieceById(selected)?.square : null;
+  const shapes = new Map<Square, ShapeOption>(shaping() && !aim ? (game.shapeOptions?.() ?? []).map((o) => [o.square, o]) : []);
+  // Flip the toggle when the current side has nothing to do (e.g. the Digger's second dig).
+  if (shapes.size && ![...shapes.values()].some((o) => (shapeDir === 'up' ? o.up : o.down))) shapeDir = shapeDir === 'up' ? 'down' : 'up';
+  const fresh = new Set(st.fresh ?? []);
 
   const cells: HTMLElement[] = [];
   for (let row = 0; row < 8; row++) {
@@ -192,6 +209,18 @@ function render(): void {
       el.dataset.sq = sq;
       if (sunk.has(sq)) el.classList.add('water');
       if (warn.has(sq)) el.classList.add('warn');
+      if (fresh.has(sq)) el.classList.add('fresh');
+      const level = st.levels?.[sq] ?? 0;
+      if (level) {
+        el.classList.add(`lv${level}`);
+        el.append(tag('span', `level${level === 3 ? ' castle' : ''}`, level === 3 ? '🏰' : String(level)));
+      }
+      const shape = shapes.get(sq);
+      if (shape && (shapeDir === 'up' ? shape.up : shape.down)) {
+        el.classList.add(shapeDir === 'up' ? 'shape-up' : 'shape-down');
+        const label = st.mode === 'stones' ? (shapeDir === 'up' ? 'raise' : 'sink') : shapeDir === 'up' ? `+${shape.upBy ?? 1}` : '−1';
+        el.append(tag('span', `cost shape${shapeDir === 'down' ? ' down' : ''}`, label));
+      }
       if (selSq === sq && !aim) el.classList.add('selected');
       if (aim && aim.targets.includes(sq)) el.classList.add('picked');
       if (area.has(sq)) el.classList.add('area');
@@ -200,7 +229,7 @@ function render(): void {
       const hitIdx = opts ? opts.hits.indexOf(sq) : -1;
       if (hitIdx >= 0) {
         el.classList.add('hit');
-        el.append(tag('span', 'cost', `${opts!.hitCosts[hitIdx]} AP`));
+        el.append(tag('span', 'cost', boardMode() ? 'push' : `${opts!.hitCosts[hitIdx]} AP`));
       }
       if (aimStep?.squares.includes(sq)) el.classList.add('magic');
       if (!aim && opts?.throws?.includes(sq)) {
@@ -224,14 +253,15 @@ function render(): void {
         const pe = tag('span', `piece ${p.side}`, EMOJI[p.side][p.kind]);
         const status = statuses.get(p.id);
         if (status) pe.append(tag('span', `status ${status.status}`, status.status === 'anchored' ? '⚓' : '💫'));
-        if (!used.has(p.id)) pe.append(tag('span', 'ready', ''));
+        if (!used.has(p.id) && st.mode !== 'castle') pe.append(tag('span', 'ready', ''));
+        if (st.crowned?.pieceId === p.id) pe.append(tag('span', 'crowned', '👑'));
         const carried = st.treasures.find((t) => t.carrier === p.id);
         if (carried) pe.append(tag('span', 'carry', LOOT[carried.owner]));
         el.append(pe);
         if (showIds) el.append(tag('span', 'id', p.id));
       }
       if (col === 0 || row === 7) el.append(tag('span', 'coord', col === 0 && row === 7 ? sq : col === 0 ? sq[1] : sq[0]));
-      el.setAttribute('aria-label', `${sq}${p ? ` ${p.side} ${ANIMAL[p.side][p.kind]}` : ''}${sunk.has(sq) ? ' water' : ''}`);
+      el.setAttribute('aria-label', `${sq}${p ? ` ${p.side} ${ANIMAL[p.side][p.kind]}` : ''}${sunk.has(sq) ? ' water' : ''}${level ? ` level ${level}` : ''}`);
       cells.push(el);
     }
   }
@@ -240,6 +270,60 @@ function render(): void {
   renderStatus();
   renderSelection(opts);
   renderPrompt(aimStep);
+  renderShapebar(shapes);
+  renderDraft();
+}
+
+function renderShapebar(shapes: Map<Square, ShapeOption>): void {
+  const bar = $('shapebar');
+  bar.hidden = !shapes.size;
+  if (!shapes.size) return;
+  const all = [...shapes.values()];
+  const up = $<HTMLButtonElement>('shape-up');
+  const down = $<HTMLButtonElement>('shape-down');
+  const upBy = Math.max(1, ...all.map((o) => o.upBy ?? 1));
+  up.textContent = st.mode === 'stones' ? '⬆️ Raise' : upBy > 1 ? '⬆️ Build ×2' : '⬆️ Build';
+  down.textContent = st.mode === 'stones' ? '⬇️ Sink' : '⬇️ Dig';
+  up.disabled = !all.some((o) => o.up);
+  down.disabled = !all.some((o) => o.down);
+  up.setAttribute('aria-pressed', String(shapeDir === 'up'));
+  down.setAttribute('aria-pressed', String(shapeDir === 'down'));
+}
+
+/** Castle draft: big buttons for the picker (local or the human side), a note while the bot picks. */
+let draftShownFor = '';
+function renderDraft(): void {
+  if (st.phase !== 'draft' || !st.draft) {
+    if (draftShownFor) {
+      draftShownFor = '';
+      hideOverlay();
+    }
+    return;
+  }
+  const key = `${st.turn}:${st.draft.picks.land.length}:${st.draft.picks.sea.length}`;
+  if (key === draftShownFor) return;
+  draftShownFor = key;
+  const picks = st.draft.picks;
+  const line = (side: Side) => `${cap(side)}: ${picks[side].map((k) => `${EMOJI[side][k]} ${ANIMAL[side][k]}`).join(', ') || '—'}`;
+  const summary = para(`${line('land')}  ·  ${line('sea')}`, 'picks');
+  if (st.turn === botSide()) {
+    showOverlay(para(`${cap(st.turn)} (bot) is picking…`, 'big'), summary);
+    return;
+  }
+  const side = st.turn;
+  const grid = document.createElement('div');
+  grid.className = 'draft-grid';
+  for (const k of ['p', 'n', 'b', 'r', 'q', 'k'] as PieceKind[]) {
+    const b = button('', () => {
+      const r = game.act({ type: 'pick', kind: k });
+      if (!r.ok) toast(r.reason);
+    });
+    b.append(tag('span', 'emoji', EMOJI[side][k]), tag('span', '', ANIMAL[side][k]), tag('span', 'trait', POWER_TEXT.castle[k][0]), tag('span', 'line', POWER_TEXT.castle[k][1]));
+    b.disabled = picks[side].includes(k);
+    grid.append(b);
+  }
+  const n = picks[side].length + 1;
+  showOverlay(para(`${cap(side)}, your pick (${n} of ${st.draft.size})`, 'big'), summary, grid);
 }
 
 function tag(t: string, cls: string, text: string): HTMLElement {
@@ -267,6 +351,14 @@ function onSquare(sq: Square): void {
   if (!myTurn()) {
     if (st.phase === 'action' && st.turn === botSide()) toast('The bot is playing');
     return;
+  }
+  if (shaping() && !aim) {
+    const o = (game.shapeOptions?.() ?? []).find((x) => x.square === sq);
+    if (o && (shapeDir === 'up' ? o.up : o.down)) return submit({ type: 'shape', pieceId: st.mover ?? null, square: sq, dir: shapeDir });
+    if (o) {
+      toast(`Switch to ${shapeDir === 'up' ? (st.mode === 'stones' ? 'Sink' : 'Dig') : st.mode === 'stones' ? 'Raise' : 'Build'} for this square`);
+      return;
+    }
   }
   if (aim) {
     const step = game.targets(aim);
@@ -336,6 +428,14 @@ function renderBars(): void {
   fillBar($('bar-top'), top);
   fillBar($('bar-bottom'), bottom);
 
+  if (boardMode()) {
+    const label = st.phase === 'over' ? 'Game over' : `${cap(st.turn)}${st.turn === botSide() ? ' (bot)' : ''}: ${stageText()}`;
+    $('ap').replaceChildren(tag('span', '', label));
+    $<HTMLButtonElement>('end-turn').disabled = !myTurn() || st.stage !== 'more';
+    $('end-turn').hidden = st.mode === 'stones';
+    return;
+  }
+  $('end-turn').hidden = false;
   const pips: HTMLElement[] = [];
   const total = Math.max(rolledAp, st.ap);
   for (let k = 0; k < total; k++) pips.push(tag('span', `pip${k < st.ap ? ' on' : ''}`, ''));
@@ -344,9 +444,41 @@ function renderBars(): void {
   $<HTMLButtonElement>('end-turn').disabled = !myTurn();
 }
 
+/** The stage in plain words. */
+function stageText(): string {
+  const mover = st.mover ? pieceById(st.mover) : null;
+  const who = mover ? ANIMAL[mover.side][mover.kind] : 'animal';
+  switch (st.stage) {
+    case 'pick': return 'pick an animal';
+    case 'move': return 'move an animal';
+    case 'shape': return st.mode === 'castle' ? `build or dig next to your ${who}` : 'raise or sink a square (or use a power)';
+    case 'more': return `dig again with your ${who}, or end the turn`;
+    default: return '…';
+  }
+}
+
 function fillBar(el: HTMLElement, side: Side): void {
   el.classList.toggle('turn', st.turn === side && st.phase !== 'over');
   const bits: HTMLElement[] = [tag('span', 'who', `${cap(side)}${botSide() === side ? ' (bot)' : ''}${st.turn === side && st.phase !== 'over' ? ' ▶' : ''}`)];
+  if (st.mode === 'castle') {
+    for (const p of st.pieces.filter((x) => x.side === side)) {
+      const lv = st.levels?.[p.square] ?? 0;
+      bits.push(tag('span', `pill${st.crowned?.pieceId === p.id ? ' crown' : ''}`, `${EMOJI[side][p.kind]} ${ANIMAL[side][p.kind]} · ${POWER_TEXT.castle[p.kind][0]} · lv ${lv}`));
+    }
+    if (st.phase === 'draft') bits.push(tag('span', 'pill', `Picked ${st.draft?.picks[side].length ?? 0} / ${st.draft?.size ?? 2}`));
+    if (thinking && botSide() === side) bits.push(tag('span', 'muted', 'thinking…'));
+    el.replaceChildren(...bits);
+    return;
+  }
+  if (st.mode === 'stones') {
+    const path = st.pathLength?.[side];
+    bits.push(tag('span', 'pill', `Path ${path ?? '—'}`));
+    const powers = st.pieces.filter((p) => p.side === side && !st.powersUsed.includes(p.id)).length;
+    bits.push(tag('span', 'pill', `✨ ${powers} power${powers === 1 ? '' : 's'}`));
+    if (thinking && botSide() === side) bits.push(tag('span', 'muted', 'thinking…'));
+    el.replaceChildren(...bits);
+    return;
+  }
   if (st.mode === 'sumo') {
     const animals = tag('span', 'pill', '');
     const all: PieceState[] = [...st.pieces.filter((p) => p.side === side), ...st.out.filter((p) => p.side === side)];
@@ -374,6 +506,31 @@ function where(t: ArenaState['treasures'][number]): string {
 
 function renderStatus(): void {
   const parts = [`Round ${st.round} / ${st.maxRounds}`];
+  statusEl.classList.remove('crown');
+  if (st.mode === 'castle') {
+    if (st.phase === 'draft') parts.push(`Draft: pick ${st.draft?.size ?? 2} animals each`);
+    else parts.push(st.nextTideIn === null || st.nextTideIn === undefined ? 'No more tides' : st.nextTideIn === 1 ? '🌊 The tide wears the beach down at the end of this round' : `Tide in ${st.nextTideIn}`);
+    const c = st.crowned;
+    if (c && st.phase !== 'over') {
+      const p = pieceById(c.pieceId);
+      const theirs = c.side !== st.turn;
+      parts.push(theirs
+        ? `👑 ${cap(c.side)}'s ${p ? ANIMAL[p.side][p.kind] : 'animal'} holds a castle on ${c.square}: dig under it or push it off!`
+        : `👑 ${cap(c.side)}'s ${p ? ANIMAL[p.side][p.kind] : 'animal'} is on a castle (${c.square})`);
+      statusEl.classList.add('crown');
+    }
+    statusEl.textContent = parts.join(' · ');
+    statusEl.classList.remove('urgent');
+    return;
+  }
+  if (st.mode === 'stones') {
+    const pl = st.pathLength;
+    parts.push(`Paths: Land ${pl?.land ?? '—'} · Sea ${pl?.sea ?? '—'}`);
+    if (st.fresh?.length) parts.push(`🫧 ${st.fresh.length} fresh`);
+    statusEl.textContent = parts.join(' · ');
+    statusEl.classList.remove('urgent');
+    return;
+  }
   if (st.mode === 'sumo') {
     if (st.nextSinkIn !== null) parts.push(st.nextSinkIn === 1 ? '⚠️ The island sinks at the end of this round!' : `Island sinks in ${st.nextSinkIn}`);
     else parts.push('No more sinking');
@@ -395,6 +552,7 @@ function renderSelection(opts: ReturnType<ArenaController['pieceOptions']> | nul
   }
   el.hidden = false;
   const [pname, help] = [opts.power.name ?? POWER_TEXT[st.mode][p.kind][0], opts.power.line ?? POWER_TEXT[st.mode][p.kind][1]];
+  if (boardMode()) return renderBoardSelection(el, p, opts, pname, help);
   const carrying = st.treasures.some((t) => t.carrier === p.id);
   const lines = [
     tag('span', 'sel-name', `${name(p)}${carrying ? ' (carrying)' : ''}`),
@@ -418,6 +576,28 @@ function renderSelection(opts: ReturnType<ArenaController['pieceOptions']> | nul
   wrap.append(btn);
   el.replaceChildren(...lines, wrap);
 }
+
+function renderBoardSelection(el: HTMLElement, p: PieceState, opts: ReturnType<ArenaController['pieceOptions']>, pname: string, help: string): void {
+  const moves = `${opts.steps.length} move${opts.steps.length === 1 ? '' : 's'}${opts.hits.length ? `, ${opts.hits.length} push${opts.hits.length === 1 ? '' : 'es'}` : ''}`;
+  if (st.mode === 'castle') {
+    el.replaceChildren(tag('span', 'sel-name', `${name(p)} · ${pname}`), tag('span', 'sel-help', `${help} ${st.stage === 'move' ? moves : ''}`));
+    return;
+  }
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = opts.power.available ? `Use ${pname} (whole turn)` : `${pname}: ${REASON_BOARD[opts.power.reason ?? ''] ?? opts.power.reason}`;
+  btn.disabled = !opts.power.available || !myTurn();
+  btn.addEventListener('click', () => {
+    aim = { pieceId: p.id, targets: [] };
+    render();
+  });
+  const wrap = tag('span', 'sel-buttons', '');
+  wrap.append(btn);
+  el.replaceChildren(tag('span', 'sel-name', name(p)), tag('span', 'sel-help', `${st.stage === 'move' ? moves : 'Shape first, then move.'} Power: ${pname}: ${help}`), wrap);
+}
+const REASON_BOARD: Record<string, string> = {
+  used: 'Used', noTarget: 'No target', notYourTurn: 'Not your turn', wrongPhase: 'Only instead of shaping', stunned: 'Stunned', frozen: 'Frozen', classic: '',
+};
 
 function renderPrompt(step: ReturnType<ArenaController['targets']> | null): void {
   const el = $('prompt');
@@ -570,7 +750,9 @@ game.on('started', (e) => {
   logEl.replaceChildren();
   storyEl.replaceChildren();
   const who = e.options.opponent.type === 'bot' ? `vs bot level ${e.options.opponent.level} (bot is ${e.options.opponent.botSide})` : 'local 2-player';
-  story(`New ${cap(e.options.mode ?? 'sumo')} game, ${who}. Seed ${e.options.seed ?? 'random'}.`);
+  story(`New ${MODE_NAME[(e.options.mode ?? 'sumo') as ArenaMode]} game, ${who}. Seed ${e.options.seed ?? 'random'}.`);
+  shapeDir = 'up';
+  draftShownFor = '';
   raw('started', `${e.options.mode} · seed ${e.options.seed ?? 'random'}`);
   render();
 });
@@ -588,7 +770,7 @@ game.on('state', (s) => {
   }
   if (selected && (!pieceById(selected) || s.turn !== pieceById(selected)!.side || !s.pieces.some((p) => p.id === selected))) clearSelection();
   if (aim && s.phase !== 'action') aim = null;
-  raw('state', `round ${s.round} · ${s.turn} · ${s.phase} · ${s.ap} AP · ${s.pieces.length} on board`);
+  raw('state', `round ${s.round} · ${s.turn} · ${s.phase}${s.stage ? `/${s.stage}` : ''} · ${s.ap} AP · ${s.pieces.length} on board`);
   render();
 });
 game.on('rolled', (r) => {
@@ -597,7 +779,8 @@ game.on('rolled', (r) => {
   raw('rolled', `${r.side} ${r.value} → ${r.ap}`);
 });
 game.on('acted', (a) => {
-  raw('acted', `${a.side} ${a.action.type}${a.power ? ` (${a.power})` : ''} · ${a.changes.map((c) => `${c.step}:${c.type}${c.type === 'treasure' ? `/${c.event}` : ''}`).join(' ')}`);
+  raw('acted', `${a.side} ${a.action.type}${a.power ? ` (${a.power})` : ''} · ${a.changes.map((c) => `${c.step}:${c.type}${c.type === 'treasure' ? `/${c.event}` : c.type === 'level' ? `/${c.square} ${c.from}→${c.to}` : c.type === 'water' ? `/${c.square} ${c.sunk ? 'sunk' : 'raised'}` : ''}`).join(' ')}`);
+  if (a.action.type === 'shape' || a.action.type === 'step') shapeDir = 'up';
   for (const c of a.changes) {
     if (c.type === 'fall') {
       const p = pieceById(c.pieceId);
@@ -624,6 +807,17 @@ game.on('wheelSpun', (w) => {
   showBanner(`🎡 Wheel of Chaos: ${cap(w.outcome)}!`, 1600);
   raw('wheelSpun', `${w.outcome}${w.direction ? ` ${w.direction}` : ''} · ${w.changes.length} changes`);
   fakeAnimation();
+});
+game.on('tide', (t) => {
+  showBanner(`🌊 The tide wears the beach down (${t.changes.length} square${t.changes.length === 1 ? '' : 's'})`, 1600);
+  raw('tide', `${t.changes.length} level changes`);
+  fakeAnimation();
+});
+game.on('crowned', (c) => {
+  const p = c.crowned ? pieceById(c.crowned.pieceId) : null;
+  if (c.crowned) showBanner(`👑 ${cap(c.crowned.side)}'s ${p ? name(p) : 'animal'} is on a castle!`, 1400);
+  else showBanner('👑 The crown is lost', 1000);
+  raw('crowned', c.crowned ? `${c.crowned.pieceId} on ${c.crowned.square}` : 'null');
 });
 game.on('turnChanged', (t) => {
   rolledAp = 0;
@@ -663,6 +857,7 @@ game.on('bonked', (b) => {
 game.on('gameOver', (o) => {
   const how: Record<string, string> = {
     kingOverboard: 'king overboard', treasure: 'treasure', rounds: 'the round cap', resign: 'resignation',
+    castle: 'holding the castle', crossed: 'crossing the sea', stalemate: 'nobody being able to move',
   };
   const text = o.winner ? `🏆 ${cap(o.winner)} wins by ${how[o.reason] ?? o.reason}` : `🤝 Draw (${how[o.reason] ?? o.reason})`;
   story(text);
@@ -681,7 +876,8 @@ game.on('botThinking', (b) => {
 
 type Path = (string | number)[];
 const tuningEl = $('tuning');
-const fields: { path: Path; input: HTMLInputElement; kind: 'num' | 'bool' | 'list' | 'text' }[] = [];
+type FieldKind = 'num' | 'bool' | 'list' | 'text' | 'squares';
+const fields: { path: Path; input: HTMLInputElement; kind: FieldKind }[] = [];
 
 function getAt(obj: unknown, path: Path): unknown {
   return path.reduce<unknown>((o, k) => (o as Record<string | number, unknown>)[k], obj);
@@ -698,7 +894,7 @@ function renderTuning(t: ArenaTuning): void {
     fs.append(tag('legend', '', title), ...items);
     return fs;
   };
-  const field = (label: string, path: Path, kind: 'num' | 'bool' | 'list' | 'text' = 'num') => {
+  const field = (label: string, path: Path, kind: FieldKind = 'num') => {
     const l = document.createElement('label');
     const input = document.createElement('input');
     const v = getAt(t, path);
@@ -710,7 +906,7 @@ function renderTuning(t: ArenaTuning): void {
     } else {
       input.type = kind === 'num' ? 'number' : 'text';
       if (kind === 'num') input.step = 'any';
-      input.value = kind === 'list' ? (v as unknown[]).join(',') : String(v);
+      input.value = kind === 'list' || kind === 'squares' ? (v as unknown[]).join(',') : String(v);
       l.append(label, input);
     }
     fields.push({ path, input, kind });
@@ -737,7 +933,15 @@ function renderTuning(t: ArenaTuning): void {
       field('Wheel every N rounds', ['wheelEvery']), field('Tide odds', ['wheelOdds', 'tide']), field('Pigeon odds', ['wheelOdds', 'pigeon']),
       field('Earthquake odds', ['wheelOdds', 'earthquake']), field('Disco odds', ['wheelOdds', 'disco']), field('Stun turns', ['stunTurns'])),
     group('Both', field('Duel tokens', ['duelTokens']), field('Ties before attacker wins', ['tieLimit']), field('Block plies', ['blockPlies'])),
+    group('Sandcastle King',
+      field('Draft size', ['castleDraftSize']), field('Round cap', ['castleMaxRounds']), field('Tide every N rounds', ['tideEvery']),
+      field('Land starts (in pick order)', ['castleStarts', 'land'], 'squares'), field('Sea starts', ['castleStarts', 'sea'], 'squares')),
+    group('Stepping Stones',
+      field('Round cap', ['stonesMaxRounds']), field('Water ranks', ['stonesWaterRanks'], 'list'), field('Fresh rule', ['freshRule'], 'bool')),
     ...levels,
+    ...(['castleBot', 'stonesBot'] as const).map((which) =>
+      group(`${which === 'castleBot' ? 'Castle' : 'Stones'} bot: depth · width per level`,
+        ...([1, 2, 3, 4, 5, 6, 7, 8] as const).flatMap((lv) => [field(`L${lv} depth`, [which, lv, 'depth']), field(`L${lv} width`, [which, lv, 'width'])]))),
   );
 }
 
@@ -749,7 +953,10 @@ function readTuning(): ArenaTuning {
       const v = f.input.value.trim().toLowerCase();
       if (/^[a-h][1-8]$/.test(v)) setAt(t, f.path, v);
     }
-    else if (f.kind === 'list') {
+    else if (f.kind === 'squares') {
+      const items = f.input.value.split(',').map((x) => x.trim().toLowerCase()).filter((x) => /^[a-h][1-8]$/.test(x));
+      if (items.length) setAt(t, f.path, items);
+    } else if (f.kind === 'list') {
       const items = f.input.value.split(',').map((x) => x.trim()).filter(Boolean);
       setAt(t, f.path, f.path[0] === 'heavyKinds' ? items : items.map(Number).filter((n) => Number.isFinite(n)));
     } else {
@@ -780,7 +987,7 @@ function renderRules(): void {
     return u;
   };
   $('rules').replaceChildren(
-    h('Both modes'),
+    h('Sumo and Raid'),
     ul(
       `Roll the die each turn: 1–2 → ${t.apTable[0]} AP, 3–4 → ${t.apTable[2]} AP, 5–6 → ${t.apTable[4]} AP. Spend it on any animals, then End turn.`,
       `Step: ${t.stepCost} AP, one square any direction onto an empty square.`,
@@ -800,6 +1007,22 @@ function renderRules(): void {
       `Pass and run (${t.throwCost} AP): the carrier throws to a teammate in a straight line up to ${t.throwRange} squares away. A catch in your own half scores at once. An enemy in between intercepts: the treasure flies home.`,
       `Tag (${t.tagCost} AP): in your own half, tag a neighbouring enemy. ${t.tagStuns ? 'It is stunned for its next turn; a carrier is instead sent home and drops the treasure. A stunned animal can\'t be tagged.' : 'It is sent home; a carrier drops the treasure.'}`,
       `Wheel of Chaos every ${t.wheelEvery} rounds (the tide sweeps ${t.tideBothWays ? 'both sides' : 'Land'} back toward home). After round ${t.raidMaxRounds}, more points wins.`,
+    ),
+    h('Sandcastle King (board game: no dice, no AP)'),
+    ul(
+      `Draft ${t.castleDraftSize} animals each, Land first, alternating. Land enters on ${t.castleStarts.land.slice(0, t.castleDraftSize).join(', ')}, Sea on ${t.castleStarts.sea.slice(0, t.castleDraftSize).join(', ')}.`,
+      'A turn: move one animal 1 step (up at most 1 level, down any), then build (+1, up to 3) or dig (−1) a square next to it. No building on animals; you may dig under an enemy (it rides down).',
+      'Win: stand on a level-3 castle at the start of your own turn. When you step up, the other side gets one turn to dig under you or push you off.',
+      `The tide wears every empty beach square (ranks 5–8) down one level at the end of every ${t.tideEvery}th round. After round ${t.castleMaxRounds}, a draw.`,
+      ...(['p', 'n', 'b', 'r', 'q', 'k'] as PieceKind[]).map((k) => `${EMOJI.land[k]}/${EMOJI.sea[k]} ${ANIMAL.land[k]} / ${ANIMAL.sea[k]}: ${POWER_TEXT.castle[k][0]}. ${POWER_TEXT.castle[k][1]}`),
+    ),
+    h('Stepping Stones (board game: no dice, no AP)'),
+    ul(
+      `Ranks ${t.stonesWaterRanks.join(', ')} start under water.`,
+      'A turn: raise one sunk square next to dry land, or sink one empty dry square in the middle ranks, or use a power (the whole turn); then step one animal onto an empty dry square.',
+      `${t.freshRule ? 'A square changed on the last turn can’t be raised or sunk this turn.' : 'Fresh rule off: any square can be changed back at once.'}`,
+      `Win: the first animal on the enemy back rank. After round ${t.stonesMaxRounds}, a draw. Each power once per game:`,
+      ...(['p', 'n', 'b', 'r', 'q', 'k'] as PieceKind[]).map((k) => `${EMOJI.land[k]}/${EMOJI.sea[k]} ${POWER_TEXT.stones[k][0]}: ${POWER_TEXT.stones[k][1]}`),
     ),
   );
 }
