@@ -63,6 +63,7 @@ describe('creating and joining', () => {
     const b = h.connect('friend');
     b.join(null);
     expect(b.last('welcome')).toMatchObject({ you: 'land', opponent: 'here', info: { openSide: null, status: 'playing' } });
+    expect(b.inbox.map((m) => m.t)).toEqual(['welcome', 'start', 'presence']);
     expect(a.last('presence')).toEqual({ t: 'presence', opponent: 'here', msLeft: null });
     const sa = a.last('start')!;
     const sb = b.last('start')!;
@@ -136,6 +137,10 @@ describe('creating and joining', () => {
     expect(a.last('presence')).toEqual({ t: 'presence', opponent: 'here', msLeft: null });
 
     // A brand-new mirror (have 0) gets everything.
+    // Join order: welcome, start, inputs, presence (then timer, rematch).
+    expect(b2.inbox.map((m) => m.t)).toEqual(['welcome', 'start', 'inputs', 'presence']);
+    expect(b2.last('presence')).toEqual({ t: 'presence', opponent: 'here', msLeft: null });
+
     const b3 = h.connect('friend, third tab');
     b3.join(token, 0);
     expect(b3.last('inputs')!.list).toHaveLength(3);
@@ -397,7 +402,7 @@ describe('presence', () => {
     b.join(null);
     expect(b.last('welcome')!.opponent).toBe('away');
     expect(b.last('presence')).toEqual({ t: 'presence', opponent: 'away', msLeft: TIMING.graceMs });
-    expect(b.last('start')).toBeDefined();
+    expect(b.inbox.map((m) => m.t)).toEqual(['welcome', 'start', 'presence']);
   });
 });
 

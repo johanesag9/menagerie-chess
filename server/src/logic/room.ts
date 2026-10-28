@@ -309,14 +309,19 @@ export class Room {
     this.reply({ t: 'welcome', you: side, token: p.token, info, opponent: opp ? opp.presence : 'waiting' });
     if (opp) this.sendPresence(other(side));
 
+    // Order on every join (net relies on it): welcome, [start, inputs], presence, [timer], [rematch...].
     if (starts) {
       this.startGame();
-    } else if (m.status !== 'waiting') {
-      // Rejoin: the current game, the inputs this mirror lacks, then the live extras.
-      const have = Number.isInteger(msg.have) && msg.have >= 0 && msg.have <= this.inputs.length && p.sentGame === m.game ? msg.have : 0;
-      p.sentGame = m.game;
-      this.reply({ t: 'start', game: m.game, options: this.optionsFor(side) });
-      this.reply({ t: 'inputs', from: have, list: this.inputs.slice(have) });
+      if (opp.presence === 'here') this.sendPresence(side); // (an away creator: startGame already said so)
+    } else {
+      if (m.status !== 'waiting') {
+        // Rejoin: the current game and the inputs this mirror lacks (an empty list still marks the end of the catch-up).
+        const have = Number.isInteger(msg.have) && msg.have >= 0 && msg.have <= this.inputs.length && p.sentGame === m.game ? msg.have : 0;
+        p.sentGame = m.game;
+        this.reply({ t: 'start', game: m.game, options: this.optionsFor(side) });
+        this.reply({ t: 'inputs', from: have, list: this.inputs.slice(have) });
+      }
+      this.sendPresence(side);
       if (m.timer?.endsAt != null) this.reply({ t: 'timer', side: m.timer.side, msLeft: Math.max(0, m.timer.endsAt - this.now()) });
       for (const s of m.rematch) this.reply({ t: 'rematch', side: s });
     }
@@ -403,15 +408,15 @@ export class Room {
     this.match?.dispose();
     this.match = new Match(this.coreOptions());
     this.deps.onMatch?.(this.match);
-    for (const side of ['land', 'sea'] as Side[]) {
+    const sides: Side[] = ['land', 'sea'];
+    for (const side of sides) {
       const p = m.players[side]!;
       if (p.presence === 'here') p.sentGame = m.game; // an away player gets this game from input 0 when back
-      else {
-        p.graceEndsAt = now + TIMING.graceMs;
-        this.sendPresence(other(side));
-      }
+      else p.graceEndsAt = now + TIMING.graceMs;
       this.send(side, { t: 'start', game: m.game, options: this.optionsFor(side) });
     }
+    // After the starts: tell each player about an away opponent (its grace runs from now).
+    for (const side of sides) if (m.players[side]!.presence !== 'here') this.sendPresence(other(side));
     this.armTimer();
     this.save();
   }
