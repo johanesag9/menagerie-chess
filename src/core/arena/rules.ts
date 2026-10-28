@@ -83,8 +83,6 @@ const TEAM: [PieceKind, number][] = [['n', 1], ['b', 2], ['q', 3], ['k', 4], ['r
 const KNIGHT = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
 /** Diagonals first: a stomp shoves the farthest neighbours first. */
 const NEIGHBOURS = [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]];
-export const BONE_HOME = 4; // e1
-export const PEARL_HOME = 59; // d8
 
 // ---------- set-up ----------
 
@@ -98,7 +96,10 @@ export function createArenaState(mode: ArenaMode, cfg: ArenaTuning, seed: number
     tokens: { land: cfg.duelTokens, sea: cfg.duelTokens },
     sunkRings: 0,
     treasures: mode === 'raid'
-      ? [{ owner: 'land', home: BONE_HOME, sq: BONE_HOME, carrier: null }, { owner: 'sea', home: PEARL_HOME, sq: PEARL_HOME, carrier: null }]
+      ? (['land', 'sea'] as Side[]).map((owner) => {
+          const home = sqIndexOf(cfg.treasureHomes[owner]);
+          return { owner, home, sq: home, carrier: null };
+        })
       : [],
     score: { land: 0, sea: 0 },
     rng: seed >>> 0,
@@ -285,6 +286,9 @@ export function stunVictims(s: AState, i: number): number[] {
   return neighbours(i).filter(([j]) => s.board[j] && s.board[j]!.side !== p.side && s.board[j]!.kind !== 'k').map(([j]) => j);
 }
 
+/** A tag stuns the victim where it stands (an animal not carrying, when `tagStuns` is on); otherwise it is sent home. */
+const tagStuns = (s: AState, victim: APiece) => s.cfg.tagStuns && !carriedBy(s, victim.id);
+
 /** Where a tagged animal goes: the nearest free square of its back rank (then the next rank in, if the row is full). */
 export function sentHomeSquare(s: AState, p: APiece, from: number): number | null {
   const ranks = p.side === 'land' ? [0, 1, 2, 3] : [7, 6, 5, 4];
@@ -306,8 +310,21 @@ export function sentHomeSquare(s: AState, p: APiece, from: number): number | nul
   return null;
 }
 
-function treasureChange(t: ATreasure, event: Extract<BoardChange, { type: 'treasure' }>['event'], step: number): BoardChange {
-  return { step, type: 'treasure', owner: t.owner, event, square: t.sq === null ? null : sqName(t.sq), carrier: t.carrier };
+type TreasureExtra = Partial<Pick<Extract<BoardChange, { type: 'treasure' }>, 'from' | 'by' | 'points'>>;
+
+function treasureChange(t: ATreasure, event: Extract<BoardChange, { type: 'treasure' }>['event'], step: number, extra: TreasureExtra = {}): BoardChange {
+  const change = { step, type: 'treasure' as const, owner: t.owner, event, square: t.sq === null ? null : sqName(t.sq), carrier: t.carrier };
+  if (extra.points === 0) delete extra.points;
+  return { ...change, ...extra };
+}
+
+/** A carrier in its own half scores: the treasure goes home. Returns the next step. */
+function score(s: AState, t: ATreasure, side: Side, step: number, changes: BoardChange[]): number {
+  t.carrier = null;
+  t.sq = t.home;
+  s.score[side] += s.cfg.scorePoints;
+  changes.push(treasureChange(t, 'score', step, { points: s.cfg.scorePoints }));
+  return step + 1;
 }
 
 /** A carrier lets go of the treasure where it stands. */
@@ -322,8 +339,9 @@ function drop(s: AState, i: number, step: number, changes: BoardChange[]): boole
 }
 
 /**
- * An animal arrived on square i (Raid): it sends its own dropped treasure home, picks up the enemy's,
- * and scores when it carries the enemy treasure in its own half. Each event gets its own step. Returns the next step.
+ * An animal arrived on square i (Raid): it sends its own dropped treasure home, picks up the enemy's (grab points when
+ * it lay at home), and scores when it carries the enemy treasure in its own half. Each event gets its own step.
+ * Returns the next step.
  */
 function arrive(s: AState, i: number, step: number, changes: BoardChange[]): number {
   if (s.mode !== 'raid') return step;
@@ -336,16 +354,13 @@ function arrive(s: AState, i: number, step: number, changes: BoardChange[]): num
     changes.push(treasureChange(own, 'return', step++));
   }
   if (enemy.sq === i && !enemy.carrier) {
+    const points = i === enemy.home ? s.cfg.grabPoints : 0;
+    s.score[p.side] += points;
     enemy.sq = null;
     enemy.carrier = p.id;
-    changes.push(treasureChange(enemy, 'pickup', step++));
+    changes.push(treasureChange(enemy, 'pickup', step++, { points }));
   }
-  if (enemy.carrier === p.id && halfOf(i) === p.side) {
-    enemy.carrier = null;
-    enemy.sq = enemy.home;
-    s.score[p.side]++;
-    changes.push(treasureChange(enemy, 'score', step++));
-  }
+  if (enemy.carrier === p.id && halfOf(i) === p.side) step = score(s, enemy, p.side, step, changes);
   return step;
 }
 
@@ -370,11 +385,39 @@ export function hitTargets(s: AState, i: number): Hit[] {
     if (s.ap < cost) continue;
     if (s.mode === 'sumo') {
       if (shoveLine(s, i, j)) out.push({ target: j, cost });
-    } else if (halfOf(i) === p.side && halfOf(j) === p.side && sentHomeSquare(s, q, j) !== null) {
+    } else if (halfOf(i) === p.side && halfOf(j) === p.side && !statusOf(s, q.id) && (tagStuns(s, q) || sentHomeSquare(s, q, j) !== null)) {
       out.push({ target: j, cost });
     }
   }
   return out;
+}
+
+/** Raid "pass and run": teammates a carrier can throw to, in a straight line up to `throwRange` squares away. */
+export function throwTargets(s: AState, i: number): number[] {
+  const p = active(s, i);
+  if (!p || s.mode !== 'raid' || !carriedBy(s, p.id) || s.ap < s.cfg.throwCost) return [];
+  const out: number[] = [];
+  for (const [df, dr] of NEIGHBOURS) {
+    for (let d = 1; d <= s.cfg.throwRange; d++) {
+      const f = fileOf(i) + df * d;
+      const r = rankOf(i) + dr * d;
+      if (!onBoard(f, r)) break;
+      const q = s.board[idx(f, r)];
+      if (q && q.side === p.side) out.push(idx(f, r));
+    }
+  }
+  return out;
+}
+
+/** The first enemy on a square between the thrower (i) and the catcher (j): it intercepts the throw. */
+export function interceptorOf(s: AState, i: number, j: number): number | null {
+  const df = sign(fileOf(j) - fileOf(i));
+  const dr = sign(rankOf(j) - rankOf(i));
+  const side = s.board[i]!.side;
+  for (let k = i + df + 8 * dr; k !== j; k += df + 8 * dr) {
+    if (s.board[k] && s.board[k]!.side !== side) return k;
+  }
+  return null;
 }
 
 /** Every complete target list for this animal's power, ignoring AP, use and turn (see `powerOptions`). */
@@ -456,6 +499,7 @@ export function legalActions(s: AState, forBot = false): ArenaAction[] {
     let opts = powerOptions(s, i);
     if (forBot && p.kind === 'q') opts = opts.filter(([j]) => neighbours(j).some(([k]) => s.board[k]));
     for (const t of opts) out.push({ type: 'power', pieceId: p.id, targets: t.map(sqName) });
+    for (const j of throwTargets(s, i)) out.push({ type: 'throw', pieceId: p.id, to: sqName(j) });
   }
   out.push({ type: 'endTurn' });
   return out;
@@ -467,7 +511,7 @@ export function hasAnyAction(s: AState): boolean {
   for (let i = 0; i < 64; i++) {
     const p = s.board[i];
     if (!p || p.side !== s.turn) continue;
-    if (stepTargets(s, i).length || hitTargets(s, i).length || !powerBlock(s, i)) return true;
+    if (stepTargets(s, i).length || hitTargets(s, i).length || !powerBlock(s, i) || throwTargets(s, i).length) return true;
   }
   return false;
 }
@@ -477,6 +521,7 @@ export function actionKey(a: ArenaAction): string {
     case 'step': return `s:${a.pieceId}:${a.to}`;
     case 'hit': return `h:${a.pieceId}:${a.target}`;
     case 'power': return `p:${a.pieceId}:${a.targets.join(',')}`;
+    case 'throw': return `t:${a.pieceId}:${a.to}`;
     case 'endTurn': return 'e';
   }
 }
@@ -502,6 +547,8 @@ function extras(changes: BoardChange[], ids: Map<PieceId, APiece>): string {
       if (c.event === 'drop') bits.push(`dropped ${what}`);
       if (c.event === 'return') bits.push(`sent ${what} home`);
       if (c.event === 'score') bits.push(`scored with ${what}`);
+      if (c.points && c.event === 'pickup') bits.push(`+${c.points}`);
+      if (c.points && c.event === 'score') bits.push(`+${c.points}`);
     }
   }
   return bits.length ? ` (${bits.join(', ')})` : '';
@@ -535,12 +582,36 @@ export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
     if (s.mode === 'sumo') {
       applyLine(s, shoveLine(s, i, v)!, 0, changes);
       label = `${name(p)} shoved ${name(victim)} on ${a.target}`;
+    } else if (tagStuns(s, victim)) {
+      s.statuses.push({ id: victim.id, status: 'stunned', turnsLeft: s.cfg.stunTurns });
+      changes.push({ step: 0, type: 'status', pieceId: victim.id, status: 'stunned' });
+      label = `${name(p)} tagged ${name(victim)} on ${a.target}: stunned`;
     } else {
       const dropped = drop(s, v, 0, changes);
       const home = sentHomeSquare(s, victim, v)!;
       relocate(s, v, home);
       changes.push({ step: dropped ? 1 : 0, type: 'move', pieceId: victim.id, from: a.target, to: sqName(home), how: 'sentHome' });
       label = `${name(p)} tagged ${name(victim)} on ${a.target}, sent home to ${sqName(home)}`;
+    }
+  } else if (a.type === 'throw') {
+    const j = sqIndexOf(a.to);
+    const catcher = s.board[j]!;
+    const t = carriedBy(s, p.id)!;
+    const what = TREASURE_NAME[t.owner];
+    const from = sqName(i);
+    s.ap -= s.cfg.throwCost;
+    const k = interceptorOf(s, i, j);
+    if (k !== null) {
+      const thief = s.board[k]!;
+      t.carrier = null;
+      t.sq = t.home;
+      changes.push(treasureChange(t, 'intercept', 0, { from, by: thief.id }));
+      label = `${name(p)} threw the ${what} to ${name(catcher)}, but ${name(thief)} intercepted it on ${sqName(k)}: it flew home`;
+    } else {
+      t.carrier = catcher.id;
+      changes.push(treasureChange(t, 'throw', 0, { from }));
+      if (halfOf(j) === catcher.side) score(s, t, catcher.side, 1, changes);
+      label = `${name(p)} threw the ${what} to ${name(catcher)} on ${a.to}`;
     }
   } else {
     power = POWER_OF[p.kind];
@@ -780,10 +851,18 @@ export function spinWheel(s: AState, forced?: WheelOutcome): WheelResult {
   };
   switch (outcome) {
     case 'tide': {
-      // Closest to the meadow first, so an animal can follow the one in front of it.
+      // Visitors are swept back one rank toward their own half, the ones nearest the middle line first,
+      // so an animal can follow the one in front of it.
       const order: number[] = [];
-      for (let r = 4; r <= 7; r++) for (let f = 0; f < 8; f++) order.push(idx(f, r));
-      moveAll(order, (i) => (s.board[i]!.side === 'land' ? i - 8 : null), 'swept');
+      for (let k = 0; k < 4; k++) {
+        for (let f = 0; f < 8; f++) order.push(idx(f, 4 + k));
+        if (s.cfg.tideBothWays) for (let f = 0; f < 8; f++) order.push(idx(f, 3 - k));
+      }
+      moveAll(order, (i) => {
+        const p = s.board[i]!;
+        if (halfOf(i) === p.side) return null;
+        return p.side === 'land' ? i - 8 : i + 8;
+      }, 'swept');
       break;
     }
     case 'pigeon': {

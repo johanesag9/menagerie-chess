@@ -6,7 +6,7 @@
 import type { ArenaAction, DuelInfo, Side } from '../../contracts/types';
 import { opposite } from '../modes/state';
 import {
-  applyAction, carriedBy, cloneArena, findA, halfOf, legalActions, ringOf, shoveLine, sinkingNext, treasureOf, type AState,
+  applyAction, carriedBy, cloneArena, findA, halfOf, legalActions, ringOf, shoveLine, sinkingNext, statusOf, treasureOf, type AState,
 } from './rules';
 import type { ArenaBotLevel } from './tuning';
 
@@ -165,7 +165,11 @@ function raidSide(s: AState, side: Side, lookahead: boolean): number {
   } else if (theirs.sq !== null) {
     // Our closest animal to the enemy treasure, and a bit for the second closest.
     const ds: number[] = [];
-    for (let i = 0; i < 64; i++) if (s.board[i]?.side === side && !carriedBy(s, s.board[i]!.id)) ds.push(cheb(i, theirs.sq));
+    // A stunned animal loses a turn: count it a step and a half farther.
+    for (let i = 0; i < 64; i++) {
+      const p = s.board[i];
+      if (p?.side === side && !carriedBy(s, p.id)) ds.push(cheb(i, theirs.sq) + (statusOf(s, p.id) ? 1.5 : 0));
+    }
     ds.sort((a, b) => a - b);
     if (ds.length) score -= ds[0] * 40 + (ds[1] ?? 8) * 10;
   }

@@ -2,15 +2,76 @@
 
 ## Phase 4: party modes (Sumo, Raid)
 
+### What's done
+- `createArena()` in `src/core/index.ts`: the Sumo and Raid engine behind `ArenaController`, following the clarified contract (b0547e8): `previewArea` gives `{area, falls}`, `sank` lists `sunk` and `sinkingNext`, falls share their shove's step, PowerInfo has `name`/`line`/`note`, anchored ends at the start of the owner's next turn.
+- Both modes play start to finish, local and vs bot.
+- Bot: a beam search over up to 4 actions per turn, levels 1–8, in a Web Worker. It answers duels and throws at random.
+- **Raid "quick raids" (Johanes, 2026-10-28)**, now the default. These differ from GAME_SPEC; the old values are still knobs.
+  - Treasures sit at e3 (bone) and d6 (pearl).
+  - Grabbing the enemy treasure from its home scores 1. Carrying it into your own half scores 2 more. First to 5 wins; the round cap is 12.
+  - A tag stuns an animal where it stands for its next turn, and a stunned animal can't be tagged.
+  - The tide sweeps both sides back toward their own half.
+  - **Pass and run**: a carrier throws to a teammate in a straight line up to 2 squares away, for 1 AP. A catch in your own half scores the 2 at once. An enemy on a square in between intercepts, and the treasure flies home. Knobs: `throwCost`, `throwRange`.
+  - Treasure changes that score carry `points` (grab, bring home, a catch in your own half).
+  - In the playtest, select a carrier: gold dashed rings mark teammates it can throw to, and ✋ marks a throw that would be intercepted.
+- Every rule number is a knob in `src/core/arena/tuning.ts`, editable in the playtest's Tuning panel.
+- Tests: 65 rules tests (`arena/sumo.test.ts`, `arena/raid.test.ts`) and a fuzz of 200 seeded games per mode (`arena/fuzz.*.test.ts`, about 8 s each). The fuzz checks that options match the legal moves, that the board rebuilt from events matches the state, the event order, and that illegal actions are refused. `ARENA_FUZZ_GAMES=10` runs a quick sample.
+- `npm run typecheck` passes and `npm test` passes (321 tests, Classic/Normal/Crazy included).
+- Checked in the browser at 1280px and 390px: all four (Sumo/Raid × local/bot) reach game over with no console errors and no sideways scroll.
+
 ### How to run the playtest
 - Start the `core-demo` launch config (port 4411), then open http://localhost:4411/src/core/arena.html.
 - Pick **Sumo** or **Raid**, local or vs bot, a bot level, and an optional **seed** (same seed = same dice and wheel). Press **New game**.
-- Click one of your animals: dots are its steps, red rings its shoves (Sumo) or tags (Raid) with their AP cost. Hover a red ring to see the shove line. The panel under the board has its power button.
+- Click one of your animals: dots are its steps, red rings its shoves (Sumo) or tags (Raid) with their AP cost. Hover a red ring to see the shove line; 💦 marks who would fall. The panel under the board has the power button.
 - The pips show the AP left; **End turn** gives up the rest. Water is blue; squares that sink at the end of this round wobble with a dashed outline.
 - `window.arena` is the controller, for the console. The Phase 3 page (`/src/core/demo.html`) still works.
 
-### Status
-Work in progress: Sumo and Raid are both playable, local and vs bot. Tests and the final report come next.
+### Rules choices where the spec was silent
+Raid
+- The enemy home is closed while its treasure is away (you can only enter it to grab the treasure).
+- A headbutt or escape that would land on your own home is refused, same as "stays put".
+- Block can't go on a home or a treasure square.
+- A headbutt needs a free square behind the target.
+- **A tagged carrier is still sent home and drops the treasure** (not stunned in place). If it stayed, it would stand on the dropped treasure. Also, the treasure would go home right next to it, so it could grab again for a free point every other turn. Knob: `tagStuns` (off = every tag sends home).
+- The grab point only counts when the treasure lay at its home; picking up a dropped one scores nothing.
+- A score that jumps past the target (4 + 2) still wins.
+- Throws: a throw flies over teammates and blocks in the way; only an enemy intercepts. A stunned teammate can still catch, and a stunned enemy can still intercept. A catch scores with a separate `score` change (step 1) after the `throw` change (step 0), and `points` sits on the `score` change.
+- Tide and earthquake moves follow the normal arrival rules (pickup, scoring). Sent-home squares skip treasure squares.
+
+Sumo
+- An anchored (Dig in) animal can still act; it just can't be shoved.
+- The heavy shove cost (3 AP) depends on the victim only (king, rook).
+
+Events and log
+- The sink log entry has kind `'wheel'`.
+- A game that ends mid-turn sends no `turnChanged`.
+- A bonk sends no `acted`; running out of AP ends the turn with no log entry of its own.
+
+### Contract requests
+- None open. The throw contract (7cd65fc) is in and built. From that commit I took only `src/contracts/types.ts` and `GAME_SPEC.md`; its `src/app` part isn't on this branch.
+- PowerKind has no `'digIn'`; `PowerInfo.name`/`note` cover it.
+
+### Open design questions for Johanes
+- **Raid balance, after quick raids.** Bot vs bot, Raid:
+
+  | Rules | Land wins | Sea wins | Draws | Points per game | Ends in round |
+  |---|---|---|---|---|---|
+  | First version, level 8 (16 games) | 0 | 0 | 16 | 0 | 20 (the cap) |
+  | Quick raids, level 5 (20 games) | 11 | 9 | 0 | Land 4.7, Sea 3.9 | about 6 |
+  | Quick raids, level 8 (16 games) | 11 | 5 | 0 | Land 5.1, Sea 3.4 | about 6 |
+
+  With throwing on, the numbers are the same (level 5: Land 11, Sea 9; level 8: Land 11, Sea 5), and games end about half a round sooner. The bot throws less than once a game: it takes a throw when one is there but doesn't set passes up, and it never threw into an interception.
+  Every game now has scoring and a winner. Treasures are grabbed about 5–6 times a game and brought home about 2 times, so there are plenty of chases.
+  - Land, which moves first, wins about 60–65%: its first turn can already reach the pearl. A possible fix is fewer AP on Land's first turn; it isn't built yet.
+  - Games are short, about 6 rounds. "First to 7" makes them about 8 rounds, but Land then won 14 of 20.
+  - With `tagStuns` off (every tag sends home), the bot games came out about the same (10 games).
+- **Sumo seems to favour Sea** (the spec already flags that Sea moves last before each sink). In a small sample the level 8 bot won 6/6 as Sea, 3/6 as Land.
+- Bot levels 1–3 make a random move some of the time on purpose (30% at level 1). Should they feel more playful than that?
+
+### Known issues
+- The bot hardly uses pass and run (under one throw a game). Teaching it to line up passes is possible if you want the bot to show off the throw.
+- On a heavily loaded machine the bot can take over a second on a turn (normally a few ms), and old time-limited Phase 3 tests can time out. Re-run them alone.
+- The playtest is a flat 2D dev tool with emoji stand-ins, not the game look.
 
 # Phase 3 report (Normal and Crazy, unchanged)
 

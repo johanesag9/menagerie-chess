@@ -3,7 +3,7 @@
  * `setArenaTuning()` overrides them for games started after the call (the playtest's Tuning panel uses it).
  * Each game copies the tuning when it starts, so a running game never changes under you.
  */
-import type { BotLevel, PieceKind, WheelOutcome } from '../../contracts/types';
+import type { BotLevel, PieceKind, Side, Square, WheelOutcome } from '../../contracts/types';
 
 export interface ArenaBotLevel {
   /** Longest action sequence the bot plans in one turn. */
@@ -44,6 +44,20 @@ export interface ArenaTuning {
   raidMaxRounds: number;
   /** Raid: points to win. */
   pointsToWin: number;
+  /** Raid: where each side's treasure lies (inside its own half, not on the back rank). */
+  treasureHomes: Record<Side, Square>;
+  /** Raid: points for picking the enemy treasure up from its home (a dropped one gives none). */
+  grabPoints: number;
+  /** Raid: points for carrying it into your own half. */
+  scorePoints: number;
+  /** Raid "pass and run": a throw from the carrier to a teammate. */
+  throwCost: number;
+  /** Raid: the farthest a throw reaches, in a straight line (an enemy on a square in between intercepts it). */
+  throwRange: number;
+  /** Raid: a tag stuns an animal that isn't carrying, where it stands. Off = sent home, like a tagged carrier. */
+  tagStuns: boolean;
+  /** Raid: the tide also sweeps Sea animals out of Land's half. Off = Land only. */
+  tideBothWays: boolean;
   /** Raid: you can't stand on your own treasure's home square. */
   noGuarding: boolean;
   duelTokens: number;
@@ -53,7 +67,7 @@ export interface ArenaTuning {
   wheelEvery: number;
   wheelOdds: Record<WheelOutcome, number>;
   blockPlies: number;
-  /** Raid Stomp: owner's turns the stun lasts. */
+  /** Raid Stomp and tag: owner's turns the stun lasts. */
   stunTurns: number;
   bot: Record<BotLevel, ArenaBotLevel>;
 }
@@ -71,8 +85,15 @@ export const DEFAULT_ARENA_TUNING: ArenaTuning = {
   sinkRounds: [3, 6, 9],
   headbuttSquares: 2,
   sumoMaxRounds: 15,
-  raidMaxRounds: 20,
-  pointsToWin: 3,
+  raidMaxRounds: 12,
+  pointsToWin: 5,
+  treasureHomes: { land: 'e3', sea: 'd6' },
+  grabPoints: 1,
+  scorePoints: 2,
+  throwCost: 1,
+  throwRange: 2,
+  tagStuns: true,
+  tideBothWays: true,
   noGuarding: true,
   duelTokens: 2,
   tieLimit: 3,
