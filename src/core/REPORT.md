@@ -68,7 +68,7 @@ Events and log
   Every game now has scoring and a winner. Treasures are grabbed about 5–6 times a game and brought home about 2 times, so there are plenty of chases.
   - Land, which moves first, wins about 60–65%: its first turn can already reach the pearl. A possible fix is fewer AP on Land's first turn; it isn't built yet.
   - Games are short, about 6 rounds. "First to 7" makes them about 8 rounds, but Land then won 14 of 20.
-  - Same-rules tag that sends home (`tagStuns` off) played almost the same in the bot games.
+  - With `tagStuns` off (every tag sends home), the bot games came out about the same (10 games).
 - **Sumo seems to favour Sea** (the spec already flags that Sea moves last before each sink). In a small sample the level 8 bot won 6/6 as Sea, 3/6 as Land.
 - Bot levels 1–3 make a random move some of the time on purpose (30% at level 1). Should they feel more playful than that?
 
