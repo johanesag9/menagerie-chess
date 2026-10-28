@@ -117,6 +117,27 @@ interface Item {
   twinkle: number;
 }
 
+/** A treasure in the air (Raid "pass and run"): a copy of the bone or pearl, so the board item is left alone. */
+interface Flight {
+  side: Side;
+  obj: THREE.Object3D;
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  t: number;
+  dur: number;
+  height: number;
+  intercepted: boolean;
+  reduced: boolean;
+  /** The home square an interception lands on (the treasure stays there, so a later `set` changes nothing). */
+  home: Square | null;
+  trail: number;
+  resolve: () => void;
+}
+
+/** Height a thrown treasure leaves and reaches an animal at (about mouth height). */
+const MOUTH_Y = 0.5;
+export const FLY_TIMING = { catch: 0.45, intercepted: 0.38, reduced: 0.25 } as const;
+
 interface Marker {
   root: THREE.Group;
   pop: number;
@@ -127,6 +148,8 @@ export class Treasures {
   private items: Record<Side, Item>;
   private markers: Record<Side, Marker>;
   private prewarm = false;
+  private fliers: Record<Side, THREE.Group>;
+  private flights: Flight[] = [];
   private time = 0;
 
   constructor(bin: Bin, tex: Textures, private particles: Particles, private reducedMotion: () => boolean) {
@@ -177,6 +200,51 @@ export class Treasures {
       land: item('land', makeBoneGeometry(), boneMat, '#ffe7a6'),
       sea: item('sea', makePearlGeometry(), pearlMat, '#ffd2e0'),
     };
+    const flier = (side: Side) => {
+      const g = new THREE.Group();
+      g.name = `flying-${this.items[side].root.name}`;
+      const body = new THREE.Mesh(this.items[side].body.geometry, this.items[side].body.material);
+      body.castShadow = true;
+      g.add(body);
+      g.visible = false;
+      this.group.add(g);
+      return g;
+    };
+    this.fliers = { land: flier('land'), sea: flier('sea') };
+  }
+
+  /**
+   * Raid "pass and run": the treasure arcs from `from` to `to` with a spin and a soft trail, and pops when it lands
+   * (about 0.45s). `intercepted`: a higher, quicker arc straight into its home bowl or shell, with a sparkle; it then
+   * stays drawn there. Otherwise it vanishes on landing (integration shows it in the catcher's mouth).
+   * Reduced motion: a short fade-hop. Resolves on landing.
+   */
+  fly(side: Side, from: Square, to: Square, intercepted = false): Promise<void> {
+    for (const f of this.flights.filter((x) => x.side === side)) this.land(f);
+    const it = this.items[side];
+    // The board item, if shown at either end, steps aside while this one flies.
+    if (it.square === from || it.square === to) {
+      it.square = null;
+      it.anim = null;
+      it.root.visible = false;
+    }
+    const reduced = this.reducedMotion();
+    const a = squareToXZ(from), b = squareToXZ(to);
+    const start = new THREE.Vector3(a.x, BOARD_TOP + MOUTH_Y, a.z);
+    // Intercepted: into its bowl or shell (its resting float height); a catch: into the catcher's mouth.
+    const end = intercepted ? this.rest(it, to, new THREE.Vector3()).add(new THREE.Vector3(0, 0.045, 0)) : new THREE.Vector3(b.x, BOARD_TOP + MOUTH_Y, b.z);
+    const dist = Math.hypot(b.x - a.x, b.z - a.z);
+    const obj = this.fliers[side];
+    obj.position.copy(start);
+    obj.scale.setScalar(1);
+    obj.visible = true;
+    return new Promise((resolve) => {
+      this.flights.push({
+        side, obj, from: start, to: end, t: 0, intercepted, reduced, home: intercepted ? to : null, trail: 0, resolve,
+        dur: reduced ? FLY_TIMING.reduced : intercepted ? FLY_TIMING.intercepted : FLY_TIMING.catch,
+        height: reduced ? 0.15 : intercepted ? 1.1 + 0.08 * dist : 0.45 + 0.06 * dist,
+      });
+    });
   }
 
   /** Show every part for one frame (shader warm-up before reveal), or hide them again. */
@@ -235,6 +303,7 @@ export class Treasures {
   update(dt: number, elapsed: number): void {
     this.time += dt;
     const reduced = this.reducedMotion();
+    for (const f of [...this.flights]) this.stepFlight(f, dt);
     for (const side of ['land', 'sea'] as const) {
       const mk = this.markers[side];
       if (mk.pop < 1) {
@@ -285,10 +354,66 @@ export class Treasures {
   }
 
   dispose(): void {
+    for (const f of [...this.flights]) this.land(f);
     this.group.removeFromParent();
   }
 
   // ---------- internals ----------
+
+  private stepFlight(f: Flight, dt: number): void {
+    f.t += dt;
+    const k = clamp01(f.t / f.dur);
+    const p = f.obj.position;
+    p.lerpVectors(f.from, f.to, f.reduced ? k : ease.sineInOut(k));
+    p.y += Math.sin(Math.PI * k) * f.height;
+    if (f.reduced) {
+      f.obj.scale.setScalar(Math.max(0.001, Math.sin(Math.PI * Math.min(1, 0.15 + k * 0.85))));
+    } else {
+      f.obj.rotation.y += dt * (f.intercepted ? 16 : 11);
+      f.obj.rotation.z = Math.sin(k * Math.PI * 2) * 0.4;
+      // A soft trail of puffs in the treasure's glow colour.
+      if ((f.trail -= dt) <= 0) {
+        f.trail = 0.016;
+        this.particles.emit({
+          x: p.x, y: p.y, z: p.z, vx: 0, vy: 0.05, vz: 0, life: 0.32, size: [0.2, 0.05],
+          color: f.side === 'land' ? '#fff0c4' : '#ffe2ec', alpha: 0.5, gravity: 0, drag: 3,
+        });
+      }
+    }
+    if (k >= 1) this.land(f);
+  }
+
+  /** Landing: a pop (a sparkle burst when intercepted), then the flier hides and the promise resolves. */
+  private land(f: Flight): void {
+    const i = this.flights.indexOf(f);
+    if (i < 0) return;
+    this.flights.splice(i, 1);
+    f.obj.visible = false;
+    f.obj.rotation.set(0, 0, 0);
+    if (!f.reduced) {
+      if (f.intercepted) this.burst(f.to);
+      else this.pop(f.to, f.side);
+    }
+    if (f.home) {
+      const it = this.items[f.side];
+      it.square = f.home;
+      it.anim = null;
+      it.root.visible = true;
+      it.root.position.copy(f.to);
+    }
+    f.resolve();
+  }
+
+  /** A small pop where a thrown treasure is caught. */
+  private pop(at: THREE.Vector3, side: Side): void {
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      this.particles.emit({
+        x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * 0.7, vy: 0.3, vz: Math.sin(a) * 0.7,
+        life: 0.3, size: [0.12, 0.02], color: side === 'land' ? '#fff4c2' : '#ffe6f0', alpha: 0.9, gravity: 0, drag: 4, shape: 1,
+      });
+    }
+  }
 
   /** Resting centre of a treasure on a square: in its bowl or shell at home, else on the board. */
   private rest(it: Item, sq: Square, out: THREE.Vector3): THREE.Vector3 {

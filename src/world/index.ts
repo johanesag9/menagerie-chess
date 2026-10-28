@@ -37,7 +37,7 @@ import { IslandMode } from './island';
 
 export { TIDE_TIMING } from './chaos';
 export { SINK_TIMING, sinkDropTimes, ringOf } from './sink';
-export { TREASURE_COLORS, makeBoneGeometry, makePearlGeometry } from './treasures';
+export { FLY_TIMING, TREASURE_COLORS, makeBoneGeometry, makePearlGeometry } from './treasures';
 
 export interface WorldStats {
   fps: number;
@@ -59,6 +59,7 @@ export interface ShorelineWorld extends World {
   readonly stats: WorldStats;
   /** Phase 4 (Sumo): built, so not optional here. */
   setIslandMode(on: boolean): void;
+  flyTreasure(owner: Side, from: Square, to: Square, opts?: { intercepted?: boolean }): Promise<void>;
 }
 
 export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
@@ -296,6 +297,10 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       treasures.set(list);
       dirty = true;
     },
+    flyTreasure(owner: Side, from: Square, to: Square, o?: { intercepted?: boolean }) {
+      dirty = true;
+      return treasures.fly(owner, from, to, o?.intercepted ?? false);
+    },
     setIslandMode(on: boolean) {
       island.set(on);
       dirty = true;
@@ -319,7 +324,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       chaos.dispose();
       squareFx.dispose();
       sink.dispose();
-      treasures.dispose();
+      treasures.dispose(); // lands any treasure in the air, so its promise resolves
       island.dispose();
       splashes.clear();
       weird.dispose();

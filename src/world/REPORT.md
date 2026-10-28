@@ -2,7 +2,7 @@
 
 ## Phase 4: sinking island, treasures, splash
 
-Branch `claude/p4-world-3e55fc`, with the contract clarifications (b0547e8) cherry-picked. New files: `sink.ts`, `treasures.ts`, `splash.ts`, `island.ts`, `phase4.test.ts`. Changed: `chaos.ts` (shared particles, the pigeon snatch), `weird.ts` (the pigeon can hold a treasure in its beak), `index.ts`, the demo.
+Branch `claude/p4-world-3e55fc`, with the contract updates b0547e8 and 7cd65fc cherry-picked (contracts and spec only; the app files from 7cd65fc are left to integration). New files: `sink.ts`, `treasures.ts`, `splash.ts`, `island.ts`, `phase4.test.ts`. Changed: `chaos.ts` (shared particles, the pigeon snatch), `weird.ts` (the pigeon can hold a treasure in its beak), `index.ts`, the demo.
 
 ### What's done
 - **`setSunk(sunk, warn)`** (Sumo)
@@ -17,6 +17,11 @@ Branch `claude/p4-world-3e55fc`, with the contract clarifications (b0547e8) cher
   - **Treasures on the board:** Land's cream cartoon bone and Sea's glossy white pearl (pearly sheen). Each is about 0.3–0.4 of a square and floats with a slow bob and spin, a soft glow on the board under it, and an odd twinkle. At home they sit in the bowl or shell.
   - **Changes animate:** a new square = it drops in with a little hop; a square change (flying home) = it hops out at the old square with a sparkle and hops in at the new one with a sparkle (no flight path, as the spec says); picked up (carried) = a quick lift and shrink. Carried treasures are skipped (the cast draws them). `[]` hides everything at once.
   - **Shared colours:** bone `#f3e6c8`, pearl `#f7f4ee`, shell `#f2a7b5`, exported as `TREASURE_COLORS`. The exact shapes are exported too (`makeBoneGeometry`, `makePearlGeometry`) if the cast wants them.
+- **`flyTreasure(owner, from, to, { intercepted })`** (Raid "pass and run"): built.
+  - **A catch:** the bone or pearl arcs from `from` to `to` at about mouth height in 0.45s, spinning, with a soft trail of puffs in its glow colour. It lands with a small pop and resolves. It isn't shown at either end: integration hides it in the carrier first and shows it in the catcher after.
+  - **Intercepted:** a higher, quicker arc (0.38s) straight into its home bowl or shell, with a sparkle burst on landing. It then stays drawn at home, so the `setTreasures` call afterwards changes nothing.
+  - **Reduced motion:** a 0.25s low fade-hop.
+  - A treasure drawn lying at either end steps aside while it flies. Timings are exported as `FLY_TIMING`.
 - **Pigeon snatch** (`playChaos('pigeon', { treasure: { owner, from, to } })`): the pigeon flies in. If the treasure lies on the ground at `from`, it lands and pecks it up; otherwise it hovers above the carrier and takes it from its mouth. It flies to `to` with the bone or pearl in its beak, lets go (the treasure drops in with a hop) and flies off. About 2.9s (2.7s reduced). The promise resolves once the treasure is on `to`, so the `setTreasures` call afterwards changes nothing. Skipping finishes it with the treasure on `to`.
 - **`setIslandMode(on)`: built.** The sea rises inside the display tray and the meadow and beach props sink in a ripple outward, so the board stands alone in open water, with foam round the frame. About 1.4s (0.4s reduced). `false` drains it and brings everything back. The sea is one draw call, and the sunk props are hidden, so island mode draws less than the normal diorama.
 - **`splash(point, big)`:** a jagged water crown shoots up and collapses, a double ripple ring spreads, droplets fly and die when they fall back to the water line, and a puff of mist rises. `big` (a king) is 1.6× bigger with twice the droplets. `point` is world space. Four splashes are pooled, so a whole ring falling in at once is fine.
@@ -47,7 +52,7 @@ With a 0.55s fall, the last animal is under by about 1.2s. The demo does exactly
 ### How to run the demo
 Start `world-demo` (port 4412) and open http://localhost:4412/src/world/demo.html. The pieces are **stand-in tokens**, not the animals.
 - **Sumo:** Sink next ring (the tokens on it fall in step and splash, and the next ring starts to wobble), Warn next ring, Sink 1 square, Island mode (toggle), Restore board.
-- **Raid:** Treasures at home, Steal pearl, Drop pearl (d4), Pearl flies home, Drop bone (e5), Bone flies home, Pigeon snatch (a random treasure, dropped on an empty square in its owner's half), Hide treasures. The tokens on e1 and d8 are hidden while treasures show (nobody stands on their own treasure).
+- **Raid:** Treasures at home, Steal pearl, Drop pearl (d4), Pearl flies home, Drop bone (e5), Bone flies home, Pigeon snatch (a random treasure, dropped on an empty square in its owner's half), Pass bone (caught) (e5 → e7), Pass pearl (intercepted) (c4 → home), Hide treasures. Homes follow the spec's default tuning: bone e3, pearl d6.
 - **Splash:** Splash and Big splash (king). They land on a sunk square if there is one, else in the sea.
 - **URL shortcuts:** `&warn`, `&sink=1|2|3` (sinks that many rings), `&treasures`, `&island`.
 
