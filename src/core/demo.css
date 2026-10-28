@@ -61,7 +61,8 @@ body {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   aspect-ratio: 1;
   width: 100%;
   border: 4px solid #8a5a33;

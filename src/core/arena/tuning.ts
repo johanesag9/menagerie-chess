@@ -1,5 +1,5 @@
 /**
- * Every Sumo/Raid number Johanes may want to change after playtesting, in one place (GAME_SPEC "Party modes").
+ * Every Sumo/Raid (and Phase 6 Castle/Stones) number Johanes may want to change after playtesting, in one place (GAME_SPEC "Party modes").
  * `setArenaTuning()` overrides them for games started after the call (the playtest's Tuning panel uses it).
  * Each game copies the tuning when it starts, so a running game never changes under you.
  */
@@ -70,6 +70,36 @@ export interface ArenaTuning {
   /** Raid Stomp and tag: owner's turns the stun lasts. */
   stunTurns: number;
   bot: Record<BotLevel, ArenaBotLevel>;
+
+  // ----- Phase 6: board-game modes (GAME_SPEC "Board-game modes") -----
+  /** Castle: animals each side drafts. */
+  castleDraftSize: number;
+  /** Castle: where drafted animals enter, in pick order (one per pick, so at least `castleDraftSize` each). */
+  castleStarts: Record<Side, Square[]>;
+  castleMaxRounds: number;
+  /** Castle: the tide wears the beach down at the end of every Nth round. */
+  tideEvery: number;
+  stonesMaxRounds: number;
+  /** Stones: ranks (1..8) that start under water; only these can be sunk. */
+  stonesWaterRanks: number[];
+  /** Stones: a square raised or sunk on the last turn can't be raised or sunk this turn. */
+  freshRule: boolean;
+  /** Castle and Stones bots (a game-tree search over whole turns), per level. */
+  castleBot: Record<BotLevel, BoardBotLevel>;
+  stonesBot: Record<BotLevel, BoardBotLevel>;
+}
+
+export interface BoardBotLevel {
+  /** Whole turns searched (1 = only its own turn, 2 = also the reply, ...). */
+  depth: number;
+  /** Turns kept at each inner level of the search, best first by the quick score. */
+  width: number;
+  /** Random points added to each root score. */
+  noise: number;
+  /** Picks at random among turns scoring within this much of the best (keeps low levels playful). */
+  tolerance: number;
+  /** Shortest time the bot appears to think before each action. */
+  minThinkMs: number;
 }
 
 export const DEFAULT_ARENA_TUNING: ArenaTuning = {
@@ -110,6 +140,33 @@ export const DEFAULT_ARENA_TUNING: ArenaTuning = {
     6: { maxActions: 4, beam: 8, randomChance: 0, noise: 3, lookahead: true, minThinkMs: 420 },
     7: { maxActions: 4, beam: 10, randomChance: 0, noise: 1, lookahead: true, minThinkMs: 400 },
     8: { maxActions: 4, beam: 12, randomChance: 0, noise: 0, lookahead: true, minThinkMs: 400 },
+  },
+  castleDraftSize: 2,
+  castleStarts: { land: ['c2', 'f2', 'd1'], sea: ['c7', 'f7', 'e8'] },
+  castleMaxRounds: 30,
+  tideEvery: 5,
+  stonesMaxRounds: 25,
+  stonesWaterRanks: [3, 4, 5, 6],
+  freshRule: true,
+  castleBot: {
+    1: { depth: 1, width: 1, noise: 60, tolerance: 120, minThinkMs: 650 },
+    2: { depth: 1, width: 1, noise: 30, tolerance: 60, minThinkMs: 600 },
+    3: { depth: 2, width: 4, noise: 20, tolerance: 20, minThinkMs: 550 },
+    4: { depth: 2, width: 8, noise: 10, tolerance: 0, minThinkMs: 500 },
+    5: { depth: 2, width: 12, noise: 5, tolerance: 0, minThinkMs: 450 },
+    6: { depth: 3, width: 5, noise: 3, tolerance: 0, minThinkMs: 420 },
+    7: { depth: 3, width: 7, noise: 1, tolerance: 0, minThinkMs: 400 },
+    8: { depth: 3, width: 10, noise: 0, tolerance: 0, minThinkMs: 400 },
+  },
+  stonesBot: {
+    1: { depth: 1, width: 1, noise: 80, tolerance: 120, minThinkMs: 650 },
+    2: { depth: 1, width: 1, noise: 40, tolerance: 60, minThinkMs: 600 },
+    3: { depth: 2, width: 3, noise: 20, tolerance: 20, minThinkMs: 550 },
+    4: { depth: 2, width: 5, noise: 10, tolerance: 0, minThinkMs: 500 },
+    5: { depth: 2, width: 8, noise: 5, tolerance: 0, minThinkMs: 450 },
+    6: { depth: 2, width: 12, noise: 2, tolerance: 0, minThinkMs: 420 },
+    7: { depth: 3, width: 3, noise: 1, tolerance: 0, minThinkMs: 400 },
+    8: { depth: 3, width: 4, noise: 0, tolerance: 0, minThinkMs: 400 },
   },
 };
 
