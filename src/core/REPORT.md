@@ -1,4 +1,18 @@
-# Core stream report (Phase 3: Normal and Crazy)
+# Core stream report
+
+## Phase 4: party modes (Sumo, Raid)
+
+### How to run the playtest
+- Start the `core-demo` launch config (port 4411), then open http://localhost:4411/src/core/arena.html.
+- Pick **Sumo** or **Raid**, local or vs bot, a bot level, and an optional **seed** (same seed = same dice and wheel). Press **New game**.
+- Click one of your animals: dots are its steps, red rings its shoves (Sumo) or tags (Raid) with their AP cost. Hover a red ring to see the shove line. The panel under the board has its power button.
+- The pips show the AP left; **End turn** gives up the rest. Water is blue; squares that sink at the end of this round wobble with a dashed outline.
+- `window.arena` is the controller, for the console. The Phase 3 page (`/src/core/demo.html`) still works.
+
+### Status
+Work in progress: Sumo and Raid are both playable, local and vs bot. Tests and the final report come next.
+
+# Phase 3 report (Normal and Crazy, unchanged)
 
 ## How to run the playtest
 - Start the `core-demo` launch config (port 4411), then open http://localhost:4411/src/core/demo.html.
