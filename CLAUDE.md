@@ -12,6 +12,8 @@ The work is split into streams. Each one runs in its own session, on its own git
 | world | `src/world/` | `createWorld` from `src/world/index.ts` |
 | cast | `src/cast/` | `createCast` from `src/cast/index.ts` |
 | ui | `src/ui/`, `src/audio/` | `createUi` from `src/ui/index.ts`, `createAudio` from `src/audio/index.ts` |
+| net (Phase 5) | `src/net/` | `createOnline` from `src/net/index.ts` |
+| server (Phase 5) | `server/` | the Cloudflare Worker (its own `server/wrangler.jsonc`) |
 | orchestrator | `src/contracts/`, `src/app/`, `src/main.ts`, `index.html`, root config, docs | wires everything together |
 
 Rules:
@@ -38,6 +40,8 @@ Run demos with the launch configs in `.claude/launch.json` (each uses its own po
 | `world-demo` | 4412 |
 | `cast-demo` | 4413 |
 | `ui-demo` | 4414 |
+| `net-demo` | 4415 |
+| `online-server` | 8787 (wrangler dev) |
 
 ## Done means
 - `npm run typecheck` passes. `npm test` passes; core must have real rules tests.

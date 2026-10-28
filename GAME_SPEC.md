@@ -330,6 +330,34 @@ Johanes may want to change any of these after playtesting:
 - Duel tokens: 2.
 - Raid has no chaos cards, to keep the first version lean.
 
+## Online play (Johanes picked invite links on Cloudflare, free plan, 2026-10-28)
+Play a friend over the internet by sharing a link. No accounts, no strangers, no chat (emotes only).
+
+**How a match starts**
+1. On the setup screen, pick a mode, **Friend online** as the opponent, and your side. Press Start.
+2. An invite overlay shows the link, with Copy and Share. "Waiting for your friend…"
+3. The friend opens the link: "Your friend invited you to Sumo. You play Sea." They press Join.
+4. The game starts on both screens. Each player sees the board from their own side; the camera never swings.
+
+**How it runs**
+- A small server on Cloudflare (Workers + a Durable Object per room) runs the rules and checks every move. Both browsers run the same rules from the same seed and replay every move the server confirms. So animations look exactly like a local game.
+- Duel throws stay secret until both are in.
+- **Known limit:** a player with browser dev tools could predict dice and cards. That's fine for friends; it needs fixing before any public matchmaking.
+- **Cost:** Cloudflare's free plan (Durable Objects with SQLite: 100,000 requests a day). If a limit is hit, new games fail with an error until the next day; nothing is billed. Pages hosts the website for free.
+
+**Defaults (picked by the orchestrator, easy to change; Johanes to confirm)**
+| Topic | Default |
+|---|---|
+| Modes online | All five. Classic has no clock online (the turn timer replaces it); Weird Mode is off. |
+| Turn timer | 60s, starting once your screen has finished animating (at most 5s after the last move). The last 10s tick. |
+| Time runs out | Party modes: your turn ends. Chess modes: a random legal move is played for you. Duel answer: no duel. Throw: a random hand. Lucky 6: skipped. |
+| Friend drops | They have 2 minutes to come back, with a countdown on your screen. After that they resign. |
+| Leaving on purpose | Going back to the title resigns the game. |
+| Rematch | Both press Rematch; the new game swaps sides. |
+| Sides | The creator picks; the friend gets the other. |
+| Room life | A room is deleted 24 hours after its last move. |
+| Names | "You" and "Friend" (no accounts). |
+
 ## Feel targets
 - 60fps on a mid-range laptop. 30fps or better on a recent phone, with a 'low' quality tier.
 - No move takes longer than about 1.2s to animate. Captures may take about 2s. Every animation can be skipped by clicking.
@@ -348,6 +376,8 @@ src/world/       world stream: renderer, scene, shoreline diorama, camera, board
 src/cast/        cast stream: the 12 animals, materials, skins, all piece animations
 src/ui/          ui stream: DOM/CSS screens, HUD, emote wheel, promotion picker
 src/audio/       ui stream: Howler/WebAudio engine, synthesized sounds (any downloaded sound needs Johanes's OK)
+src/net/         net stream (Phase 5): the online client: room flow, WebSocket, mirror controllers
+server/          server stream (Phase 5): Cloudflare Worker + Durable Object rooms that run core
 src/app/         orchestrator: the Match (game flow, animation order, input) and the piece registry
 src/main.ts      orchestrator: boots everything and hands it to the Match
 prototypes/      Phase 0 world directions (throwaway)
@@ -380,4 +410,5 @@ Each stream works only in its own folder, builds a standalone demo page for itse
 2. Merge, integrate, playtest, tune for phones, polish. Merged and integrated 2026-10-27; playtesting and tuning next.
 3. Game modes (Normal and Crazy): four parallel sessions again, against the mode contracts (`docs/phase3-briefs.md`). Core's 2D demo is the first playtest. Started 2026-10-27.
 4. Party modes (Sumo, Raid): four parallel sessions against the arena contracts (`docs/phase4-briefs.md`), on top of the `phase3` branch. Started 2026-10-28.
-5. Later: online play, campaign, achievements.
+5. Online play with a friend by invite link: three parallel sessions (server, net, ui) against `src/contracts/net.ts` (`docs/phase5-briefs.md`), on the `phase3` branch. Started 2026-10-28.
+6. Later: public matchmaking, campaign, achievements.

@@ -9,9 +9,10 @@
 import './styles.css';
 import type {
   ActionRecord, ArenaState, AudioEngine, Card, DieEffect, DieValue, DuelInfo, EmoteKind, GameEventMap, Hand, JokerOutcome, ModeState, PieceId, PieceState, SelectionInfo, GameOptions, GameOver,
-  MoveResult, PieceKind, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent, WheelOutcome,
+  MoveResult, PieceKind, PlayMode, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent, WheelOutcome,
 } from '../contracts/types';
 import type { CreateUi } from '../contracts/factories';
+import type { OnlineHud } from '../contracts/net';
 import { Emitter } from '../contracts/emitter';
 import { FALLBACK_SKINS, type SkinCatalog } from './config';
 import type { UiCtx, View } from './ctx';
@@ -322,6 +323,20 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   announce(text: string, tone: 'info' | 'good' | 'bad' = 'info'): Promise<void> {
     return this.chaos.announce(text, tone);
   }
+
+  // ---------- Phase 5 stubs (orchestrator, 2026-10-28): replace with the real invite, join and online HUD ----------
+
+  showInvite(info: { link: string; mode: PlayMode; you: Side }): void {
+    console.info('[ui stub] invite', info.link);
+  }
+
+  hideInvite(): void {}
+
+  askJoin(info: { mode: PlayMode; you: Side } | null): Promise<boolean> {
+    return Promise.resolve(!!info);
+  }
+
+  setOnline(_state: OnlineHud | null): void {}
 
   /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */
   setPieces(pieces: PieceState[]): void {

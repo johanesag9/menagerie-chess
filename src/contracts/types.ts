@@ -7,6 +7,7 @@
  * Phase 3 (2026-10-27): game modes (Classic, Normal, Crazy). See GAME_SPEC.md "Game modes" for the rules.
  * Phase 4 (2026-10-28): party modes that aren't chess (Sumo, Raid). See GAME_SPEC.md "Party modes" and the `ArenaController` section.
  */
+import type { OnlineHud } from './net';
 import type { Camera, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 
 // ---------- Chess basics ----------
@@ -80,7 +81,11 @@ export interface GameOver {
 
 // ---------- Game setup ----------
 
-export type Opponent = { type: 'local' } | { type: 'bot'; level: BotLevel; botSide: Side };
+export type Opponent =
+  | { type: 'local' }
+  | { type: 'bot'; level: BotLevel; botSide: Side }
+  /** Phase 5: a friend online (see `src/contracts/net.ts`). `you` = this screen's side. Core treats it like 'local'. */
+  | { type: 'online'; you: Side };
 /** 1 = toddler ... 8 = grandmaster. Core maps this to Stockfish skill/depth/elo. */
 export type BotLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
@@ -820,6 +825,10 @@ export interface UiEventMap {
   cancelAction: Record<string, never>;
   /** Phase 4: the player pressed End turn (party modes). */
   endTurn: Record<string, never>;
+  /** Phase 5: the player closed the invite overlay before the friend joined. */
+  cancelInvite: Record<string, never>;
+  /** Phase 5: the player asked for a rematch in an online game (the result screen's Rematch, online). */
+  rematchOnline: Record<string, never>;
 }
 
 /** Phase 3: what the HUD shows about the selected piece (null = nothing selected). */
@@ -890,6 +899,15 @@ export interface Ui extends EventSource<UiEventMap> {
   setArenaState(state: ArenaState | null): void;
   /** A big short banner over the board ("The island sinks!", "Bone stolen!", "+1 Sea!"). Resolves when it has shown (about 1.2s, skippable). */
   announce(text: string, tone?: 'info' | 'good' | 'bad'): Promise<void>;
+
+  // ----- Phase 5: online with a friend. The setup screen's opponent row adds "Friend online" (`{ type: 'online', you }`). -----
+  /** Waiting for the friend: the invite link with Copy and Share, the mode and your side. Emits `cancelInvite`. Hidden by `show()` or `hideInvite()`. */
+  showInvite(info: { link: string; mode: PlayMode; you: Side }): void;
+  hideInvite(): void;
+  /** Opened an invite link: "Your friend invited you to Sumo. You play Sea." Join (true) or not (false). `info` null = the link is dead or the room is full. */
+  askJoin(info: { mode: PlayMode; you: Side } | null): Promise<boolean>;
+  /** Connection, the friend's presence (with the forfeit countdown), the turn timer and rematch state. null hides it (offline games). */
+  setOnline(state: OnlineHud | null): void;
   dispose(): void;
 }
 
@@ -909,6 +927,8 @@ export type AudioCue =
   // Phase 4
   | 'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 'anchor'
   | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn'
+  // Phase 5
+  | 'friendJoined' | 'friendLeft' | 'timeLow'
   | `voice:${Side}:${PieceKind}`
   | `emote:${EmoteKind}`;
 

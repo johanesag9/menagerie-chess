@@ -105,6 +105,43 @@
         "--strictPort"
       ],
       "port": 4404
+    },
+    {
+      "name": "party-playtest",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        ".claude/worktrees/p4-core-534a11",
+        "--port",
+        "4405",
+        "--strictPort"
+      ],
+      "port": 4405
+    },
+    {
+      "name": "net-demo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "4415",
+        "--strictPort",
+        "--host"
+      ],
+      "port": 4415
+    },
+    {
+      "name": "online-server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--config",
+        "server/wrangler.jsonc",
+        "--port",
+        "8787"
+      ],
+      "port": 8787
     }
   ]
 }
