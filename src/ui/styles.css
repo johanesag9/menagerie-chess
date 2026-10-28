@@ -1292,7 +1292,8 @@
 /* Chip: round / cap, the sinking island, the Raid score */
 .mc-chip__sink.is-urgent { background: var(--coral-deep); border-color: var(--coral-deep); color: #fff; animation: mc-pulse 1s ease-in-out infinite; }
 .mc-chip__score { gap: 0; }
-.mc-chip__score small { font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.mc-chip__score small { margin-left: 4px; font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.mc-chip--arena .mc-chip__item > span[aria-hidden] { margin-right: 4px; }
 .mc-chip__score[data-lead='land'] [data-side='land'], .mc-chip__score[data-lead='sea'] [data-side='sea'] { color: var(--coral-deep); }
 .mc-chip__dash { white-space: pre; }
 
@@ -1320,10 +1321,9 @@
 .mc-turnbar[data-side='sea'] .mc-turnbar__ap i.on { background: var(--aqua); box-shadow: inset 0 -3px 0 var(--teal); }
 .mc-turnbar__ap b { margin-left: 3px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .mc-turnbar__right { display: flex; align-items: center; min-width: 0; }
-.mc-turnbar__right:empty { display: none; }
+.mc-turnbar__right:empty, .mc-turnbar__right:has(> span:empty:only-child) { display: none; }
 .mc-turnbar__end { min-height: 52px; padding: 0 22px; font-size: 19px; }
 .mc-turnbar[data-side='sea'] .mc-turnbar__end { --bg: var(--teal-deep); --fg: #fff; --lip: #0b3f46; }
-.mc-turnbar.is-out-of-ap .mc-turnbar__end { animation: mc-pulse 1.2s ease-in-out infinite; }
 .mc-turnbar__note { padding: 0 12px; font-size: 17px; font-weight: 700; color: var(--coral-deep); }
 .mc-turnbar .mc-dots { padding: 0 12px; }
 

@@ -256,9 +256,9 @@ export class Hud {
     this.announce(m.captured ? `${who} takes ${ANIMAL_NAME[m.captured.side][m.captured.kind]}. ${m.san}` : `${who} ${m.san}`);
   }
 
-  /** A non-move line (power, card, bonus, bonk, wheel, pass). Records of kind 'move' are skipped: addMove shows moves. */
+  /** A non-move line (power, card, bonus, bonk, wheel, pass). Records of kind 'move' are skipped (addMove shows moves), except in the party modes, which have no addMove. */
   addLog(r: ActionRecord): void {
-    if (r.kind === 'move') return;
+    if (r.kind === 'move' && !isArenaMode(this.info?.mode)) return;
     this.entries.push({ log: r });
     this.renderMoves();
     this.refresh();
@@ -287,8 +287,8 @@ export class Hud {
   }
 
   private renderMoves(): void {
-    const rows = listRows(this.entries);
-    const icon: Record<ActionRecord['kind'], string> = { move: '', power: '⚡', card: '🃏', bonus: '🍀', bonk: '💫', wheel: '🎡', pass: '💤' };
+    const rows = listRows(this.entries, isArenaMode(this.info?.mode));
+    const icon: Record<ActionRecord['kind'], string> = { move: '👣', power: '⚡', card: '🃏', bonus: '🍀', bonk: '💫', wheel: '🎡', pass: '💤' };
     this.movesList.replaceChildren(...rows.map((r) => r.type === 'log'
       ? h('li', { class: 'mc-moves__log', 'data-side': r.record.side ?? 'none', 'data-kind': r.record.kind },
         h('span', { class: 'mc-moves__logicon', 'aria-hidden': 'true', text: icon[r.record.kind] }),

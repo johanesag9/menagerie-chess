@@ -249,13 +249,13 @@ export class ArenaHud {
 
     const duel = st.phase === 'duel';
     const botTurn = !human;
-    this.endBtn.hidden = !human || duel;
+    // At 0 AP core ends the turn by itself; before the roll there is nothing to end yet.
+    this.endBtn.hidden = !human || duel || st.ap === 0;
     this.endBtn.disabled = this.ending;
     if (duel) this.barRight.replaceChildren(h('span', { class: 'mc-turnbar__note', text: '✊ Duel!' }));
-    else if (botTurn) this.barRight.replaceChildren(this.thinking ? h('span', { class: 'mc-dots', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')) : h('span'));
+    else if (botTurn || st.ap === 0) this.barRight.replaceChildren(botTurn && this.thinking ? h('span', { class: 'mc-dots', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')) : h('span'));
     // Keep the same button node in place so keyboard focus stays on it between actions.
     else if (this.barRight.firstChild !== this.endBtn || this.barRight.childNodes.length !== 1) this.barRight.replaceChildren(this.endBtn);
-    this.bar.classList.toggle('is-out-of-ap', st.ap === 0);
   }
 
   dispose(): void {

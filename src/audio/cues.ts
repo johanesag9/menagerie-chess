@@ -534,6 +534,19 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   'chaos:pigeon': 0.82,
   'chaos:earthquake': 0.54,
   'chaos:disco': 3.16,
+  // Phase 4, measured 2026-10-28 with the same targets. Steps sit a bit under a chess move (a turn has several),
+  // endTurn a bit over a click, sink is the one heavy hit.
+  step: 0.9,
+  tag: 2.14,
+  splash: 0.89,
+  sinkWarn: 5.5,
+  sink: 0.61,
+  anchor: 0.84,
+  pickup: 2.07,
+  drop: 1.05,
+  treasureHome: 1.6,
+  score: 1.05,
+  endTurn: 1.43,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;

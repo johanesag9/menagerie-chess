@@ -240,6 +240,12 @@ describe('Phase 4: party modes', () => {
     expect(partyLine({ winner: 'land', reason: 'checkmate' }, null, 'classic')).toBeNull();
   });
 
+  it('lists step lines in the party modes only', () => {
+    const steps = [{ log: { side: 'land' as const, kind: 'move' as const, label: 'Pug d3→d4' } }];
+    expect(listRows(steps)).toEqual([]);
+    expect(listRows(steps, true)).toEqual([{ type: 'log', n: 1, record: steps[0].log }]);
+  });
+
   it('has a sound for every Phase 4 cue', () => {
     const want = ['step', 'shove', 'tag', 'splash', 'sinkWarn', 'sink', 'anchor', 'pickup', 'drop', 'treasureHome', 'score', 'endTurn'] as AudioCue[];
     for (const c of want) expect(cueFn(c), c).toBeTypeOf('function');

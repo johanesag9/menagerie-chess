@@ -4,7 +4,9 @@
  */
 import { Chess, type Move } from 'chess.js';
 import { ALL_CUES, createAudio, measureCue, type CueLevel } from '../audio';
+import { isArenaMode } from '../contracts/types';
 import type { AudioCue, DieValue, EmoteKind, GameOptions, MoveFlag, MoveResult, PieceKind, Side, WeirdEventKind, WheelOutcome } from '../contracts/types';
+import { addArenaControls } from './demoArena';
 import { FakeMode, addModeControls } from './demoModes';
 import { createUi, type MenagerieUi } from './index';
 
@@ -276,8 +278,19 @@ function note(name: string, payload: unknown) {
   logEl.replaceChildren(...log.map((l) => Object.assign(document.createElement('li'), { textContent: l })));
 }
 (['startGame', 'promotionChosen', 'emote', 'undo', 'resign', 'rematch', 'settingsChanged', 'screenChanged', 'powerRequested', 'cardRequested', 'cancelAction'] as const).forEach((n) => ui.on(n, (p) => note(n, p)));
-ui.on('startGame', (o) => game.start(o));
-ui.on('rematch', () => game.options && game.start(game.options));
+let lastOpts: GameOptions | null = null;
+let arena: { start(o: GameOptions): void } | null = null;
+const startAny = (o: GameOptions) => {
+  lastOpts = o;
+  if (isArenaMode(o.mode)) {
+    game.stop();
+    arena?.start(o);
+  } else {
+    game.start(o);
+  }
+};
+ui.on('startGame', startAny);
+ui.on('rematch', () => lastOpts && startAny(lastOpts));
 ui.on('undo', () => game.undo());
 ui.on('resign', () => game.resign());
 ui.on('emote', ({ emote }) => {
@@ -381,6 +394,7 @@ btn(results, 'Stalemate', () => ui.showResult({ winner: null, reason: 'stalemate
 btn(results, 'Draw: threefold', () => ui.showResult({ winner: null, reason: 'threefold' }));
 
 addModeControls(ui, section, btn, note, () => game.stop());
+arena = addArenaControls(ui, section, btn, note, () => game.stop());
 
 const music = section('Music');
 (['title', 'game', 'tense', 'none'] as const).forEach((t) => btn(music, t, () => audio.setMusic(t)));
