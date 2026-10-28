@@ -8,7 +8,7 @@ import { POWER_OF, isArenaMode } from '../../contracts/types';
 import { ANIMAL_NAME, SIDE_NAME } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
-import { POWER_ORDER, otherSide, powerCounts } from '../format';
+import { POWER_ORDER, isOnline, powerCounts, youSide } from '../format';
 import { animalIcon } from '../icons';
 import { ARENA_POWER_TEXT, POWER_BLOCK_TEXT, POWER_TEXT, SUIT, kindFromId } from '../modeText';
 
@@ -26,6 +26,11 @@ export function cardFace(card: Card, mini = false): HTMLElement {
   return h('span', { class: `mc-cardface${mini ? ' mc-cardface--mini' : ''}`, 'data-suit': card.suit, 'data-red': String(s.red) },
     h('span', { class: 'mc-cardface__suit', 'aria-hidden': 'true', text: s.symbol }),
     mini ? null : h('span', { class: 'mc-cardface__name', text: s.name }));
+}
+
+/** Phase 5: a face-down mini card (the friend's hand online). */
+export function cardBack(): HTMLElement {
+  return h('span', { class: 'mc-cardface mc-cardface--mini mc-cardface--back' });
 }
 
 interface Strip {
@@ -168,9 +173,9 @@ export class ModeHud {
     return el.getBoundingClientRect();
   }
 
-  /** The human side in a bot game, else null. */
+  /** Your side vs the bot or a friend online, else null. */
   private you(): Side | null {
-    return this.info?.opponent.type === 'bot' ? otherSide(this.info.opponent.botSide) : null;
+    return youSide(this.info);
   }
 
   /** Whose hand gets the big tappable fan: yours vs the bot, the side to move in a local game. */
@@ -215,9 +220,13 @@ export class ModeHud {
     s.tokens.setAttribute('role', 'img');
     s.tokens.setAttribute('aria-label', `${ss.duelTokens} duel token${ss.duelTokens === 1 ? '' : 's'}`);
     s.tokens.title = `${ss.duelTokens} duel token${ss.duelTokens === 1 ? '' : 's'} left`;
-    s.hand.replaceChildren(...ss.hand.map((c) => cardFace(c, true)));
+    // Online, the friend's hand is secret: card backs only.
+    const secret = isOnline(this.info) && side !== this.you();
+    s.hand.replaceChildren(...ss.hand.map((c) => (secret ? cardBack() : cardFace(c, true))));
     s.hand.setAttribute('role', 'img');
-    s.hand.setAttribute('aria-label', ss.hand.length ? `${SIDE_NAME[side]} cards: ${ss.hand.map((c) => SUIT[c.suit].name).join(', ')}` : `${SIDE_NAME[side]} has no cards`);
+    const n = ss.hand.length;
+    s.hand.setAttribute('aria-label', secret ? `Friend has ${n} card${n === 1 ? '' : 's'}`
+      : n ? `${SIDE_NAME[side]} cards: ${ss.hand.map((c) => SUIT[c.suit].name).join(', ')}` : `${SIDE_NAME[side]} has no cards`);
   }
 
   private renderChip(st: ModeState | null, crazy: boolean): void {

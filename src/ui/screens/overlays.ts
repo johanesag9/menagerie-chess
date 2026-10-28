@@ -1,6 +1,8 @@
 /** Pause, result and the promotion picker: dialogs that sit over the game. */
 import type { ArenaState, GameOver, PieceKind, Side } from '../../contracts/types';
-import { ANIMAL_NAME, PROMOTION_KINDS, REASON_TEXT, SIDE_NAME, botName } from '../config';
+import type { OnlineHud } from '../../contracts/net';
+import { ANIMAL_NAME, PROMOTION_KINDS, REASON_TEXT, SIDE_NAME, playerName } from '../config';
+import { isOnline, youSide } from '../format';
 import type { UiCtx, View } from '../ctx';
 import { button, h } from '../dom';
 import { animalIcon } from '../icons';
@@ -19,6 +21,9 @@ function confirmRow(question: string, yes: string, onYes: () => void, onNo: () =
 }
 
 export function pauseScreen(ctx: UiCtx, moveCount: () => number): View {
+  const title = h('h2', { id: 'mc-pause-h', class: 'mc-panel__title', text: 'Paused' });
+  // Online the game can't pause (Phase 5): say so, and say that quitting resigns.
+  const onlineNote = h('p', { class: 'mc-row__hint', text: 'The game keeps going online while this is open.', hidden: true });
   const resume = button('Resume', { variant: 'primary', onClick: () => ctx.show('game') });
   const undo = button('Undo move', { onClick: () => { ctx.emit('undo', {}); ctx.show('game'); } });
   const list = h('div', { class: 'mc-stack' });
@@ -30,7 +35,7 @@ export function pauseScreen(ctx: UiCtx, moveCount: () => number): View {
       button('Customize', { onClick: () => ctx.show('customize') })),
     h('div', { class: 'mc-stack__row' },
       button('Resign', { variant: 'ghost', onClick: () => ask('Resign this game?', 'Resign', () => { ctx.emit('resign', {}); ctx.show('game'); }) }),
-      button('Quit to title', { variant: 'ghost', onClick: () => ask('Quit this game?', 'Quit', () => ctx.show('title')) })),
+      button('Quit to title', { variant: 'ghost', onClick: () => ask(isOnline(ctx.gameInfo) ? 'Quit? It counts as resigning.' : 'Quit this game?', 'Quit', () => ctx.show('title')) })),
   ];
   function render() {
     list.replaceChildren(...actions());
@@ -40,14 +45,19 @@ export function pauseScreen(ctx: UiCtx, moveCount: () => number): View {
   }
   const el = h('section', { class: 'mc-screen mc-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mc-pause-h' },
     h('div', { class: 'mc-panel mc-panel--narrow' },
-      h('h2', { id: 'mc-pause-h', class: 'mc-panel__title', text: 'Paused' }),
+      title,
+      onlineNote,
       list));
   return {
     el,
     onShow: () => {
       render();
+      const online = isOnline(ctx.gameInfo);
+      title.textContent = online ? 'Menu' : 'Paused';
+      onlineNote.hidden = !online;
+      resume.querySelector('.mc-btn__text')!.textContent = online ? 'Back to the game' : 'Resume';
       undo.disabled = moveCount() === 0;
-      undo.hidden = ctx.gameInfo?.mode === 'crazy'; // no undo in Crazy
+      undo.hidden = ctx.gameInfo?.mode === 'crazy' || online; // no undo in Crazy or online
     },
     focusTarget: () => resume,
   };
@@ -60,13 +70,29 @@ export class ResultView implements View {
   private art = h('div', { class: 'mc-result__art', 'aria-hidden': 'true' });
   private confetti = h('div', { class: 'mc-confetti', 'aria-hidden': 'true' });
   private rematch: HTMLButtonElement;
+  /** Phase 5: the online rematch line ("Waiting for your friend…", "Your friend wants a rematch!"). */
+  private note = h('p', { class: 'mc-result__note', role: 'status', hidden: true });
+  private online: OnlineHud | null = null;
+  /** Pressed Rematch online and the room hasn't echoed it yet: show the wait straight away. */
+  private asked = false;
 
   constructor(private ctx: UiCtx) {
-    this.rematch = button('Rematch', { variant: 'primary', onClick: () => { ctx.emit('rematch', {}); ctx.show('game'); } });
+    this.rematch = button('Rematch', { variant: 'primary', onClick: () => {
+      // Online, both have to ask; the room starts the new game (integration shows it).
+      if (isOnline(ctx.gameInfo)) {
+        if (this.online?.opponent === 'left') return;
+        this.asked = true;
+        ctx.emit('rematchOnline', {});
+        this.renderOnline();
+        return;
+      }
+      ctx.emit('rematch', {});
+      ctx.show('game');
+    } });
     this.el = h('section', { class: 'mc-screen mc-overlay mc-result', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mc-result-h', 'aria-describedby': 'mc-result-sub' },
       this.confetti,
       h('div', { class: 'mc-panel mc-panel--narrow' },
-        this.art, this.title, this.sub,
+        this.art, this.title, this.sub, this.note,
         h('div', { class: 'mc-stack' },
           this.rematch,
           h('div', { class: 'mc-stack__row' },
@@ -76,16 +102,19 @@ export class ResultView implements View {
   }
 
   set(r: GameOver): void {
-    const bot = this.ctx.gameInfo?.opponent.type === 'bot' ? this.ctx.gameInfo.opponent : null;
+    const info = this.ctx.gameInfo;
+    const you = youSide(info);
     const reason = REASON_TEXT[r.reason];
     let title: string;
     let mood: 'win' | 'lose' | 'draw';
+    this.asked = false;
+    this.renderOnline();
     if (r.winner === null) {
       title = r.reason === 'stalemate' ? 'Stalemate!' : "It's a draw";
       mood = 'draw';
-    } else if (bot) {
-      const youWon = r.winner !== bot.botSide;
-      title = youWon ? 'You win!' : `${botName(bot.level)} wins`;
+    } else if (you) {
+      const youWon = r.winner === you;
+      title = youWon ? 'You win!' : `${playerName(info, r.winner)} wins`;
       mood = youWon ? 'win' : 'lose';
     } else {
       title = `${SIDE_NAME[r.winner]} wins!`;
@@ -118,6 +147,30 @@ export class ResultView implements View {
       }
     }
     this.ctx.audio.play(r.winner === null ? 'draw' : 'checkmate');
+  }
+
+  /** Phase 5: the online rematch state. */
+  setOnline(st: OnlineHud | null): void {
+    const prev = this.online?.rematch;
+    this.online = st;
+    if (st?.rematch === 'none' && prev && prev !== 'none') this.asked = false; // a new game, or the ask was dropped
+    this.renderOnline();
+  }
+
+  private renderOnline(): void {
+    const online = isOnline(this.ctx.gameInfo);
+    const st = this.online;
+    const label = this.rematch.querySelector('.mc-btn__text')!;
+    const left = online && st?.opponent === 'left';
+    const state = !online ? 'none' : st?.rematch === 'none' || !st ? (this.asked ? 'youAsked' : 'none') : st.rematch;
+    this.el.dataset.rematch = left ? 'left' : state;
+    this.rematch.disabled = left || state === 'youAsked';
+    this.rematch.classList.toggle('is-calling', !left && state === 'theyAsked');
+    label.textContent = state === 'theyAsked' ? 'Rematch!' : state === 'youAsked' ? 'Rematch asked' : 'Rematch';
+    this.note.hidden = !(left || state !== 'none');
+    if (left) this.note.replaceChildren('Your friend left, so no rematch this time.');
+    else if (state === 'youAsked') this.note.replaceChildren('Waiting for your friend', h('span', { class: 'mc-dots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')));
+    else if (state === 'theyAsked') this.note.replaceChildren(h('span', { 'aria-hidden': 'true', text: '🔁 ' }), 'Your friend wants a rematch!');
   }
 
   focusTarget(): HTMLElement {

@@ -8,6 +8,7 @@ import { isArenaMode } from '../contracts/types';
 import type { AudioCue, DieValue, EmoteKind, GameOptions, MoveFlag, MoveResult, PieceKind, Side, WeirdEventKind, WheelOutcome } from '../contracts/types';
 import { addArenaControls } from './demoArena';
 import { FakeMode, addModeControls } from './demoModes';
+import { addOnlineControls } from './demoOnline';
 import { createUi, type MenagerieUi } from './index';
 
 // ---------- Stand-in board ----------
@@ -72,7 +73,8 @@ class FakeGame {
     this.gen++;
     this.opts = opts;
     this.rolledFor = -1;
-    this.fm = opts.mode && (opts.mode === 'normal' || opts.mode === 'crazy') ? new FakeMode(ui, opts.mode, this.botSide() ? other(this.botSide()!) : null) : null;
+    const you = this.botSide() ? other(this.botSide()!) : opts.opponent.type === 'online' ? opts.opponent.you : null;
+    this.fm = opts.mode && (opts.mode === 'normal' || opts.mode === 'crazy') ? new FakeMode(ui, opts.mode, you) : null;
     ui.setModeState(null);
     this.over = false;
     this.paused = false;
@@ -289,7 +291,8 @@ const startAny = (o: GameOptions) => {
     game.start(o);
   }
 };
-ui.on('startGame', startAny);
+// Online starts go through the invite (demoOnline.ts) instead.
+ui.on('startGame', (o) => o.opponent.type !== 'online' && startAny(o));
 ui.on('rematch', () => lastOpts && startAny(lastOpts));
 ui.on('undo', () => game.undo());
 ui.on('resign', () => game.resign());
@@ -395,6 +398,7 @@ btn(results, 'Draw: threefold', () => ui.showResult({ winner: null, reason: 'thr
 
 addModeControls(ui, section, btn, note, () => game.stop());
 arena = addArenaControls(ui, section, btn, note, () => game.stop());
+addOnlineControls(ui, section, btn, note, startAny, () => game.stop());
 
 const music = section('Music');
 (['title', 'game', 'tense', 'none'] as const).forEach((t) => btn(music, t, () => audio.setMusic(t)));

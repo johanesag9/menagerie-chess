@@ -186,7 +186,8 @@ export function addArenaControls(ui: MenagerieUi, section: Section, btn: Btn, no
   async function turn(f: FakeArena, side: Side, my: number): Promise<void> {
     if (my !== gen) return;
     const o = ui.gameInfo!;
-    const bot = o.opponent.type === 'bot' && o.opponent.botSide === side;
+    // The demo's friend online plays like the demo bot (random steps).
+    const bot = (o.opponent.type === 'bot' && o.opponent.botSide === side) || (o.opponent.type === 'online' && o.opponent.you !== side);
     await f.roll(side, (1 + Math.floor(Math.random() * 6)) as DieValue);
     if (bot) {
       ui.setBotThinking(true);

@@ -3,6 +3,8 @@
  *
  * Who plays which sound: the UI plays its own control sounds (hover/click/back), `clockLow`,
  * and the cues for what it shows (`check`, `weird`, `checkmate`/`draw` on the result, `emote:*`).
+ * Phase 5 (online): `friendJoined` when the invite closes into the game or the friend comes back, `friendLeft` when
+ * they go away or leave, `timeLow` once when your own turn timer reaches 10s. All from `show` and `setOnline`.
  * Board sounds (moves, captures, select, voices) belong to integration, timed with the animations.
  * The UI also picks the music for the screen: `title` on menus, `game`/`tense` in play.
  */
@@ -20,6 +22,7 @@ import { focusables, h } from './dom';
 import { Chaos } from './screens/chaos';
 import { Hud } from './screens/hud';
 import { customizeScreen, settingsScreen } from './screens/options';
+import { InviteView, JoinDialog } from './screens/online';
 import { PromotionPicker, ResultView, pauseScreen } from './screens/overlays';
 import { setupScreen } from './screens/setup';
 import { titleScreen } from './screens/title';
@@ -55,6 +58,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   private chaos: Chaos;
   private result: ResultView;
   private promo: PromotionPicker;
+  private setup: ReturnType<typeof setupScreen>;
+  private invite: InviteView;
+  private join: JoinDialog;
   private errorEl: HTMLElement;
   private current: Screen | null = null;
   /** Where settings/customize return to. */
@@ -84,9 +90,12 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.hud.el.append(this.chaos.el);
     this.result = new ResultView(this);
     this.promo = new PromotionPicker(this);
+    this.setup = setupScreen(this);
+    this.invite = new InviteView(this);
+    this.join = new JoinDialog(this);
     this.views = {
       title: titleScreen(this),
-      setup: setupScreen(this),
+      setup: this.setup,
       game: { el: this.hud.el },
       customize: customizeScreen(this),
       settings: settingsScreen(this),
@@ -98,7 +107,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
       v.el.hidden = true;
       this.layer.append(v.el);
     }
-    this.layer.append(this.promo.el, this.errorEl);
+    this.layer.append(this.promo.el, this.invite.el, this.join.el, this.errorEl);
     this.applyMotion();
     root.append(this.layer);
     this.listen();
@@ -132,6 +141,11 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   }
 
   startGame(options: GameOptions): void {
+    // Online: integration makes the room and calls showInvite; the game screen comes when the friend joins.
+    if (options.opponent.type === 'online') {
+      this.emit('startGame', options);
+      return;
+    }
     this.setGameInfo(options);
     this.show('game');
     this.emit('startGame', options);
@@ -145,6 +159,11 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
 
   show(screen: Screen): void {
     const from = this.current;
+    // Phase 5: any screen change closes the invite. Into the game means the friend joined.
+    if (this.invite.open && screen !== from) {
+      this.invite.hide();
+      if (screen === 'game') this.audio.play('friendJoined');
+    }
     if (screen === from) return;
     if (screen === 'settings' || screen === 'customize') {
       if (from !== 'settings' && from !== 'customize') this.returnTo = from === 'game' ? 'pause' : (from ?? 'title');
@@ -229,6 +248,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.hud.dispose();
     this.chaos.dispose();
     this.promo.dispose();
+    this.join.dispose();
     this.layer.remove();
     this.clear();
   }
@@ -249,6 +269,7 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
 
   /** A friendly error line, e.g. when core rejects a FEN. */
   showError(message: string): void {
+    this.setup.setBusy(false); // e.g. the room couldn't be made: Start works again
     this.errorEl.textContent = message;
     this.errorEl.hidden = false;
     this.errorEl.classList.remove('is-on');
@@ -324,19 +345,27 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     return this.chaos.announce(text, tone);
   }
 
-  // ---------- Phase 5 stubs (orchestrator, 2026-10-28): replace with the real invite, join and online HUD ----------
+  // ---------- Phase 5: online with a friend ----------
 
+  /** The invite overlay, over whatever screen is showing (normally setup). Hidden by `show()` or `hideInvite()`. */
   showInvite(info: { link: string; mode: PlayMode; you: Side }): void {
-    console.info('[ui stub] invite', info.link);
+    this.setup.setBusy(false);
+    this.invite.show(info);
   }
 
-  hideInvite(): void {}
+  hideInvite(): void {
+    this.setup.setBusy(false);
+    this.invite.hide();
+  }
 
   askJoin(info: { mode: PlayMode; you: Side } | null): Promise<boolean> {
-    return Promise.resolve(!!info);
+    return this.join.ask(info);
   }
 
-  setOnline(_state: OnlineHud | null): void {}
+  setOnline(state: OnlineHud | null): void {
+    this.hud.setOnline(state);
+    this.result.setOnline(state);
+  }
 
   /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */
   setPieces(pieces: PieceState[]): void {
@@ -416,6 +445,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     });
 
     on(document, 'keydown', (e) => {
+      // Phase 5 dialogs sit on top of everything (each handles its own Esc).
+      if (this.join.open) return e.key === 'Escape' ? this.join.answer(false) : this.trap(e, this.join.el);
+      if (this.invite.open) return e.key === 'Escape' ? this.invite.cancel() : this.trap(e, this.invite.el);
       if (this.promo.open) return this.trap(e, this.promo.el);
       const cur = this.current;
       if (cur === 'game' && this.chaos.dialog) return this.trap(e, this.chaos.dialog);

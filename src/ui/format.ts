@@ -1,4 +1,4 @@
-import type { ActionRecord, MoveResult, PieceId, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
+import type { ActionRecord, GameOptions, MoveResult, PieceId, PieceKind, PieceState, Side, SideModeState } from '../contracts/types';
 
 /** Clock text: "10:00", "0:42", and tenths under 10 seconds ("7.3"). */
 export function formatClock(ms: number | null): string {
@@ -10,6 +10,15 @@ export function formatClock(ms: number | null): string {
   const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
+
+/** Phase 5: whole seconds as "1:42" or "0:07" (online turn timer, away countdown). Rounds up, so 0:00 means done. */
+export function formatSeconds(ms: number): string {
+  const total = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** Phase 5: "42 seconds", "1 minute 5 seconds". */
+export const spokenSeconds = (ms: number): string => spokenClock(Math.max(0, ms));
 
 /** Spoken clock for screen readers: "4 minutes 2 seconds". */
 export function spokenClock(ms: number | null): string {
@@ -61,6 +70,16 @@ export function moveRows(moves: MoveResult[]): { n: number; land?: string; sea?:
 }
 
 export const otherSide = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
+
+/** The side this screen plays: yours vs the bot, `opponent.you` online (Phase 5), null in a local game. */
+export function youSide(info: GameOptions | null | undefined): Side | null {
+  const o = info?.opponent;
+  if (o?.type === 'bot') return otherSide(o.botSide);
+  if (o?.type === 'online') return o.you;
+  return null;
+}
+
+export const isOnline = (info: GameOptions | null | undefined): boolean => info?.opponent.type === 'online';
 
 // ---------- Phase 3: game modes ----------
 
