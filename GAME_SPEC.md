@@ -192,6 +192,110 @@ These fill gaps the approved draft didn't cover. Johanes may want to change any 
 - If a bonked double jump fails, it still uses up the power.
 - There is no undo in Crazy.
 
+## Party modes: not chess (Johanes asked for these on 2026-10-28)
+Two more modes use the same board, animals, powers, die and duels, but none of the chess rules.
+
+| Mode | In one line |
+|---|---|
+| **Sumo** (Sinking Island) | Shove the enemy king into the sea while the island sinks ring by ring. |
+| **Raid** (Treasure Raid) | Steal the other side's treasure and carry it into your own half. First to 3 wins. |
+
+Core runs both with its own engine (`ArenaController`) and a simple bot. The setup screen lists them next to the chess modes. Clocks, Weird Mode and FEN don't apply.
+
+### What both modes share
+- **The team.** Each side has 6 animals, one of each kind:
+  - Land starts on rank 2: Horse b2, Goat c2, Cat d2, Pug e2, Elephant f2 and Pup g2.
+  - Sea starts on rank 7, in the same files: Seahorse b7, Pufferfish c7, Octopus d7, Blobfish e7, Turtle f7 and Crab g7.
+- **Action points (AP).** At the start of your turn you roll the die. The roll sets your AP for the turn: 1–2 gives 2 AP, 3–4 gives 3 AP, 5–6 gives 4 AP.
+- **Spending AP.** Use AP on any of your animals, in any order, until you run out or press **End turn**. AP you don't use is lost.
+- **Step (1 AP).** Move one square in any of the 8 directions onto an empty square. It can't be water or a blocked square.
+- **Powers (2 AP, once per game per animal).** These are the same six powers and animations as Normal mode, with the rules adjusted for each mode (see below).
+- **Duels.** Each side has **2 duel tokens**. Jankenpon works as in Crazy: the defender calls the duel, ties throw again, and after 3 ties the attacker wins. If the defender wins, the attack fails, but the attacker's AP is still spent.
+- **Blocks** from the queen work as in Normal: nothing can step onto or be pushed onto a blocked square. A block lasts 4 plies.
+- **Turns** in these modes means plies (one side's go); a **round** is one Land turn plus one Sea turn.
+
+### Sumo (Sinking Island)
+**Win:** the enemy king falls into the water.
+- If your own king falls in on your turn, you lose.
+- If both kings fall at the same moment, it's a draw.
+- After round 15, the side with more animals left wins; if they're equal, it's a draw.
+
+**Shove (2 AP; 3 AP when shoving a heavy king or rook).** Pick one of your animals and an enemy on a neighbouring square. The enemy moves one square straight away from your animal.
+- If animals stand in the way, the whole line moves along, your own animals included.
+- If the push would end on a blocked square, the shove can't be done.
+- Any animal pushed onto water, or off the board, falls in and is out of the game.
+
+**The island sinks.** The board has 4 rings, counted from the edge in.
+- The outer ring sinks at the end of round 3, the next ring at the end of round 6, and the next at the end of round 9.
+- The middle 2×2 always stays.
+- The ring that's about to sink wobbles for the whole round before, as a warning.
+- Animals still standing on a ring when it sinks fall in.
+
+**Powers in Sumo**
+
+| Animal | Power |
+|---|---|
+| Pawn | **Dig in.** It can't be pushed until your next turn. |
+| Knight | **Double jump.** Two knight hops onto empty, dry squares. |
+| Bishop | **Headbutt.** Shoves a neighbouring enemy 2 squares, heavy or not. |
+| Rook | **Stomp.** Shoves every neighbouring enemy 1 square straight away. The farthest go first. |
+| Queen | **Block.** Places a vase or ink wall on an empty dry square. It lasts 4 plies. |
+| King | **Escape.** Teleports to an empty dry square up to 2 squares away. |
+
+**Duel:** you can call one when a shove would make your animal fall in. Sinking can't be dueled.
+
+### Raid (Treasure Raid)
+**Win:** first to **3 points**. After round 20, whoever has more points wins; if they're equal, it's a draw.
+
+**The halves and the treasures**
+- **Halves.** Land's half is the meadow (ranks 1–4). Sea's half is the beach (ranks 5–8).
+- **Treasures.** Land's bone lies at e1, by the dog house. Sea's pearl lies at d8, by the water.
+- **No guarding the treasure.** You can't stand on your own treasure's square.
+
+**Stealing and scoring**
+- **Pick up (free).** Step onto the enemy treasure to pick it up.
+- **Carrying.** The carrier moves slowly: each step costs 2 AP, and it can't use its power.
+- **Score.** Carry the treasure into your own half to score 1 point. The treasure then goes back to its home square.
+
+**Tag (1 AP).** An animal standing in its own half can tag a neighbouring enemy that is also in that half.
+- The tagged enemy is sent home, to the nearest empty square on its own back rank.
+- If it was carrying the treasure, it drops the treasure where it was tagged.
+- If the tagged enemy is the carrier, it can call a duel.
+
+**Dropped treasure**
+- An enemy can pick it up again.
+- If its owner's animal steps on it, the treasure flies straight home.
+
+**Powers in Raid:** the same as Normal mode.
+
+| Animal | Power |
+|---|---|
+| Pawn | **Sidestep.** One free step sideways. |
+| Knight | **Double jump.** Two knight hops. |
+| Bishop | **Headbutt.** Pushes a neighbouring enemy one square; a carrier drops the treasure. |
+| Rook | **Stomp.** Neighbouring enemies are stunned for their owner's next turn. |
+| Queen | **Block.** |
+| King | **Escape.** Teleports up to 2 squares. |
+
+**Wheel of Chaos (every 5 rounds)**
+
+| Result | Effect |
+|---|---|
+| **Tide** | Land animals in Sea's half are swept back one rank. |
+| **Pigeon** | It grabs a carried or dropped treasure and drops it on a random empty square. If there's none to grab, it flies past. |
+| **Earthquake** | Every animal shifts one file. |
+| **Disco** | Every power recharges. |
+
+### Defaults in the party modes (picked by the orchestrator, easy to change)
+Johanes may want to change any of these after playtesting:
+- Team size: 6 per side.
+- AP from the die: 2, 3 or 4.
+- Costs: a shove is 2 AP, or 3 AP against a heavy animal; a tag is 1 AP.
+- When each Sumo ring sinks, and the round cap.
+- Raid: 3 points to win, the carrier's slow steps, and the no-guarding rule.
+- Duel tokens: 2.
+- Raid has no chaos cards, to keep the first version lean.
+
 ## Feel targets
 - 60fps on a mid-range laptop. 30fps or better on a recent phone, with a 'low' quality tier.
 - No move takes longer than about 1.2s to animate. Captures may take about 2s. Every animation can be skipped by clicking.
@@ -200,7 +304,7 @@ These fill gaps the approved draft didn't cover. Johanes may want to change any 
 - Respects reduced motion: shorter moves and no shake.
 
 ## Screens
-Title, game setup (mode, opponent, bot level, time, Weird Mode, side), game (HUD with clocks, turn, move list, emote wheel, menu), customize (palette and accessory per side), settings, pause, result (with rematch).
+Title, game setup (mode incl. the party modes, opponent, bot level, time, Weird Mode, side), game (HUD with clocks, turn, move list, emote wheel, menu), customize (palette and accessory per side), settings, pause, result (with rematch).
 
 ## Architecture
 ```
@@ -241,4 +345,5 @@ Each stream works only in its own folder, builds a standalone demo page for itse
 1. Four parallel sessions (core, world, cast, ui+audio), each on its own branch. The rules for them are in `CLAUDE.md`. Done 2026-10-27.
 2. Merge, integrate, playtest, tune for phones, polish. Merged and integrated 2026-10-27; playtesting and tuning next.
 3. Game modes (Normal and Crazy): four parallel sessions again, against the mode contracts (`docs/phase3-briefs.md`). Core's 2D demo is the first playtest. Started 2026-10-27.
-4. Later: online play, campaign, achievements.
+4. Party modes (Sumo, Raid): four parallel sessions against the arena contracts (`docs/phase4-briefs.md`), on top of the `phase3` branch. Started 2026-10-28.
+5. Later: online play, campaign, achievements.

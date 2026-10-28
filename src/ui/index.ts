@@ -8,7 +8,7 @@
  */
 import './styles.css';
 import type {
-  ActionRecord, AudioEngine, Card, DieEffect, DieValue, DuelInfo, EmoteKind, GameEventMap, Hand, JokerOutcome, ModeState, PieceId, PieceState, SelectionInfo, GameOptions, GameOver,
+  ActionRecord, ArenaState, AudioEngine, Card, DieEffect, DieValue, DuelInfo, EmoteKind, GameEventMap, Hand, JokerOutcome, ModeState, PieceId, PieceState, SelectionInfo, GameOptions, GameOver,
   MoveResult, PieceKind, Screen, Settings, Side, Ui, UiEventMap, WeirdEvent, WheelOutcome,
 } from '../contracts/types';
 import type { CreateUi } from '../contracts/factories';
@@ -307,6 +307,10 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
   spinWheel(outcome: WheelOutcome): Promise<void> {
     return this.chaos.spinWheel(outcome);
   }
+
+  // ---------- Phase 4 stubs (orchestrator, so the branch typechecks). The ui session replaces these. ----------
+  setArenaState(_state: ArenaState | null): void {}
+  announce(_text: string, _tone?: 'info' | 'good' | 'bad'): Promise<void> { return Promise.resolve(); }
 
   /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */
   setPieces(pieces: PieceState[]): void {

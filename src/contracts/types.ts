@@ -5,6 +5,7 @@
  *
  * Phase 2 (2026-10-27): added the extras the streams asked for in their reports.
  * Phase 3 (2026-10-27): game modes (Classic, Normal, Crazy). See GAME_SPEC.md "Game modes" for the rules.
+ * Phase 4 (2026-10-28): party modes that aren't chess (Sumo, Raid). See GAME_SPEC.md "Party modes" and the `ArenaController` section.
  */
 import type { Camera, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 
@@ -64,7 +65,13 @@ export type GameOverReason =
   | 'checkmate' | 'stalemate' | 'threefold' | 'fiftyMove' | 'insufficient'
   | 'resign' | 'timeout' | 'agreement'
   /** Crazy: the king was captured. */
-  | 'kingCaptured';
+  | 'kingCaptured'
+  /** Sumo: a king fell into the water. Draw when both fell at once. */
+  | 'kingOverboard'
+  /** Raid: reached the points target. */
+  | 'treasure'
+  /** Sumo/Raid: the round cap was reached (more animals left / more points wins, else a draw). */
+  | 'rounds';
 
 export interface GameOver {
   winner: Side | null; // null = draw
@@ -84,8 +91,8 @@ export interface TimeControl {
 }
 
 export interface GameOptions {
-  /** Default 'classic'. */
-  mode?: GameMode;
+  /** Default 'classic'. 'sumo' and 'raid' are run by the `ArenaController`, not the `GameController`. */
+  mode?: PlayMode;
   opponent: Opponent;
   time: TimeControl;
   /** Classic and Normal only; ignored in Crazy (the Wheel of Chaos replaces it). */
@@ -99,6 +106,11 @@ export interface GameOptions {
 // ---------- Game modes (Phase 3) ----------
 
 export type GameMode = 'classic' | 'normal' | 'crazy';
+/** Phase 4: the party modes (not chess). */
+export type ArenaMode = 'sumo' | 'raid';
+/** Every mode the setup screen offers. */
+export type PlayMode = GameMode | ArenaMode;
+export const isArenaMode = (m: PlayMode | undefined): m is ArenaMode => m === 'sumo' || m === 'raid';
 
 /** One power per piece kind, the same for both sides. */
 export type PowerKind = 'sidestep' | 'doubleJump' | 'headbutt' | 'stomp' | 'block' | 'escape';
@@ -116,7 +128,8 @@ export type DieValue = 1 | 2 | 3 | 4 | 5 | 6;
 /** 1 = banana peel, 2-5 = none, 6 = lucky. */
 export type DieEffect = 'banana' | 'none' | 'lucky';
 
-export type PieceStatusKind = 'stunned' | 'frozen';
+/** 'anchored' (Phase 4, Sumo pawn "Dig in"): can't be pushed until its owner's next turn. */
+export type PieceStatusKind = 'stunned' | 'frozen' | 'anchored';
 export interface PieceStatus {
   pieceId: PieceId;
   status: PieceStatusKind;
@@ -214,7 +227,8 @@ export type ActResponse = { ok: true; pending?: 'duel' } | { ok: false; reason: 
 
 /**
  * How a piece travels in a BoardChange. Integration plays it with this cast `MoveStyle`:
- * sidestep→sidestep, jump→jump, pushed→pushed, teleport→teleport, swap→teleport, dig→dig, step→step, swept→swept, quake→quake.
+ * sidestep→sidestep, jump→jump, pushed→pushed, teleport→teleport, swap→teleport, dig→dig, step→step, swept→swept, quake→quake,
+ * sentHome→bonked.
  */
 export type ChangeHow =
   | 'sidestep'  // pawn power: pup digs across / crab scuttles
@@ -225,7 +239,9 @@ export type ChangeHow =
   | 'dig'       // ♠ Dig: a pawn steps backward
   | 'step'      // lucky pawn step
   | 'swept'     // tide
-  | 'quake';    // earthquake
+  | 'quake'     // earthquake
+  // Phase 4 (party modes)
+  | 'sentHome'; // Raid: tagged, back to its own back rank
 
 /**
  * One piece-level change. `step` orders them: integration plays every change with the same step together
@@ -241,6 +257,11 @@ export type BoardChange = { step: number } & (
   | { type: 'status'; pieceId: PieceId; status: PieceStatusKind }
   | { type: 'block'; square: Square; by: Side }
   | { type: 'recharge'; pieceIds: PieceId[] }
+  // Phase 4 (party modes)
+  /** Sumo: pushed (or left standing) onto water: it topples in from `square` toward `dir` and is out. dir = [dFile, dRank], e.g. [0, 1] = toward rank 8. */
+  | { type: 'fall'; pieceId: PieceId; square: Square; dir: [number, number] }
+  /** Raid: a treasure changed hands or place. `square` = where it now lies (null while carried); `carrier` = who holds it now. */
+  | { type: 'treasure'; owner: Side; event: 'pickup' | 'drop' | 'return' | 'score' | 'snatch'; square: Square | null; carrier: PieceId | null }
 );
 
 /** One line of the game log, for the move list (moves, powers, cards, bonuses, bonks, wheel, passes). */
@@ -281,8 +302,8 @@ export interface CardResult {
 export interface DuelInfo {
   attackerId: PieceId;
   victimId: PieceId;
-  /** How the capture happens. For a double jump, `mid` is the first hop's square. */
-  via: 'move' | 'doubleJump';
+  /** How the capture happens. For a double jump, `mid` is the first hop's square. Phase 4: 'shove' (Sumo, the victim would fall in), 'tag' (Raid, the victim carries a treasure). */
+  via: 'move' | 'doubleJump' | 'shove' | 'tag';
   mid?: Square;
   from: Square;
   /** The square the attacker is trying to land on. */
@@ -413,6 +434,134 @@ export interface GameController extends EventSource<GameEventMap> {
   throwHand(side: Side, hand: Hand): void;
 }
 
+// ---------- Phase 4: party modes (Sumo, Raid) — core ----------
+
+/** A treasure in Raid: Land's bone (home e1) or Sea's pearl (home d8). */
+export interface TreasureState {
+  owner: Side;
+  home: Square;
+  /** Where it lies (at home or dropped). Null while carried. */
+  square: Square | null;
+  /** The enemy animal carrying it, else null. */
+  carrier: PieceId | null;
+}
+
+/** A full snapshot of an arena game. Core emits it (`state`) after every change. */
+export interface ArenaState {
+  mode: ArenaMode;
+  /** 1-based; a round is a Land turn plus a Sea turn. */
+  round: number;
+  turn: Side;
+  /** 'action' = the side to move spends AP; 'duel' = a duel is being decided; 'over' = finished. */
+  phase: 'action' | 'duel' | 'over';
+  /** This turn's roll. */
+  die: DieValue | null;
+  /** Action points left this turn. */
+  ap: number;
+  /** Animals on the board. */
+  pieces: PieceState[];
+  /** Animals out of the game (Sumo: fell in). Raid: always []. */
+  out: PieceState[];
+  powersUsed: PieceId[];
+  statuses: PieceStatus[];
+  /** Blocked squares (queen power). */
+  squares: SquareEffect[];
+  duelTokens: Record<Side, number>;
+  /** Sumo: squares already under water. Raid: []. */
+  sunk: Square[];
+  /** Sumo: the ring that sinks next, wobbling as a warning during the round before (else []). */
+  sinkingNext: Square[];
+  /** Sumo: rounds until the next ring sinks (null when no more will). */
+  nextSinkIn: number | null;
+  /** Raid: both treasures. Sumo: []. */
+  treasures: TreasureState[];
+  /** Raid points (Sumo: 0). */
+  score: Record<Side, number>;
+  /** Raid: points to win (Sumo: 0). */
+  target: number;
+  /** Raid: rounds until the Wheel of Chaos (null in Sumo). */
+  nextWheelIn: number | null;
+  /** The round cap (Sumo 15, Raid 20). */
+  maxRounds: number;
+}
+
+/** What one animal can do right now (all empty when it isn't this side's action phase). */
+export interface ArenaPieceOptions {
+  /** Squares it can step to. */
+  steps: Square[];
+  /** Enemies it can shove (Sumo) or tag (Raid), by square. */
+  hits: Square[];
+  /** AP a step costs this animal now (2 for a Raid carrier). */
+  stepCost: number;
+  /** AP a shove or tag on each square in `hits` costs, same order. */
+  hitCosts: number[];
+  power: PowerInfo;
+}
+
+/**
+ * One thing done with AP. A turn is several of these until AP runs out or `endTurn`.
+ * power targets per mode (pick them one by one with `targets()`):
+ * - Sumo: dig in (pawn) [] · doubleJump [mid, to] · headbutt [victim] · stomp [] · block [square] · escape [to]
+ * - Raid: as Normal mode: sidestep [to] · doubleJump [mid, to] · headbutt [victim] · stomp [] · block [square] · escape [to]
+ */
+export type ArenaAction =
+  | { type: 'step'; pieceId: PieceId; to: Square }
+  | { type: 'hit'; pieceId: PieceId; target: Square }
+  | { type: 'power'; pieceId: PieceId; targets: Square[] }
+  | { type: 'endTurn' };
+
+export interface ArenaEventMap {
+  /** Inside `newGame`, then `state`, `turnChanged`, `rolled`, `state`. */
+  started: { options: GameOptions; state: ArenaState };
+  /** After every change (the source of truth for the HUD and for diffing statuses, blocks, sunk squares and treasures). */
+  state: ArenaState;
+  /** At the start of every turn. */
+  rolled: { side: Side; value: DieValue; ap: number };
+  /** One action resolved. `changes` (with steps, as in Phase 3) say what to animate. Then `logged`, `state`. */
+  acted: { side: Side; action: ArenaAction; power?: PowerKind; changes: BoardChange[] };
+  /** Sumo, end of a round: a ring sank. `changes` = the animals that fell with it. */
+  sank: { squares: Square[]; changes: BoardChange[] };
+  /** Raid, every 5 rounds at the start of Land's turn. */
+  wheelSpun: { outcome: WheelOutcome; direction?: 'left' | 'right'; changes: BoardChange[] };
+  /** As in Crazy (`via` 'shove' or 'tag'). Nothing has moved yet. Core waits for `answerDuel`, then `throwHand`; a `state` with phase 'duel' starts each throw round. */
+  duelOffered: DuelInfo;
+  duelRound: GameEventMap['duelRound'];
+  duelEnded: GameEventMap['duelEnded'];
+  /** The defender won: the hit fails (nothing moves; the attacker's AP is spent). Then `logged`, `state`. */
+  bonked: { info: DuelInfo };
+  turnChanged: { turn: Side };
+  logged: ActionRecord;
+  gameOver: GameOver;
+  botThinking: { side: Side; thinking: boolean };
+}
+
+/**
+ * Phase 4: runs Sumo and Raid (GAME_SPEC "Party modes"). Separate from `GameController`: no chess here.
+ * Event order after an action: (duelOffered, duelRound*, duelEnded, bonked?) -> acted -> logged -> state;
+ * when AP hits 0 or on endTurn: (Sumo, end of a round: sank, logged) -> state -> gameOver? -> turnChanged ->
+ * (Raid: wheelSpun, logged) -> rolled -> state.
+ * The bot plays its turn one action at a time and holds each next action while paused (like Phase 3).
+ */
+export interface ArenaController extends EventSource<ArenaEventMap> {
+  /** `options.mode` must be 'sumo' or 'raid'; `time`, `weirdMode` and `fen` are ignored. */
+  newGame(options: GameOptions): void;
+  readonly state: ArenaState;
+  /** The whole log so far. */
+  readonly log: ActionRecord[];
+  pieceOptions(pieceId: PieceId): ArenaPieceOptions;
+  /** Next squares for a half-built power (same shape as Phase 3). */
+  targets(pending: { pieceId: PieceId; targets: Square[] }): TargetStep;
+  /** Squares the power or a hit would affect, for a preview (the shove line, the stomp ring, where a pushed animal lands). */
+  previewArea(pending: { pieceId: PieceId; targets: Square[] } | { pieceId: PieceId; hit: Square }): Square[];
+  act(action: ArenaAction): ActResponse;
+  answerDuel(call: boolean): void;
+  throwHand(side: Side, hand: Hand): void;
+  resign(side: Side): void;
+  pause(): void;
+  resume(): void;
+  dispose(): void;
+}
+
 // ---------- Session B: world ----------
 
 export type QualityTier = 'high' | 'low';
@@ -479,6 +628,19 @@ export interface World extends EventSource<WorldEventMap> {
    * - disco: party lights and sparkles over the board.
    */
   playChaos(outcome: WheelOutcome, opts?: { squares?: Square[]; carry?: Object3D; direction?: 'left' | 'right' }): Promise<void>;
+  /**
+   * Phase 4 (Sumo): show exactly these squares as sunk (the tile drops under rising water, waves lap over it) and `warn` as
+   * about to sink (a wobble and a dark wet edge). Animates the change; pass [] [] to restore the board. `noPick` on the water.
+   */
+  setSunk(sunk: Square[], warn: Square[]): void;
+  /**
+   * Phase 4 (Raid): home markers (a dog bowl at Land's home, an open shell at Sea's) are always shown while this is set;
+   * a treasure lying on the board (`square` not null: at home or dropped) is drawn there with a soft glow. A carried one is
+   * drawn by the cast (`setCarrying`), so skip it here. Pass [] to hide everything.
+   */
+  setTreasures(treasures: TreasureState[]): void;
+  /** Phase 4: a splash (an animal falling in, a treasure flying home). `big` for a king. */
+  splash(point: Vector3, big?: boolean): void;
   skipIntro(): void;
   /** Read-only access for shader warm-up (`cast.preload`) and screen projection. Don't move the camera yourself. */
   readonly renderer: WebGLRenderer;
@@ -528,6 +690,13 @@ export interface PieceActor {
   hit(): Promise<void>;
   /** Phase 3: arrive from nowhere (♥ Revive): rises from the ground or bubbles up. Call after adding the object at its square. */
   appear(): Promise<void>;
+  /**
+   * Phase 4 (Sumo): totters at the edge, then tumbles off toward `dir` (a world-space direction) into the water and sinks.
+   * Resolves when it's gone (it leaves the board but isn't freed; integration disposes it, like `defeat`). Emits `poof`-like `splash`.
+   */
+  fall(dir: Vector3): Promise<void>;
+  /** Phase 4 (Raid): hold the other side's treasure in its mouth, claw or tentacle (`owner` = whose treasure: 'land' bone, 'sea' pearl). null = nothing. */
+  setCarrying(owner: Side | null): void;
   /** Attack lunge toward a victim. Resolves at the moment of impact. The attacker is left mid-lunge: integration then moves it on (capture) or back (headbutt, bonk). */
   attack(victim: PieceActor): Promise<void>;
   /** Defeat animation (slapstick, never gory). Resolves when it has left the board. */
@@ -566,6 +735,8 @@ export interface CastEventMap {
   poof: { id: PieceId; at: Vector3; intensity: number };
   /** Phase 3: a power takes effect (same moment `powerUp` resolves). */
   power: { id: PieceId; power: PowerKind; at: Vector3; intensity: number };
+  /** Phase 4: a falling animal hits the water (integration adds `world.splash` and a sound). */
+  splash: { id: PieceId; at: Vector3; intensity: number };
 }
 
 /**
@@ -623,6 +794,8 @@ export interface UiEventMap {
   cardRequested: { cardId: string };
   /** Phase 3: the player cancelled the power or card they were aiming. */
   cancelAction: Record<string, never>;
+  /** Phase 4: the player pressed End turn (party modes). */
+  endTurn: Record<string, never>;
 }
 
 /** Phase 3: what the HUD shows about the selected piece (null = nothing selected). */
@@ -683,6 +856,16 @@ export interface Ui extends EventSource<UiEventMap> {
   showDuelRound(r: GameEventMap['duelRound']): Promise<void>;
   /** The wheel spins and stops on `outcome`, with its name and one line of what it does. */
   spinWheel(outcome: WheelOutcome): Promise<void>;
+
+  // ----- Phase 4: party modes. The setup screen also offers 'sumo' and 'raid' (`GameOptions.mode`); `setGameInfo` gets them too. -----
+  /**
+   * Render the party-mode HUD: AP pips and an End turn button (emits `endTurn`, only for a human side to move),
+   * animals left / out, powers, duel tokens, round and round cap; Sumo: "Island sinks in N"; Raid: score to `target`,
+   * where each treasure is (home, dropped, carried by whom), "Wheel in N". null hides it.
+   */
+  setArenaState(state: ArenaState | null): void;
+  /** A big short banner over the board ("The island sinks!", "Bone stolen!", "+1 Sea!"). Resolves when it has shown (about 1.2s, skippable). */
+  announce(text: string, tone?: 'info' | 'good' | 'bad'): Promise<void>;
   dispose(): void;
 }
 
@@ -699,6 +882,9 @@ export type AudioCue =
   | 'duelCall' | 'duelThrow' | 'duelWin' | 'duelLose' | 'bonk'
   | 'wheelSpin' | 'wheelStop' | `chaos:${WheelOutcome}`
   | 'stun' | 'freeze' | 'block' | 'revive' | 'slip' | 'recharge'
+  // Phase 4
+  | 'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 'anchor'
+  | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn'
   | `voice:${Side}:${PieceKind}`
   | `emote:${EmoteKind}`;
 

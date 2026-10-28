@@ -846,6 +846,10 @@ export class Actor implements PieceActor {
     return this.promiseAt(tl, 0.8);
   }
 
+  // ---------- Phase 4 stubs (orchestrator, so the branch typechecks). The cast session replaces these. ----------
+  fall(_dir: THREE.Vector3): Promise<void> { this.object.removeFromParent(); return Promise.resolve(); }
+  setCarrying(_owner: Side | null): void {}
+
   get selected(): boolean { return this.selT === 1; }
 
   get isBusy(): boolean { return this.actionTls.size > 0; }

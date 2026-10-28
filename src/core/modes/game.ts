@@ -199,7 +199,7 @@ export class ModeGame implements GameController {
     if (this.s.phase !== 'action') return no('wrongPhase');
     if (powerUsed(this.s, p)) return no('used');
     const st = statusOf(this.s, p.id);
-    if (st) return no(st.status);
+    if (st && st.status !== 'anchored') return no(st.status); // 'anchored' is Sumo-only (Phase 4)
     if (!powerOptions(this.s, i).length) return no('noTarget');
     return { power, available: true };
   }

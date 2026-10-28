@@ -253,6 +253,10 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     playChaos(outcome: WheelOutcome, o?: ChaosOptions) {
       return chaos.play(outcome, o);
     },
+    // Phase 4 stubs (orchestrator, so the branch typechecks). The world session replaces these.
+    setSunk() {},
+    setTreasures() {},
+    splash() {},
     get stats(): WorldStats {
       const i = stage.info;
       return { fps: Math.round(fps), drawCalls: i.calls, triangles: i.triangles, pixelRatio: i.pixelRatio, quality: stage.quality, programs: renderer.info.programs?.length ?? 0 };

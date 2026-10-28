@@ -14,7 +14,7 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** BoardChange travel -> cast travel style (see `ChangeHow` in the contracts). */
 const STYLE: Record<ChangeHow, MoveStyle> = {
   sidestep: 'sidestep', jump: 'jump', pushed: 'pushed', teleport: 'teleport', swap: 'teleport',
-  dig: 'dig', step: 'step', swept: 'swept', quake: 'quake',
+  dig: 'dig', step: 'step', swept: 'swept', quake: 'quake', sentHome: 'bonked',
 };
 
 export interface ModeShowDeps {

@@ -2,10 +2,12 @@
  * Each stream exports exactly one factory from its folder's index.ts with these signatures.
  * Integration (src/main.ts, orchestrator-owned) wires them together.
  */
-import type { AudioEngine, Cast, CastOptions, GameController, Ui, World, WorldOptions } from './types';
+import type { ArenaController, AudioEngine, Cast, CastOptions, GameController, Ui, World, WorldOptions } from './types';
 
 /** src/core/index.ts */
 export type CreateGame = () => GameController;
+/** src/core/index.ts (Phase 4): Sumo and Raid. */
+export type CreateArena = () => ArenaController;
 /** src/world/index.ts */
 export type CreateWorld = (opts: WorldOptions) => Promise<World>;
 /** src/cast/index.ts */

@@ -70,7 +70,7 @@ class FakeGame {
     this.gen++;
     this.opts = opts;
     this.rolledFor = -1;
-    this.fm = opts.mode && opts.mode !== 'classic' ? new FakeMode(ui, opts.mode, this.botSide() ? other(this.botSide()!) : null) : null;
+    this.fm = opts.mode && (opts.mode === 'normal' || opts.mode === 'crazy') ? new FakeMode(ui, opts.mode, this.botSide() ? other(this.botSide()!) : null) : null;
     ui.setModeState(null);
     this.over = false;
     this.paused = false;

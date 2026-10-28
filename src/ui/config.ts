@@ -57,6 +57,10 @@ export const WEIRD_TEXT: Record<WeirdEventKind, { title: string; body: string; i
 export const REASON_TEXT: Record<GameOverReason, string> = {
   checkmate: 'by checkmate',
   kingCaptured: 'by bonking the king',
+  // Phase 4 stubs (orchestrator); the ui session words these.
+  kingOverboard: 'by pushing the king into the sea',
+  treasure: 'by stealing the treasure',
+  rounds: 'when time ran out',
   resign: 'by resignation',
   timeout: 'on time',
   stalemate: 'Stalemate',
