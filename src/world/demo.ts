@@ -4,9 +4,9 @@
  */
 import * as THREE from 'three';
 import { Chess, type Square as CSquare } from 'chess.js';
-import type { PieceKind, Side, Square, SquareEffect, TreasureState, WeirdEventKind, WheelOutcome } from '../contracts/types';
+import type { Level, PieceKind, Side, Square, SquareEffect, TreasureState, WeirdEventKind, WheelOutcome } from '../contracts/types';
 import { ALL_SQUARES, squareIndex } from './coords';
-import { createWorld, ringOf, sinkDropTimes, TIDE_TIMING, type ShorelineWorld } from './index';
+import { createWorld, LEVEL_TIMING, ringOf, sinkDropTimes, TIDE_TIMING, type ShorelineWorld } from './index';
 
 const SAMPLE_FEN = 'r1bqkb1r/pppp1Bpp/2n2n2/4p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 4'; // Black king in check, captures available
 const $ = (id: string) => document.getElementById(id)!;
@@ -103,7 +103,7 @@ function placeAll() {
     for (const c of row) {
       if (!c) continue;
       const t = makeToken(c.color === 'w' ? 'land' : 'sea', c.type as PieceKind);
-      t.position.copy(world.squareToWorld(c.square as Square));
+      t.position.copy(world.squareTop(c.square as Square));
       world.pieceLayer.add(t);
       tokens.set(c.square as Square, t);
     }
@@ -168,7 +168,7 @@ async function doMove(from: Square, to: Square) {
   if (m.flags.includes('e')) victimSq = `${to[0]}${from[1]}` as Square;
   const victim = victimSq ? tokens.get(victimSq) : undefined;
   if (victimSq) tokens.delete(victimSq);
-  const target = world.squareToWorld(to);
+  const target = world.squareTop(to);
   const moves: Promise<void>[] = [hop(mover, target)];
   if (m.flags.includes('k') || m.flags.includes('q')) {
     const rank = from[1];
@@ -176,7 +176,7 @@ async function doMove(from: Square, to: Square) {
     const rook = tokens.get(rf as Square)!;
     tokens.delete(rf as Square);
     tokens.set(rt as Square, rook);
-    moves.push(hop(rook, world.squareToWorld(rt as Square), 0.6));
+    moves.push(hop(rook, world.squareTop(rt as Square), 0.6));
   }
   if (victim) {
     void world.focusOn(target, 1);
@@ -199,7 +199,8 @@ async function doMove(from: Square, to: Square) {
 }
 
 function onSquareClicked(sq: Square) {
-  log(`clicked ${sq}`);
+  log(`clicked ${sq}${levels[sq] ? ` (level ${levels[sq]})` : ''}`);
+  target = sq;
   if (busy) return;
   const piece = chess.get(sq as CSquare);
   if (selected) {
@@ -576,6 +577,186 @@ button('aim', 'Clear aim', () => {
   world.setHighlights({ selected: null, targets: [], area: [] });
 });
 
+// ---------- Phase 6: Sandcastle King levels and flag, Stepping Stones ----------
+/** The square the castle and stones buttons act on: the last one clicked. */
+let target: Square = 'e4';
+let levels: Partial<Record<Square, Level>> = {};
+let flag: { square: Square; side: Side } | null = null;
+
+/** What integration does: animals ride up or down with their square (the cast's 'climb' style does the real thing). */
+function settleTokens(delay = 0) {
+  const T = world.reducedMotion ? LEVEL_TIMING.reduced : LEVEL_TIMING.normal;
+  for (const [sq, tok] of tokens) {
+    const y0 = tok.position.y, y1 = world.squareTop(sq).y;
+    if (Math.abs(y1 - y0) < 1e-3) continue;
+    let t = -delay;
+    const off = world.onFrame((dt) => {
+      t += dt;
+      if (t < 0) return;
+      const k = Math.min(1, t / T.dig);
+      tok.position.y = y0 + (y1 - y0) * (k * k * (3 - 2 * k));
+      if (k >= 1) off();
+    });
+  }
+}
+function showLevels(msg: string, opts?: { tide?: boolean }) {
+  world.setLevels(levels, opts);
+  // A held flag drops when its castle is gone.
+  if (flag && levels[flag.square] !== 3) {
+    flag = null;
+    world.setFlag(null);
+  }
+  settleTokens(opts?.tide ? 0.3 : 0);
+  log(msg);
+}
+const lvl = (sq: Square) => levels[sq] ?? 0;
+const setLvl = (sq: Square, l: number) => {
+  if (l <= 0) delete levels[sq];
+  else levels[sq] = Math.min(3, l) as Level;
+};
+function build(n: number) {
+  if (tokens.has(target)) return log(`${target} has a token on it: building there isn't allowed. Click an empty square.`);
+  if (lvl(target) >= 3) return log(`${target} is already a castle`);
+  const from = lvl(target);
+  setLvl(target, from + n);
+  showLevels(`Build on ${target}: ${from} → ${lvl(target)}${lvl(target) === 3 ? ' (a castle!)' : ''}`);
+}
+button('castle', 'Build +1', () => build(1));
+button('castle', 'Builder +2', () => build(2));
+button('castle', 'Dig −1', () => {
+  if (!lvl(target)) return log(`${target} is flat: nothing to dig`);
+  const from = lvl(target);
+  setLvl(target, from - 1);
+  showLevels(`Dig ${target}: ${from} → ${lvl(target)}${tokens.has(target) ? ' (the token rides down)' : ''}`);
+});
+button('castle', 'Random levels', () => {
+  levels = {};
+  for (const sq of ALL_SQUARES) {
+    if (tokens.has(sq) || Math.random() < 0.55) continue;
+    setLvl(sq, 1 + Math.floor(Math.random() * 3));
+  }
+  showLevels(`Random levels: ${Object.keys(levels).length} raised squares, ${Object.values(levels).filter((l) => l === 3).length} castles`);
+});
+button('castle', 'Tide wear', () => {
+  // The rule: every beach square (ranks 5-8) with no animal on it loses one level.
+  const worn = (Object.keys(levels) as Square[]).filter((sq) => +sq[1] >= 5 && !tokens.has(sq));
+  if (!worn.length) return log('Tide: no raised, empty beach square to wear down. Try "Random levels".');
+  for (const sq of worn) setLvl(sq, lvl(sq) - 1);
+  showLevels(`Tide wears ${worn.length} beach squares down one level`, { tide: true });
+});
+function plant(side: Side) {
+  const castles = (Object.keys(levels) as Square[]).filter((sq) => levels[sq] === 3);
+  const sq = castles.includes(target) ? target : castles[0];
+  if (!sq) return log('No castle yet: click an empty square and press "Builder +2" twice.');
+  flag = { square: sq, side };
+  world.setFlag(flag);
+  log(`${side === 'land' ? 'Land' : 'Sea'} holds the castle on ${sq}: flag up`);
+}
+button('castle', 'Flag: Land', () => plant('land'));
+button('castle', 'Flag: Sea', () => plant('sea'));
+button('castle', 'Drop flag', () => {
+  flag = null;
+  world.setFlag(null);
+  log('Flag down (the crown is lost)');
+});
+button('castle', 'Token onto castle', () => {
+  const castle = (Object.keys(levels) as Square[]).find((sq) => levels[sq] === 3 && !tokens.has(sq));
+  const from = [...tokens.keys()].find((sq) => chess.get(sq as CSquare)?.type === 'p');
+  if (!castle || !from) return log('Needs an empty castle and a pawn token.');
+  const tok = tokens.get(from)!;
+  tokens.delete(from);
+  chess.remove(from as CSquare);
+  tokens.set(castle, tok);
+  void hop(tok, world.squareTop(castle), 0.7).then(() => log(`Stand-in climbs onto the castle on ${castle} (top at y ${world.squareTop(castle).y.toFixed(2)})`));
+});
+button('castle', 'Flat board', () => {
+  levels = {};
+  flag = null;
+  world.setLevels({});
+  world.setFlag(null);
+  for (const [sq, tok] of tokens) tok.position.copy(world.squareTop(sq));
+  log('Flat board, instantly (a new game)');
+});
+let sandMeadow = false;
+button('castle', 'Meadow tiers: turf', (b) => {
+  sandMeadow = !sandMeadow;
+  world.setMeadowTiers(sandMeadow ? 'sand' : 'turf');
+  b.textContent = `Meadow tiers: ${sandMeadow ? 'sand' : 'turf'}`;
+  log(sandMeadow ? 'Meadow tiers are sand, like the beach' : 'Meadow tiers are packed earth with a grass top');
+});
+
+// Stepping Stones. Shares `sunk` with the Sumo buttons.
+let freshSq: Square[] = [];
+const MIDDLE = ALL_SQUARES.filter((sq) => '3456'.includes(sq[1]));
+const isDry = (sq: Square) => !sunk.includes(sq);
+const nbrs = (sq: Square) => ALL_SQUARES.filter((o) => near(sq, o, 1));
+function markFresh(list: Square[]) {
+  freshSq = list;
+  world.setFresh(freshSq);
+}
+function showSunk(msg: string, changed: Square[]) {
+  world.setSunk(sunk, []);
+  markFresh(changed);
+  log(msg);
+}
+const pickOne = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+button('stones', 'Stones start', () => {
+  sunk = [...MIDDLE];
+  warned = [];
+  chess = new Chess();
+  placeAll();
+  world.setSunk(sunk, []);
+  markFresh([]);
+  log('Ranks 3–6 under water, instantly (no wave)');
+});
+function raiseOptions() {
+  return sunk.filter((sq) => nbrs(sq).some(isDry));
+}
+button('stones', 'Raise stone', () => {
+  const opts = raiseOptions().filter((sq) => !freshSq.includes(sq));
+  if (!opts.length) return log('No sunk square touches dry land. Press "Stones start".');
+  const sq = opts.includes(target) ? target : pickOne(opts);
+  sunk = sunk.filter((s) => s !== sq);
+  showSunk(`${sq} rises out of the water as a stone (fresh: can't be sunk next turn)`, [sq]);
+});
+button('stones', 'Sink stone', () => {
+  const opts = MIDDLE.filter((sq) => isDry(sq) && !tokens.has(sq) && !freshSq.includes(sq));
+  if (!opts.length) return log('No empty dry square in ranks 3–6 to sink.');
+  const sq = opts.includes(target) ? target : pickOne(opts);
+  sunk = [...sunk, sq];
+  showSunk(`${sq} sinks (fresh: bubbles until next turn)`, [sq]);
+});
+button('stones', 'Bridge (2)', () => {
+  // Two in a straight line, the first touching dry land.
+  for (const a of raiseOptions().sort(() => Math.random() - 0.5)) {
+    const { file, rank } = squareIndex(a);
+    for (const [df, dr] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+      const b = `${'abcdefgh'[file + df] ?? ''}${rank + dr + 1}` as Square;
+      if (!sunk.includes(b)) continue;
+      sunk = sunk.filter((s) => s !== a && s !== b);
+      return showSunk(`Bridge: ${a} and ${b} rise together`, [a, b]);
+    }
+  }
+  log('No two sunk squares in a line next to dry land.');
+});
+button('stones', 'Stomp', () => {
+  const around = nbrs(target).filter((sq) => '3456'.includes(sq[1]) && isDry(sq) && !tokens.has(sq));
+  if (!around.length) return log(`Nothing to stomp around ${target}: click a square next to dry squares in ranks 3–6.`);
+  sunk = [...sunk, ...around];
+  showSunk(`Stomp on ${target}: ${around.length} squares sink`, around);
+});
+button('stones', 'Next turn (clear fresh)', () => {
+  markFresh([]);
+  log('Fresh marks cleared');
+});
+button('stones', 'Restore board', () => {
+  sunk = [];
+  warned = [];
+  world.setSunk([], []);
+  markFresh([]);
+  log('Board restored (new game)');
+});
+
 const qBtn = button('settings', 'Quality: …', () => {
   world.setQuality(world.quality === 'high' ? 'low' : 'high');
   qBtn.textContent = `Quality: ${world.quality}`;
@@ -645,6 +826,16 @@ for (let i = 0; i < Number(params.get('sink') ?? 0); i++) setTimeout(() => click
 if (params.has('warn')) setTimeout(() => clickBtn('Warn next ring'), 300);
 if (params.has('treasures')) clickBtn('Treasures at home');
 if (params.has('island')) clickBtn('Island mode');
+if (params.has('castle')) {
+  // ?castle: a sample Sandcastle King board with a held castle.
+  chess = new Chess('7k/8/8/8/8/8/8/K7 w - - 0 1');
+  placeAll();
+  levels = { c3: 1, d3: 2, d4: 3, e4: 2, e5: 1, f5: 2, f6: 3, c6: 1, b5: 2, g3: 1 };
+  world.setLevels(levels, { instant: true });
+  flag = { square: 'd4', side: 'land' };
+  world.setFlag(flag);
+}
+if (params.has('stones')) clickBtn('Stones start');
 const autoChaos = params.get('chaos') as WheelOutcome | 'earthquakeRight' | null;
 if (autoChaos) setTimeout(() => void playChaosDemo(autoChaos), 300);
 const autoWeird = params.get('weird') as WeirdEventKind | null;

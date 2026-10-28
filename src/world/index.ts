@@ -13,7 +13,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Emitter } from '../contracts/emitter';
 import type { CreateWorld } from '../contracts/factories';
 import type {
-  HighlightSet, QualityTier, Side, Square, SquareEffect, TreasureState, Unsubscribe, WeirdEvent, WheelOutcome, World, WorldEventMap, WorldOptions,
+  HighlightSet, Level, QualityTier, Side, Square, SquareEffect, TreasureState, Unsubscribe, WeirdEvent, WheelOutcome, World, WorldEventMap, WorldOptions,
 } from '../contracts/types';
 import { Animator } from './anim';
 import { createBoard } from './board';
@@ -34,9 +34,11 @@ import { SinkingIsland } from './sink';
 import { Splashes } from './splash';
 import { Treasures } from './treasures';
 import { IslandMode } from './island';
+import { COLUMN_HALF, SandLevels } from './levels';
 
 export { TIDE_TIMING } from './chaos';
-export { SINK_TIMING, sinkDropTimes, ringOf } from './sink';
+export { SINK_TIMING, RISE_TIMING, sinkDropTimes, sinkStyle, ringOf } from './sink';
+export { LEVEL_H, LEVEL_TIMING, levelTop } from './levels';
 export { TREASURE_COLORS, makeBoneGeometry, makePearlGeometry } from './treasures';
 
 export interface WorldStats {
@@ -59,6 +61,16 @@ export interface ShorelineWorld extends World {
   readonly stats: WorldStats;
   /** Phase 4 (Sumo): built, so not optional here. */
   setIslandMode(on: boolean): void;
+  /**
+   * Phase 6 (castle): built, so not optional here. Extra `opts`: `tide` forces the tide wash (by default two or more
+   * squares going down in one call is the tide), `instant` skips the animation.
+   */
+  setLevels(levels: Partial<Record<Square, Level>>, opts?: { tide?: boolean; instant?: boolean }): void;
+  squareTop(square: Square): THREE.Vector3;
+  setFlag(flag: { square: Square; side: Side } | null): void;
+  setFresh(squares: Square[]): void;
+  /** Phase 6 extra: the meadow half's tiers as turf (packed earth, grass top; the default) or plain sand. */
+  setMeadowTiers(look: 'turf' | 'sand'): void;
 }
 
 export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
@@ -112,9 +124,12 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
     rig.skipIntro();
     chaos?.skip();
   };
+  let levelsRef: SandLevels | null = null;
   const picker = new Picker(stage.canvas, camera, board.group, board.pieceLayer, events, {
     canPick: () => !rig.introRunning,
     onPress: skipAll,
+    // Phase 6: tier tops and sides pick their square (assigned once the levels exist).
+    columns: () => (levelsRef ? { heights: levelsRef.tops, half: COLUMN_HALF } : null),
   });
   const onKey = skipAll;
   window.addEventListener('keydown', onKey);
@@ -144,6 +159,11 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   const island = new IslandMode(bin, diorama, reducedMotion);
   const splashes = new Splashes(bin, board.overlay, waterParticles, reducedMotion);
   board.overlay.add(splashes.group);
+  // Phase 6: sand levels and the castle flag (castle mode). Highlights ride on raised squares.
+  const levels = new SandLevels({ bin, particles: waterParticles, reducedMotion });
+  board.group.add(levels.group);
+  highlights.setHeights(levels.tops);
+  levelsRef = levels;
 
   // Compile every shader (including hidden effects) before the first visible frame.
   weird.setPrewarm(true);
@@ -153,6 +173,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   treasures.setPrewarm(true);
   island.setPrewarm(true);
   splashes.setPrewarm(true);
+  levels.setPrewarm(true);
   waterParticles.points.visible = true;
   highlights.setAllVisible(true);
   for (const t of Object.values(tex)) renderer.initTexture(t);
@@ -165,6 +186,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
   treasures.setPrewarm(false);
   island.setPrewarm(false);
   splashes.setPrewarm(false);
+  levels.setPrewarm(false);
   waterParticles.points.visible = false;
   highlights.setAllVisible(false);
 
@@ -195,6 +217,9 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       sink.update(dt, elapsed);
       treasures.update(dt, elapsed);
       splashes.update(dt);
+      const levelsMoving = levels.animating;
+      levels.update(dt, elapsed);
+      if (levelsMoving) picker.invalidate();
       waterParticles.update(dt);
       for (const fn of frameFns) {
         try {
@@ -300,6 +325,27 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       island.set(on);
       dirty = true;
     },
+    setLevels(l: Partial<Record<Square, Level>>, o?: { tide?: boolean; instant?: boolean }) {
+      levels.set(l, o);
+      picker.invalidate();
+      dirty = true;
+    },
+    squareTop(square: Square) {
+      const { x, z } = squareToXZ(square);
+      return new THREE.Vector3(x, levels.topY(square), z);
+    },
+    setFlag(flag: { square: Square; side: Side } | null) {
+      levels.setFlag(flag);
+      dirty = true;
+    },
+    setFresh(squares: Square[]) {
+      sink.setFresh(squares);
+      dirty = true;
+    },
+    setMeadowTiers(look: 'turf' | 'sand') {
+      levels.setMeadowLook(look);
+      dirty = true;
+    },
     splash(point: THREE.Vector3, big?: boolean) {
       splashes.play(point, big);
       dirty = true;
@@ -322,6 +368,7 @@ export async function createWorld(opts: WorldOptions): Promise<ShorelineWorld> {
       treasures.dispose();
       island.dispose();
       splashes.clear();
+      levels.dispose();
       weird.dispose();
       animator.clear();
       rig.dispose();

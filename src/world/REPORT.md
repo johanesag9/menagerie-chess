@@ -1,5 +1,57 @@
 # World stream report
 
+## Phase 6: sand levels, castles, rising stones
+
+Branch `claude/p6-world-2fef56` (from `phase6`). New files: `levels.ts`, `phase6.test.ts`. Changed: `sink.ts` (rising stones, instant start, fresh marks), `picking.ts` and `coords.ts` (raised squares pick by top or side), `highlights.ts` (markers ride on raised squares), `index.ts`, the demo.
+
+### What's done
+- **`setLevels(levels)`** (castle)
+  - Level 1 and 2 are soft-bevelled tiers, each a little smaller than the one below, 0.28 of a square per level. Level 3 is a sandcastle on top of tier 2: a keep, four bucket-shaped turrets with crenels, crenels on the walls, a dark arched door facing each side, and a little flag hole on the back-left turret.
+  - **Meadow tiers are turf** (packed earth sides, a grass top) and beach tiers sand. The castle is always sand. Light and dark squares give the tiers a slightly lighter or darker tint, so the checkerboard still reads.
+  - **Build:** the tier drops in, lands with a squash and a sand puff (about 0.4s). The Builder's +2 lands two tiers one after the other. The castle pops up with an overshoot, a puff and a twinkle.
+  - **Dig:** the top tier tips and flattens away (about 0.4s), throwing a scoop of sand and trickling grains. The castle crumbles the same way.
+  - **Tide:** two or more squares going down in one call washes them down, rank 8 first, with foam sliding in from the sea. The sand stays dark and wet for a couple of seconds.
+  - `setLevels({})` restores the flat board instantly and lowers the flag.
+  - **Picking:** clicking a tier's top or side reports that square (both `square` and `boardSquare`). Animals still win over the board.
+  - Highlights (selected, legal dots, rings, targets, area) ride on top of raised squares, and follow them while they animate.
+  - Draw calls: meadow tiers, beach tiers and castles are one instanced mesh each (only live instances are drawn). They cast and receive shadows.
+- **`squareTop(square)`**: the walkable top centre at the square's (target) level, in `pieceLayer` space like `squareToWorld`. It equals `squareToWorld` at level 0.
+- **`setFlag(flag)`**: a swallowtail pennant on a gold pole pops up on the castle's back-left turret with team twinkles, and flaps. Land is cream with a gold band and sun. Sea is teal with an aqua wave. `null` lowers it. Moving it to another castle lowers the old one first.
+- **Rising stones** (stones): a square leaving the `setSunk` list rises out of the water: it dips with bubbles, surges up through the surface with a splash ring, bobs and settles while water streams off its edges, and stays dark and wet for a moment (0.6s in all). Sinking 1–8 squares (one square, or a Stomp) drops them quickly one after another, with droplets. There is no ring wave for these.
+- **Stones start:** 9 or more squares sinking in one call that aren't one ring (ranks 3–6) happen instantly, with no drama. A Sumo ring still plays its wave.
+- **`setFresh(squares)`**: a freshly sunk square has rings rippling out from its middle and bubbles popping up. A fresh dry stone keeps a dark wet edge. `[]` clears.
+- **Extras on `ShorelineWorld`:** `setLevels(levels, { tide?, instant? })` forces the tide look or skips the animation. `setMeadowTiers('turf' | 'sand')`. Exported: `LEVEL_H`, `LEVEL_TIMING`, `levelTop`, `RISE_TIMING`, `sinkStyle`.
+- Tests: `phase6.test.ts` covers level heights, tide detection, column picking (top, side, nearest wins), and the instant, wave and one-by-one sinking styles.
+
+### Timing for integration
+- Build 0.42s (the tier lands at about 40%), dig 0.4s, castle 0.55s, tide 0.6s per square with 0.1s per rank (rank 8 first). Builder +2: the second tier starts 0.15s after the first. Reduced motion is about half. See `LEVEL_TIMING`.
+- An animal on a dug square: move it to `squareTop(sq)` over about `LEVEL_TIMING.normal.dig`, starting at the `setLevels` call. In a tide, start it `(8 - rank) * tideStagger` later.
+- A rising stone takes `RISE_TIMING` (0.6s). It breaks the surface at about 25%.
+
+### How to run the demo
+- `world-demo` launch config (port 4412), then open `/src/world/demo.html`.
+- **Sandcastle King** buttons act on the last clicked square: Build +1, Builder +2, Dig −1, Random levels, Tide wear, Flag: Land, Flag: Sea, Drop flag, Token onto castle, Flat board, Meadow tiers (turf or sand).
+- **Stepping Stones**: Stones start, Raise stone, Sink stone, Bridge (2), Stomp (around the clicked square), Next turn (clear fresh), Restore board.
+- URL shortcuts: `?castle` (a sample board with castles and a Land flag), `?stones` (the stones start), plus `&skipIntro`.
+
+### Contract requests
+- `setLevels` could take an optional `{ tide: true }` so the tide look doesn't depend on guessing (today: two or more squares going down at once = tide). It's already on `ShorelineWorld`.
+- `setSunk` could take an optional `{ instant: true }` for a game start or a restore. Today the world guesses: 9 or more squares in one call that aren't a single ring = instant.
+- `squareTop`'s doc says "world-space". It returns `pieceLayer` space, the same as `squareToWorld` (the board sits at the origin, so they match unless the board tilts).
+
+### Open design questions for Johanes
+- **Meadow tiers:** turf (earth sides, grass top) or plain sand like the beach? I picked turf: it reads as hills on the meadow and makes the sand castle stand out. The demo has a toggle.
+- **Level height:** 0.28 of a square per level. A castle is 0.84 high. Readable at 390px, but the tiers are small at that width. Taller is easy (`LEVEL_H`).
+- **Flag position:** on the back-left turret (seen from Land) so it isn't hidden by the animal in the middle. From the Sea side it's front-right.
+- **Tide look:** the tiers wash down with foam, but there's no wave over the board. Integration could also play `playChaos('tide')` with no squares for a bigger moment. Want that?
+- **Rising stones keep the checker tile look.** Should a raised stone look more like a rock (grey, rounded) than a tile?
+
+### Known issues
+- The castle's door and the flag are fixed to the board, not turned to face the camera side.
+- Build and dig scoops throw sand in a random direction. The world doesn't know where the digging animal stands.
+- A tier being built isn't pickable until it lands (about 0.15s).
+- In the hidden browser pane the demo runs slowly (throttled frames). That's the pane, not the world.
+
 ## Phase 4: sinking island, treasures, splash
 
 Branch `claude/p4-world-3e55fc`, with the contract clarifications (b0547e8) cherry-picked. New files: `sink.ts`, `treasures.ts`, `splash.ts`, `island.ts`, `phase4.test.ts`. Changed: `chaos.ts` (shared particles, the pigeon snatch), `weird.ts` (the pigeon can hold a treasure in its beak), `index.ts`, the demo.
