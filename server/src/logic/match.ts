@@ -4,12 +4,13 @@
  */
 import { ArenaGame } from '../../../src/core/arena/game';
 import { MenagerieGame } from '../../../src/core/controller';
+import { legalActions as arenaActions } from '../../../src/core/arena/rules';
 import { legalActions as modeActions } from '../../../src/core/modes/rules';
 import type { NetInput } from '../../../src/contracts/net';
 import type {
-  ActionInput, ArenaAction, DuelInfo, GameOptions, GameOver, Hand, Side, Square,
+  ActionInput, ArenaAction, DuelInfo, GameOptions, GameOver, Hand, PieceKind, Side, Square,
 } from '../../../src/contracts/types';
-import { isArenaMode } from '../../../src/contracts/types';
+import { isArenaMode, isBoardMode } from '../../../src/contracts/types';
 
 export const HANDS: Hand[] = ['rock', 'paper', 'scissors'];
 
@@ -29,11 +30,16 @@ const GAME_EVENTS = [
 ] as const;
 const ARENA_EVENTS = [
   'started', 'state', 'rolled', 'acted', 'sank', 'wheelSpun', 'duelOffered', 'duelRound', 'duelEnded', 'bonked',
-  'turnChanged', 'logged', 'gameOver', 'botThinking',
+  'turnChanged', 'logged', 'gameOver', 'botThinking', 'tide', 'crowned',
 ] as const;
+const KINDS: PieceKind[] = ['p', 'n', 'b', 'r', 'q', 'k'];
 
 export class Match {
   readonly arenaMode: boolean;
+  /** Sandcastle King and Stepping Stones: a turn has stages, and the turn (not each action) is what the timer covers. */
+  readonly boardMode: boolean;
+  /** Counts `turnChanged` events: a new number means a new turn. */
+  turns = 0;
   private chess: MenagerieGame | null = null;
   private arena: ArenaGame | null = null;
   private duel: { info: DuelInfo; stage: 'offer' | 'throw' } | null = null;
@@ -42,8 +48,10 @@ export class Match {
 
   constructor(readonly options: GameOptions, opts: { record?: boolean } = {}) {
     this.arenaMode = isArenaMode(options.mode);
+    this.boardMode = isBoardMode(options.mode);
     const onEvent = (name: string) => (payload: unknown) => {
       if (opts.record) this.events.push(`${name} ${JSON.stringify(payload)}`);
+      if (name === 'turnChanged') this.turns++;
       if (name === 'duelOffered') this.duel = { info: payload as DuelInfo, stage: 'offer' };
       else if (name === 'duelEnded' || name === 'gameOver') this.duel = null;
     };
@@ -130,7 +138,7 @@ export class Match {
     }
   }
 
-  /** The input the room makes when time runs out (GAME_SPEC "Online play" defaults). */
+  /** The input the room makes when time runs out (GAME_SPEC "Online play" defaults). Board games: one for the current stage. */
   autoInputs(random: () => number, missing: Side[] = []): NetInput[] {
     const need = this.need();
     if (!need) return [];
@@ -142,11 +150,52 @@ export class Match {
       case 'bonus':
         return [{ k: 'act', side: need.side, input: { type: 'bonus', choice: 'skip' } }];
       case 'turn': {
+        if (this.boardMode) {
+          const action = this.randomStage(random);
+          return action ? [{ k: 'arena', side: need.side, action }] : [];
+        }
         if (this.arena) return [{ k: 'arena', side: need.side, action: { type: 'endTurn' } }];
         const move = this.randomAction(random);
         return move ? [{ k: 'act', side: need.side, input: move }] : [{ k: 'resign', side: need.side }];
       }
     }
+  }
+
+  /**
+   * Board games: a random legal action for the stage the turn is in, through core's own APIs (Johanes 2026-10-28):
+   * draft, a kind not yet picked; move, a step or hit from `pieceOptions`; shape, an option from `shapeOptions`
+   * ('more': end the turn). Falls back to any legal action, so a timeout always moves the turn on.
+   */
+  private randomStage(random: () => number): ArenaAction | null {
+    const g = this.arena!;
+    const st = g.state;
+    const any = <T>(list: T[]): T | null => (list.length ? list[Math.floor(random() * list.length)] : null);
+    if (st.phase === 'draft') {
+      const picked = st.draft?.picks[st.turn] ?? [];
+      const kind = any(KINDS.filter((k) => !picked.includes(k)));
+      if (kind) return { type: 'pick', kind };
+    } else if (st.stage === 'more') {
+      return { type: 'endTurn' };
+    } else if (st.stage === 'shape') {
+      const pieceId = st.mode === 'castle' ? st.mover ?? null : null;
+      const shapes = (g.shapeOptions?.() ?? []).flatMap((o) => [
+        ...(o.up ? [{ type: 'shape', pieceId, square: o.square, dir: 'up' } as const] : []),
+        ...(o.down ? [{ type: 'shape', pieceId, square: o.square, dir: 'down' } as const] : []),
+      ]);
+      const shape = any<ArenaAction>(shapes);
+      if (shape) return shape;
+    } else {
+      const moves: ArenaAction[] = [];
+      for (const p of st.pieces) {
+        if (p.side !== st.turn) continue;
+        const o = g.pieceOptions(p.id);
+        for (const to of o.steps) moves.push({ type: 'step', pieceId: p.id, to });
+        for (const target of o.hits) moves.push({ type: 'hit', pieceId: p.id, target });
+      }
+      const move = any(moves);
+      if (move) return move;
+    }
+    return any(arenaActions(g.raw));
   }
 
   /** A random legal move found through core's own target API; a random power or card if no animal can move. */
@@ -226,7 +275,22 @@ function isArenaAction(a: unknown): a is ArenaAction {
     case 'step': return isId(x.pieceId) && isSquare(x.to);
     case 'hit': return isId(x.pieceId) && isSquare(x.target);
     case 'power': return isId(x.pieceId) && isSquares(x.targets);
+    case 'throw': return isId(x.pieceId) && isSquare(x.to);
+    case 'pick': return KINDS.includes(x.kind as PieceKind);
+    case 'shape': return (x.pieceId === null || isId(x.pieceId)) && isSquare(x.square) && (x.dir === 'up' || x.dir === 'down');
     default: return false;
+  }
+}
+
+function cleanArena(a: ArenaAction): ArenaAction {
+  switch (a.type) {
+    case 'endTurn': return { type: 'endTurn' };
+    case 'step': return { type: 'step', pieceId: a.pieceId, to: a.to };
+    case 'hit': return { type: 'hit', pieceId: a.pieceId, target: a.target };
+    case 'power': return { type: 'power', pieceId: a.pieceId, targets: a.targets.slice() };
+    case 'throw': return { type: 'throw', pieceId: a.pieceId, to: a.to };
+    case 'pick': return { type: 'pick', kind: a.kind };
+    case 'shape': return { type: 'shape', pieceId: a.pieceId, square: a.square, dir: a.dir };
   }
 }
 
@@ -250,10 +314,7 @@ export function cleanInput(raw: unknown): NetInput | null {
     case 'arena': {
       if (!isArenaAction(x.action)) return null;
       const a = x.action;
-      const action: ArenaAction = a.type === 'endTurn' ? { type: 'endTurn' }
-        : a.type === 'step' ? { type: 'step', pieceId: a.pieceId, to: a.to }
-          : a.type === 'hit' ? { type: 'hit', pieceId: a.pieceId, target: a.target }
-            : { type: 'power', pieceId: a.pieceId, targets: a.targets.slice() };
+      const action: ArenaAction = cleanArena(a);
       return { k: 'arena', side, action };
     }
     case 'duel':

@@ -24,7 +24,7 @@ export const TIMING = {
 };
 
 export const MAX_MESSAGE_BYTES = 8 * 1024;
-const MODES: PlayMode[] = ['classic', 'normal', 'crazy', 'sumo', 'raid'];
+const MODES: PlayMode[] = ['classic', 'normal', 'crazy', 'sumo', 'raid', 'castle', 'stones'];
 const EMOTES: EmoteKind[] = ['laugh', 'angry', 'love', 'shock', 'sleepy', 'taunt'];
 const other = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
 
@@ -47,6 +47,8 @@ interface Timer {
   startBy: number;
   /** Set once it runs. */
   endsAt: number | null;
+  /** Board games: the turn it covers (`Match.turns`); it runs on through that turn's stages. */
+  turn?: number;
 }
 
 /** Everything about the room except the inputs. Saved as one JSON row. */
@@ -470,13 +472,23 @@ export class Room {
   /** A new decision is due: the timer waits for the mover's `idle` (or the fallback), then runs. */
   private armTimer(): void {
     const m = this.meta!;
-    const need = this.match!.need();
-    const was = m.timer?.endsAt != null;
+    const match = this.match!;
+    const need = match.need();
+    const t = m.timer;
+    // Board games (Johanes 2026-10-28): one timer for the whole turn. A later stage of the same turn keeps it running.
+    if (match.boardMode && need?.kind === 'turn' && t && t.turn === match.turns && t.side === need.side) {
+      t.count = this.inputs.length; // not started yet? the next `idle` reports this count
+      return;
+    }
+    const was = t?.endsAt != null;
     if (!need) {
       m.timer = null;
     } else {
       const side = need.kind === 'throw' ? need.attacker : need.side;
-      m.timer = { kind: need.kind, side, count: this.inputs.length, startBy: this.now() + TIMING.idleFallbackMs, endsAt: null };
+      m.timer = {
+        kind: need.kind, side, count: this.inputs.length, startBy: this.now() + TIMING.idleFallbackMs, endsAt: null,
+        ...(match.boardMode ? { turn: match.turns } : {}),
+      };
     }
     if (was) this.sendTimer();
   }
@@ -502,8 +514,32 @@ export class Room {
       }
       return this.releaseThrows(missing);
     }
+    if (this.match!.boardMode) return this.boardTimeout(need.side);
     // Should never fail; if it does, drop the timer rather than retry forever.
     if (!this.broadcast(this.match!.autoInputs(this.random).map((input) => ({ input, auto: 'timeout' as const })))) m.timer = null;
+  }
+
+  /** Board games: a random legal action for each stage left, until the turn passes; sent as one `inputs`. */
+  private boardTimeout(side: Side): void {
+    const match = this.match!;
+    const turn = match.turns;
+    const list: SentInput[] = [];
+    for (let guard = 0; guard < 8; guard++) {
+      const need = match.need();
+      if (!need || match.turns !== turn || need.kind !== 'turn' || need.side !== side) break;
+      const [input] = match.autoInputs(this.random);
+      if (!input) break;
+      const r = match.apply(input);
+      if (!r.ok) {
+        // Should never happen; the stored inputs are the truth, so drop what this loop applied.
+        this.rebuild();
+        this.meta!.timer = null;
+        return;
+      }
+      list.push({ input, auto: 'timeout' });
+    }
+    if (list.length) this.accepted(list);
+    else this.meta!.timer = null;
   }
 
   /** Core state can't be trusted (it threw): rebuild it from the stored inputs. */

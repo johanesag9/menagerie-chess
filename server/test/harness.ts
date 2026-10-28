@@ -224,6 +224,7 @@ function poke(m: Match, rnd: () => number): void {
     g.targets({ pieceId: p.id, targets: [] });
     if (o.hits[0]) g.previewArea({ pieceId: p.id, hit: o.hits[0] });
     g.previewArea({ pieceId: p.id, targets: [] });
+    g.shapeOptions?.();
     return;
   }
   const g = m.controller!;

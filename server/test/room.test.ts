@@ -3,18 +3,18 @@ import { describe, expect, it } from 'vitest';
 import type { NetInput } from '../../src/contracts/net';
 import type { PlayMode, Side } from '../../src/contracts/types';
 import { seeded } from '../../src/core/testUtils';
-import { cleanInput, type Need } from '../src/logic/match';
+import { cleanInput, type Match, type Need } from '../src/logic/match';
 import { CODE_ALPHABET, isCode, randomCode, TIMING } from '../src/logic/room';
 import { Harness, randomInput, type Socket } from './harness';
 
 const bySide = (a: Socket, b: Socket, side: Side) => (a.you === side ? a : b);
 
 /** Play random legal inputs until `want` says stop (throws are sent but not looked at one by one). */
-function playUntil(a: Socket, b: Socket, rnd: () => number, want: (n: Need) => boolean, max = 400): boolean {
+function playUntil(a: Socket, b: Socket, rnd: () => number, want: (n: Need, m: Match) => boolean, max = 400): boolean {
   for (let n = 0; n < max; n++) {
     const need = a.mirror!.need();
     if (!need) return false;
-    if (want(need)) return true;
+    if (want(need, a.mirror!)) return true;
     const pick = randomInput(a.mirror!, rnd);
     if (!pick) return false;
     for (const input of ([] as NetInput[]).concat(pick)) {
@@ -26,7 +26,7 @@ function playUntil(a: Socket, b: Socket, rnd: () => number, want: (n: Need) => b
 }
 
 /** A fresh room in `mode` that has reached a state `want` accepts (tries seeds until one does). */
-function reach(mode: PlayMode, want: (n: Need) => boolean): { h: Harness; a: Socket; b: Socket } {
+function reach(mode: PlayMode, want: (n: Need, m: Match) => boolean): { h: Harness; a: Socket; b: Socket } {
   for (let seed = 1; seed < 200; seed++) {
     const h = new Harness(seed);
     const [a, b] = h.pair(mode);
@@ -191,6 +191,14 @@ describe('checking inputs', () => {
     expect(cleanInput({ k: 'act', side: 'land', input: { type: 'move', from: 'e2', to: 'e4', promotion: 'k' } })).toBeNull();
     expect(cleanInput({ k: 'arena', side: 'sea', action: { type: 'power', pieceId: 'x', targets: ['a1', 'a2', 'a3', 'a4', 'a5'] } })).toBeNull();
     expect(cleanInput({ k: 'throw', side: 'sea', hand: 'lizard' })).toBeNull();
+    // Raid pass-and-run, castle draft, board-game shaping.
+    expect(cleanInput({ k: 'arena', side: 'land', action: { type: 'throw', pieceId: 'land-k-e1', to: 'e3', x: 1 } }))
+      .toEqual({ k: 'arena', side: 'land', action: { type: 'throw', pieceId: 'land-k-e1', to: 'e3' } });
+    expect(cleanInput({ k: 'arena', side: 'sea', action: { type: 'pick', kind: 'q' } })).toEqual({ k: 'arena', side: 'sea', action: { type: 'pick', kind: 'q' } });
+    expect(cleanInput({ k: 'arena', side: 'sea', action: { type: 'pick', kind: 'z' } })).toBeNull();
+    expect(cleanInput({ k: 'arena', side: 'land', action: { type: 'shape', pieceId: null, square: 'd4', dir: 'up' } }))
+      .toEqual({ k: 'arena', side: 'land', action: { type: 'shape', pieceId: null, square: 'd4', dir: 'up' } });
+    expect(cleanInput({ k: 'arena', side: 'land', action: { type: 'shape', pieceId: 'land-r-a1', square: 'd4', dir: 'sideways' } })).toBeNull();
     expect(cleanInput({ k: 'resign', side: 'moon' })).toBeNull();
   });
 
@@ -495,5 +503,122 @@ describe('hibernation and expiry', () => {
     a.take();
     a.send({ t: 'ping' });
     expect(a.take()).toEqual([{ t: 'pong' }]);
+  });
+});
+
+const turnOf = (m: Match) => m.arenaController!.state;
+/** The inputs broadcast since the last take(), flattened. */
+const sent = (s: Socket) => s.take().flatMap((m) => (m.t === 'inputs' ? m.list : []));
+
+describe('Raid pass and run', () => {
+  it('a carrier\'s throw is accepted and broadcast', () => {
+    const { a, b } = reach('raid', (n, m) => n.kind === 'turn' && m.arenaController!.state.pieces.some((p) =>
+      p.side === n.side && (m.arenaController!.pieceOptions(p.id).throws ?? []).length > 0));
+    const g = a.mirror!.arenaController!;
+    const side = g.state.turn;
+    const carrier = g.state.pieces.find((p) => p.side === side && (g.pieceOptions(p.id).throws ?? []).length)!;
+    const to = g.pieceOptions(carrier.id).throws![0];
+    bySide(a, b, side).input({ k: 'arena', side, action: { type: 'throw', pieceId: carrier.id, to } }, 42);
+    expect(b.of('reject')).toEqual([]);
+    expect(a.of('reject')).toEqual([]);
+    expect(b.last('inputs')!.list[0].input).toEqual({ k: 'arena', side, action: { type: 'throw', pieceId: carrier.id, to } });
+  });
+});
+
+describe('board games (castle, stones)', () => {
+  it('rooms can be made for both', () => {
+    for (const mode of ['castle', 'stones'] as PlayMode[]) {
+      const h = new Harness();
+      const [a, b] = h.pair(mode);
+      expect(a.last('start')!.options.mode).toBe(mode);
+      expect(b.mirror!.need()).toEqual({ kind: 'turn', side: 'land' });
+    }
+  });
+
+  it('castle draft: picks check the side; a timeout picks a random free animal for that pick only', () => {
+    const h = new Harness();
+    const [a, b] = h.pair('castle'); // a = land, picks first
+    expect(turnOf(a.mirror!).phase).toBe('draft');
+    b.input({ k: 'arena', side: 'sea', action: { type: 'pick', kind: 'q' } }, 1);
+    expect(b.last('reject')!.reason).toBe('Not your turn');
+    a.input({ k: 'arena', side: 'land', action: { type: 'pick', kind: 'q' } }, 2);
+    a.input({ k: 'arena', side: 'land', action: { type: 'pick', kind: 'k' } }, 3); // not Land's pick any more
+    expect(a.last('reject')!.reason).toBe('Not your turn');
+    b.input({ k: 'arena', side: 'sea', action: { type: 'pick', kind: 'q' } });
+    a.take();
+    h.advance(TIMING.idleFallbackMs + TIMING.turnMs);
+    const list = sent(a);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ auto: 'timeout', input: { k: 'arena', side: 'land', action: { type: 'pick' } } });
+    const kind = (list[0].input as { action: { kind: string } }).action.kind;
+    expect(kind).not.toBe('q'); // a kind Land hadn't picked
+    expect(turnOf(a.mirror!).draft!.picks.land).toEqual(['q', kind]);
+    expect(a.mirror!.need()).toEqual({ kind: 'turn', side: 'sea' });
+  });
+
+  it('castle: one 60s timer for the whole turn; on timeout, a random action for each stage left', () => {
+    const { h, a, b } = reach('castle', (n, m) => n.kind === 'turn' && turnOf(m).phase === 'action' && turnOf(m).stage === 'move');
+    const g = a.mirror!.arenaController!;
+    const side = g.state.turn;
+    const mover = bySide(a, b, side);
+    mover.send({ t: 'idle', have: mover.have });
+    const ends = h.room.state!.timer!.endsAt!;
+    expect(ends).toBe(h.now + TIMING.turnMs);
+    // Move by hand 20s in: the turn goes on to 'shape', and the timer does not restart.
+    h.advance(20_000);
+    const p = g.state.pieces.find((x) => x.side === side && g.pieceOptions(x.id).steps.length)!;
+    mover.input({ k: 'arena', side, action: { type: 'step', pieceId: p.id, to: g.pieceOptions(p.id).steps[0] } });
+    if (g.state.turn === side && g.state.phase === 'action') {
+      expect(h.room.state!.timer!.endsAt).toBe(ends);
+      a.take();
+      h.advance(ends - h.now);
+      const list = sent(a);
+      expect(list.length).toBeGreaterThanOrEqual(1);
+      expect(list.every((s) => s.auto === 'timeout' && s.input.side === side)).toBe(true);
+      expect(list[0].input).toMatchObject({ k: 'arena', action: { type: 'shape' } });
+    }
+    expect(g.state.turn).not.toBe(side); // the turn passed
+  });
+
+  it('castle: a timeout from the move stage plays the move, then the shape', () => {
+    const { h, a } = reach('castle', (n, m) => n.kind === 'turn' && turnOf(m).phase === 'action' && turnOf(m).stage === 'move');
+    const side = turnOf(a.mirror!).turn;
+    h.advance(TIMING.idleFallbackMs + TIMING.turnMs);
+    const list = sent(a);
+    const types = list.map((s) => (s.input as { action: { type: string } }).action.type);
+    expect(['step', 'hit']).toContain(types[0]);
+    expect(types.slice(1).every((t) => t === 'shape' || t === 'endTurn')).toBe(true);
+    expect(list.every((s) => s.auto === 'timeout' && s.input.side === side)).toBe(true);
+    expect(a.mirror!.over() ?? turnOf(a.mirror!).turn).not.toBe(side);
+  });
+
+  it('castle: the Digger\'s optional extra ("more") ends the turn on timeout', () => {
+    const { h, a } = reach('castle', (n, m) => n.kind === 'turn' && turnOf(m).stage === 'more');
+    const side = turnOf(a.mirror!).turn;
+    h.advance(TIMING.idleFallbackMs + TIMING.turnMs);
+    expect(sent(a).map((s) => s.input)).toEqual([{ k: 'arena', side, action: { type: 'endTurn' } }]);
+  });
+
+  it('stones: a timeout shapes first, then moves', () => {
+    const { h, a } = reach('stones', (n, m) => n.kind === 'turn' && turnOf(m).stage === 'shape' && m.arenaController!.shapeOptions!().length > 0);
+    const side = turnOf(a.mirror!).turn;
+    h.advance(TIMING.idleFallbackMs + TIMING.turnMs);
+    const list = sent(a);
+    const types = list.map((s) => (s.input as { action: { type: string } }).action.type);
+    expect(types[0]).toBe('shape');
+    if (!a.mirror!.over()) expect(types).toEqual(['shape', 'step']);
+    expect(list.every((s) => s.auto === 'timeout' && s.input.side === side)).toBe(true);
+  });
+
+  it('stones: after shaping by hand, the timeout only moves', () => {
+    const { h, a, b } = reach('stones', (n, m) => n.kind === 'turn' && turnOf(m).stage === 'shape' && m.arenaController!.shapeOptions!().length > 0);
+    const g = a.mirror!.arenaController!;
+    const side = g.state.turn;
+    const o = g.shapeOptions!()[0];
+    bySide(a, b, side).input({ k: 'arena', side, action: { type: 'shape', pieceId: null, square: o.square, dir: o.up ? 'up' : 'down' } });
+    if (g.state.turn !== side || g.state.stage !== 'move') return; // that shape ended the game or the turn
+    a.take();
+    h.advance(TIMING.idleFallbackMs + TIMING.turnMs);
+    expect(sent(a).map((s) => [s.auto, (s.input as { action: { type: string } }).action.type])).toEqual([['timeout', 'step']]);
   });
 });
