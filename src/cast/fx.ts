@@ -555,6 +555,12 @@ export function bonkStar(parent: THREE.Object3D, at: THREE.Vector3, sq: number) 
   gsap.to(m.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.18, delay: 0.38, ease: 'back.in(2)', onComplete: gone(m) });
 }
 
+/** The dirt (Land) or sand (Sea) material, shared. */
+export function groundMaterial(sea: boolean): THREE.Material {
+  const { mats } = res3();
+  return sea ? mats.sand : mats.dirt;
+}
+
 /** A water hump that carries a swept piece (attach to the piece; square units). */
 export function waveHump(): THREE.Mesh {
   const { dome } = res3();

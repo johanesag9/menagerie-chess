@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { POWER_OF, type EmoteKind, type MoveStyle, type PieceKind, type PowerKind, type Side, type SkinChoice } from '../contracts/types';
 import { createCast, type Actor } from './index';
+import { splash as fxSplash } from './fx';
 
 const SQ = 1;
 const SIDES: Side[] = ['land', 'sea'];
@@ -416,6 +417,99 @@ document.querySelectorAll<HTMLButtonElement>('#p3 button').forEach((b) => {
       case 'clear': a.setStatus(null); return;
     }
     log.textContent = `${cast.displayName(a.side, a.kind)}: ${b.textContent} took ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+  });
+});
+
+// ---------- Phase 4: party modes ----------
+
+/** A flat blue square: the demo's stand-in for a sunk (water) square. */
+function waterPatch(at: THREE.Vector3) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.96).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#4fb7d8', roughness: 0.15, transparent: true, opacity: 0.85 }));
+  m.position.copy(at).setY(0.006);
+  m.userData.noPick = true;
+  table.add(m);
+  return () => gsap.to(m.material, { opacity: 0, duration: 0.3, onComplete: () => { m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); } });
+}
+/** Stand-in for `world.splash`: an expanding ripple ring plus droplets (integration uses the world's real splash). */
+cast.on('splash', (p) => {
+  const at = table.worldToLocal(p.at.clone());
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.025, 6, 32).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#e8fbff', transparent: true, opacity: 0.9 }));
+  ring.position.copy(at).setY(0.02);
+  table.add(ring);
+  const big = p.intensity >= 0.9 ? 1.6 : 1.1;
+  gsap.to(ring.scale, { x: big * 1.6, z: big * 1.6, duration: 0.6, ease: 'power2.out' });
+  gsap.to(ring.material, { opacity: 0, duration: 0.6, ease: 'power1.in', onComplete: () => { ring.removeFromParent(); ring.geometry.dispose(); ring.material.dispose(); } });
+  fxSplash(table, at.setY(0.05), SQ, cast.reducedMotion ? 6 : 12);
+  shake = Math.max(shake, p.intensity * 0.05);
+});
+
+/** Fall from the middle square toward `[x, z]` (table space), onto a stand-in water square. */
+async function fallOnce(a: Actor, x: number, z: number) {
+  const clear = waterPatch(S.clone().add(new THREE.Vector3(x, 0, z)));
+  await wait(0.25);
+  const t0 = performance.now();
+  await a.fall(new THREE.Vector3(x, 0, z).normalize());
+  log.textContent = `${cast.displayName(a.side, a.kind)}: fall took ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+  a.dispose();
+  if (stageActor === a) { stageActor = null; stageKey = ''; }
+  await wait(0.5);
+  clear();
+}
+document.querySelectorAll<HTMLButtonElement>('#falls button').forEach((b) => {
+  b.onclick = () => action(async () => {
+    const f = b.dataset.f!;
+    if (f === 'dig') {
+      const a = await staged();
+      a.setStatus(a.statusKind === 'anchored' ? null : 'anchored');
+      log.textContent = `${cast.displayName(a.side, a.kind)}: ${a.statusKind === 'anchored' ? 'dug in (press again to climb out)' : 'climbed out'}`;
+      return;
+    }
+    if (f === 'all') {
+      unstage();
+      const dirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+      let i = 0;
+      for (const side of SIDES) for (const kind of KINDS) {
+        const a = spawn(side, kind, S, 0);
+        await wait(0.6);
+        const [x, z] = dirs[i++ % 4];
+        await fallOnce(a, x, z);
+      }
+      return;
+    }
+    const [x, z] = f.split(',').map(Number);
+    await fallOnce(await staged(), x, z);
+  });
+});
+document.querySelectorAll<HTMLButtonElement>('#carry button').forEach((b) => {
+  b.onclick = () => action(async () => {
+    const c = b.dataset.c!;
+    if (c === 'all') {
+      unstage();
+      const row = SIDES.flatMap((side) => KINDS.map((kind) => [side, kind] as const));
+      const extra = row.map(([side, kind], i) => {
+        const a = spawn(side, kind, new THREE.Vector3((i % 6) - 2.5, 0, side === 'land' ? 1.5 : -0.5), 0);
+        return a;
+      });
+      await wait(0.7);
+      // Each side holds the other side's treasure (Land carries the pearl, Sea the bone).
+      extra.forEach((a) => a.setCarrying(a.side === 'land' ? 'sea' : 'land'));
+      log.textContent = 'Everyone holds the other side\'s treasure';
+      await wait(3);
+      await Promise.all(extra.map((a) => gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' })));
+      extra.forEach((a) => a.dispose());
+      return;
+    }
+    const a = await staged();
+    if (c === 'walk') {
+      const t0 = performance.now();
+      await a.moveTo(world(off(0, 1)));
+      const t1 = performance.now();
+      await wait(0.3);
+      await a.moveTo(world(S));
+      log.textContent = `${cast.displayName(a.side, a.kind)}: one step took ${((t1 - t0) / 1000).toFixed(2)}s${a.carrying ? ' (carrying)' : ''}`;
+      return;
+    }
+    a.setCarrying(c === 'none' ? null : (c as Side));
   });
 });
 

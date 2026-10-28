@@ -63,6 +63,28 @@
       <p class="hint">Gold ring = stand-in marker for the block square. The game's world draws the real vase or ink cloud.</p>
     </section>
     <section>
+      <h2>Party modes</h2>
+      <p class="hint">On the copy in the middle row. Arrows are as seen from the front.</p>
+      <h3>Sumo: fall into the sea</h3>
+      <div class="grid" id="falls">
+        <button data-f="0,-1">Fall ↑</button>
+        <button data-f="0,1">Fall ↓</button>
+        <button data-f="-1,0">Fall ←</button>
+        <button data-f="1,0">Fall →</button>
+        <button data-f="all" class="primary">All 12 fall</button>
+        <button data-f="dig">Dig in</button>
+      </div>
+      <h3>Raid: carry a treasure</h3>
+      <div class="grid" id="carry">
+        <button data-c="land">Carry bone</button>
+        <button data-c="sea">Carry pearl</button>
+        <button data-c="none">Drop it</button>
+        <button data-c="walk">Walk with it</button>
+        <button data-c="all" class="primary">All 12 carry</button>
+      </div>
+      <p class="hint">Blue square and ripple = stand-ins for the world's water and splash.</p>
+    </section>
+    <section>
       <h2>Fight</h2>
       <div class="row"><label>Attacker <select id="attacker"></select></label></div>
       <div class="row"><label>Victim <select id="victim"></select></label></div>
