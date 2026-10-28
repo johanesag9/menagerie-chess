@@ -114,6 +114,10 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     return this._gameInfo;
   }
 
+  get arenaState(): ArenaState | null {
+    return this.hud.arena.arenaState;
+  }
+
   updateSettings(patch: Partial<Settings>): void {
     this._settings = { ...this._settings, ...patch };
     saveSettings(this.store, this._settings);
@@ -272,8 +276,9 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     this.hud.mode.setPrompt(text);
   }
 
-  rollDie(side: Side, value: DieValue, effect: DieEffect): Promise<void> {
-    return this.chaos.rollDie(side, value, effect);
+  /** Party modes: `opts.ap` is the AP this roll gives ("3 → 3 AP"). Without it the UI uses the spec's table. */
+  rollDie(side: Side, value: DieValue, effect: DieEffect, opts?: { ap?: number }): Promise<void> {
+    return this.chaos.rollDie(side, value, effect, opts?.ap);
   }
 
   askLucky(side: Side, opts: { canRecharge: boolean; canStep: boolean }): Promise<'recharge' | 'pawnStep' | 'skip'> {
@@ -308,9 +313,15 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
     return this.chaos.spinWheel(outcome);
   }
 
-  // ---------- Phase 4 stubs (orchestrator, so the branch typechecks). The ui session replaces these. ----------
-  setArenaState(_state: ArenaState | null): void {}
-  announce(_text: string, _tone?: 'info' | 'good' | 'bad'): Promise<void> { return Promise.resolve(); }
+  // ---------- Phase 4: party modes ----------
+
+  setArenaState(state: ArenaState | null): void {
+    this.hud.setArenaState(state);
+  }
+
+  announce(text: string, tone: 'info' | 'good' | 'bad' = 'info'): Promise<void> {
+    return this.chaos.announce(text, tone);
+  }
 
   /** Extra (contract request): the live pieces, for exact "powers left" counts and animal names in duels. */
   setPieces(pieces: PieceState[]): void {
@@ -398,6 +409,12 @@ export class MenagerieUi extends Emitter<UiEventMap> implements Ui, UiCtx {
         e.preventDefault();
         this.audio.play('uiBack');
         this.emit('cancelAction', {});
+        return;
+      }
+      // E ends the turn in the party modes (when the End turn button is live).
+      if (cur === 'game' && (e.key === 'e' || e.key === 'E') && !e.metaKey && !e.ctrlKey && !e.altKey && this.hud.arena.canEnd) {
+        e.preventDefault();
+        this.hud.arena.endTurn();
         return;
       }
       if (e.key === 'Escape') {

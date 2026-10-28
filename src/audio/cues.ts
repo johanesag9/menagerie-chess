@@ -379,7 +379,88 @@ const wheel: Record<WheelOutcome, CueFn> = {
   },
 };
 
-const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos };
+// ---------- Phase 4: party modes (Sumo, Raid) ----------
+
+const party: Record<'step' | 'shove' | 'tag' | 'splash' | 'sinkWarn' | 'sink' | 'anchor' | 'pickup' | 'drop' | 'treasureHome' | 'score' | 'endTurn', CueFn> = {
+  // One light hop: a soft pad and a puff of sand. Quieter and shorter than a chess move (a turn has several).
+  step: (o, t) => {
+    tone(o, { t, dur: 0.09, f: 210, f2: 95, gain: 0.32 });
+    noise(o, { t, dur: 0.06, f: 900, f2: 400, q: 0.8, gain: 0.1 });
+    tone(o, { t: t + 0.07, dur: 0.06, f: 640, f2: 520, type: 'triangle', gain: 0.06 });
+  },
+  // A heave: a body thump, then the victim skids across the board.
+  shove: (o, t) => {
+    tone(o, { t, dur: 0.16, f: 160, f2: 55, gain: 0.55 });
+    noise(o, { t, dur: 0.06, f: 1600, q: 0.8, gain: 0.25 });
+    noise(o, { t: t + 0.05, dur: 0.32, f: 1400, f2: 500, q: 2.5, gain: 0.16, attack: 0.03 });
+    tone(o, { t: t + 0.05, dur: 0.3, f: 340, f2: 180, type: 'triangle', gain: 0.08, vib: [22, 25] });
+  },
+  // "Tag, you're it!": a quick slap and a cheeky up-chirp.
+  tag: (o, t) => {
+    noise(o, { t, dur: 0.04, f: 3200, q: 0.7, gain: 0.35 });
+    tone(o, { t, dur: 0.06, f: 900, f2: 500, type: 'triangle', gain: 0.18 });
+    tone(o, { t: t + 0.07, dur: 0.14, f: 700, f2: 1500, gain: 0.16 });
+  },
+  // Into the sea: a heavy plop, a spray, then bubbles rising.
+  splash: (o, t) => {
+    tone(o, { t, dur: 0.22, f: 260, f2: 70, gain: 0.5 });
+    noise(o, { t, dur: 0.7, f: 2400, f2: 700, q: 0.6, gain: 0.4, attack: 0.01 });
+    noise(o, { t: t + 0.02, dur: 0.4, f: 6000, type: 'highpass', gain: 0.08 });
+    [0.28, 0.38, 0.46, 0.58].forEach((dt, i) => tone(o, { t: t + dt, dur: 0.07, f: 420 + i * 140, f2: 900 + i * 220, gain: 0.07 }));
+  },
+  // The ring is about to go: a slow, low wooden creak.
+  sinkWarn: (o, t) => {
+    tone(o, { t, dur: 0.9, f: 62, f2: 78, type: 'sawtooth', gain: 0.22, attack: 0.08, vib: [13, 9], filter: { type: 'bandpass', f: 520, q: 5 } });
+    tone(o, { t: t + 0.35, dur: 0.6, f: 88, f2: 70, type: 'sawtooth', gain: 0.14, attack: 0.05, vib: [17, 7], filter: { type: 'bandpass', f: 740, q: 6 } });
+    for (const dt of [0.12, 0.5, 0.78]) noise(o, { t: t + dt, dur: 0.03, f: 1800, q: 3, gain: 0.08 });
+  },
+  // A ring goes under: a deep rumble, then the sea rushes in.
+  sink: (o, t) => {
+    tone(o, { t, dur: 1.5, f: 46, f2: 34, gain: 0.5, attack: 0.1, hold: 0.3, vib: [7, 4] });
+    noise(o, { t, dur: 1.1, f: 160, type: 'lowpass', gain: 0.4, attack: 0.15, hold: 0.3 });
+    noise(o, { t: t + 0.35, dur: 1.2, f: 300, f2: 2600, f3: 400, q: 0.7, gain: 0.32, attack: 0.3 });
+    knock(o, t + 0.2, 380, 0.14);
+  },
+  // Dig in: paws scrabble in the dirt, then settle with a thud.
+  anchor: (o, t) => {
+    for (let i = 0; i < 4; i++) noise(o, { t: t + i * 0.055, dur: 0.045, f: 900 + (i % 2) * 400, q: 1.4, gain: 0.22 });
+    tone(o, { t: t + 0.24, dur: 0.16, f: 120, f2: 60, gain: 0.45 });
+    noise(o, { t: t + 0.24, dur: 0.12, f: 400, type: 'lowpass', gain: 0.2 });
+  },
+  // Got it! A bright two-note pling with a sparkle.
+  pickup: (o, t) => {
+    [79, 86].forEach((n, i) => tone(o, { t: t + i * 0.07, dur: 0.3, f: midi(n), type: 'triangle', gain: 0.16 }));
+    noise(o, { t: t + 0.06, dur: 0.3, f: 7000, type: 'highpass', gain: 0.05, attack: 0.04 });
+  },
+  // Dropped it: a falling bloop and a clunk on the ground.
+  drop: (o, t) => {
+    tone(o, { t, dur: 0.22, f: midi(79), f2: midi(67), type: 'triangle', gain: 0.16 });
+    tone(o, { t: t + 0.18, dur: 0.12, f: 180, f2: 90, gain: 0.4 });
+    knock(o, t + 0.18, 700, 0.14);
+  },
+  // The treasure flies home: a rising whoosh and a chime as it lands.
+  treasureHome: (o, t) => {
+    noise(o, { t, dur: 0.45, f: 500, f2: 4500, q: 1.6, gain: 0.18, attack: 0.15 });
+    tone(o, { t, dur: 0.45, f: 300, f2: 1200, gain: 0.06 });
+    [84, 91].forEach((n, i) => tone(o, { t: t + 0.42 + i * 0.06, dur: 0.6, f: midi(n), gain: 0.12 }));
+  },
+  // +1! A short brass fanfare: ta-da-daaa.
+  score: (o, t) => {
+    brass(o, t, 67, 0.1, 0.15);
+    brass(o, t + 0.12, 72, 0.1, 0.15);
+    brass(o, t + 0.24, 76, 0.55, 0.16);
+    brass(o, t + 0.24, 79, 0.55, 0.1);
+    noise(o, { t: t + 0.24, dur: 0.7, f: 6500, type: 'highpass', gain: 0.07, attack: 0.05 });
+    tone(o, { t: t + 0.24, dur: 0.2, f: 120, f2: 70, gain: 0.3 });
+  },
+  // Done: a soft two-note "over to you".
+  endTurn: (o, t) => {
+    tone(o, { t, dur: 0.14, f: midi(74), type: 'triangle', gain: 0.16 });
+    tone(o, { t: t + 0.1, dur: 0.22, f: midi(67), type: 'triangle', gain: 0.14 });
+  },
+};
+
+const table: Record<string, CueFn> = { ...ui, ...board, ...moments, ...chaos, ...party };
 for (const p of Object.keys(powers) as PowerKind[]) table[`power:${p}`] = powers[p];
 for (const w of Object.keys(wheel) as WheelOutcome[]) table[`chaos:${w}`] = wheel[w];
 for (const side of ['land', 'sea'] as const) {
@@ -453,6 +534,19 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   'chaos:pigeon': 0.82,
   'chaos:earthquake': 0.54,
   'chaos:disco': 3.16,
+  // Phase 4, measured 2026-10-28 with the same targets. Steps sit a bit under a chess move (a turn has several),
+  // endTurn a bit over a click, sink is the one heavy hit.
+  step: 0.9,
+  tag: 2.14,
+  splash: 0.89,
+  sinkWarn: 5.5,
+  sink: 0.61,
+  anchor: 0.84,
+  pickup: 2.07,
+  drop: 1.05,
+  treasureHome: 1.6,
+  score: 1.05,
+  endTurn: 1.43,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;

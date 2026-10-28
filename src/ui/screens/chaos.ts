@@ -12,7 +12,8 @@ import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
 import { otherSide } from '../format';
 import { animalIcon } from '../icons';
-import { DIE_TEXT, HAND, HANDS, JOKER_TEXT, LUCKY_TEXT, SUIT, WHEEL_ORDER, WHEEL_TEXT } from '../modeText';
+import { isArenaMode } from '../../contracts/types';
+import { DIE_TEXT, HAND, HANDS, JOKER_TEXT, LUCKY_TEXT, RAID_WHEEL_LINE, SUIT, TREASURE, WHEEL_ORDER, WHEEL_TEXT, apFromDie } from '../modeText';
 import { cardFace, dieFace } from './modeHud';
 
 type LuckyChoice = 'recharge' | 'pawnStep' | 'skip';
@@ -102,6 +103,8 @@ export class Chaos {
   private cancelDialog: (() => void) | null = null;
   private prevFocus: HTMLElement | null = null;
   private runs = new Set<Run>();
+  /** The banner showing now (a new announce cuts it short). */
+  private shout: Run | null = null;
 
   constructor(private ctx: UiCtx, private hooks: ChaosHooks) {
     this.sheet = h('div', { class: 'mc-ask', role: 'dialog', 'aria-modal': 'true', hidden: true });
@@ -138,9 +141,12 @@ export class Chaos {
 
   // ---------- Die ----------
 
-  async rollDie(side: Side, value: DieValue, effect: DieEffect): Promise<void> {
+  async rollDie(side: Side, value: DieValue, effect: DieEffect, ap?: number): Promise<void> {
     const r = this.startRun();
-    const t = DIE_TEXT(value);
+    // Party modes: no banana or lucky, the roll just sets the AP ("3 → 3 AP").
+    const party = isArenaMode(this.ctx.gameInfo?.mode);
+    if (party) effect = 'none';
+    const t = party ? { call: `${value} → ${ap ?? apFromDie(value)} AP`, line: 'Spend it, then End turn.', loud: false } : DIE_TEXT(value);
     const cube = h('div', { class: 'mc-die__cube' });
     // Opposite faces add up to 7. Each face's rotation brings it to the front.
     const faces: [DieValue, string][] = [[1, 'rotateY(0deg)'], [6, 'rotateY(180deg)'], [3, 'rotateY(90deg)'], [4, 'rotateY(-90deg)'], [2, 'rotateX(90deg)'], [5, 'rotateX(-90deg)']];
@@ -149,9 +155,10 @@ export class Chaos {
     const [fx, fy] = front[value];
     const call = h('strong', { class: 'mc-dieroll__call', text: t.call });
     const line = h('span', { class: 'mc-dieroll__line', text: t.line });
-    const el = h('div', { class: 'mc-dieroll', 'data-side': side, 'data-effect': effect, 'data-loud': String(t.loud), role: 'status', 'aria-label': `${SIDE_NAME[side]} rolled ${value}. ${t.loud ? t.call + ' ' + t.line : ''}` },
+    const el = h('div', { class: 'mc-dieroll', 'data-side': side, 'data-effect': effect, 'data-loud': String(t.loud), role: 'status', 'aria-label': `${SIDE_NAME[side]} rolled ${value}. ${t.loud ? t.call + ' ' + t.line : party ? `${t.call.split('→ ')[1]}.` : ''}` },
       h('div', { class: 'mc-die__view' }, cube),
       h('div', { class: 'mc-dieroll__text' }, call, line));
+    if (party) el.dataset.party = '';
     this.el.append(el);
     this.ctx.audio.play('dieRoll');
 
@@ -176,7 +183,7 @@ export class Chaos {
     if (effect === 'banana') this.ctx.audio.play('dieBanana');
     else if (effect === 'lucky') this.ctx.audio.play('dieLucky');
     if (!this.rm) r.anim(call.animate([{ transform: 'scale(.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 380, easing: SPRING }));
-    await r.hold(t.loud ? 900 : 380);
+    await r.hold(t.loud ? 900 : party ? 650 : 380);
     this.endRun(r, el);
   }
 
@@ -389,19 +396,19 @@ export class Chaos {
       const att = ANIMAL_NAME[info.attacker][ak];
       const vic = ANIMAL_NAME[info.defender][vk];
       const n = info.tokensLeft;
-      const verb = info.via === 'doubleJump' ? 'double-jumps at' : 'wants to bonk';
       const whose = this.you() === info.defender ? 'your' : `${SIDE_NAME[info.defender]}'s`;
+      const w = duelWords(info, att, vic, whose);
       const call = this.opt({ icon: '✊', name: 'Duel!', line: `Uses 1 of ${n} token${n === 1 ? '' : 's'}`, kbd: 'Y', primary: true }, () => pick(true));
       call.dataset.autofocus = '';
       this.ask(this.sheet, [
         this.head(this.you() === info.defender || this.you() === null ? `${SIDE_NAME[info.defender]}, call a duel?` : 'Call a duel?',
-          `${SIDE_NAME[info.attacker]}'s ${att} ${verb} ${whose} ${vic}!`, info.defender),
+          w.line, info.defender),
         h('div', { class: 'mc-ask__vs', 'aria-hidden': 'true' },
           h('span', { class: 'mc-ask__face', html: animalIcon(info.attacker, ak, { disc: true }) }),
           h('span', { class: 'mc-ask__vstext', text: 'VS' }),
           h('span', { class: 'mc-ask__face', html: animalIcon(info.defender, vk, { disc: true }) })),
-        h('p', { class: 'mc-ask__hint', text: `Win rock-paper-scissors and the ${att} is bonked back. (${n} token${n === 1 ? '' : 's'} left)` }),
-        h('div', { class: 'mc-ask__opts' }, call, this.opt({ icon: '🤷', name: 'Let it go', line: `The ${vic} is taken`, kbd: 'N' }, () => pick(false))),
+        h('p', { class: 'mc-ask__hint', text: `${w.win} (${n} token${n === 1 ? '' : 's'} left)` }),
+        h('div', { class: 'mc-ask__opts' }, call, this.opt({ icon: '🤷', name: 'Let it go', line: w.lose, kbd: 'N' }, () => pick(false))),
       ], 'Call a duel?', () => pick(false), { y: () => pick(true), n: () => pick(false) }, () => pick(false));
     });
   }
@@ -502,7 +509,7 @@ export class Chaos {
   async spinWheel(outcome: WheelOutcome): Promise<void> {
     const r = this.startRun();
     const i = WHEEL_ORDER.indexOf(outcome);
-    const t = WHEEL_TEXT[outcome];
+    const t = this.ctx.gameInfo?.mode === 'raid' ? { ...WHEEL_TEXT[outcome], line: RAID_WHEEL_LINE[outcome] } : WHEEL_TEXT[outcome];
     const stops = WHEEL_ORDER.map((o, k) => `${WHEEL_TEXT[o].color} ${k * 90}deg ${(k + 1) * 90}deg`).join(', ');
     const disc = h('div', { class: 'mc-wheel__disc', style: `background: conic-gradient(${stops})` },
       ...WHEEL_ORDER.map((o, k) => h('span', { class: `mc-wheel__label${o === outcome ? ' is-pick' : ''}`, style: `--a:${k * 90 + 45}deg` },
@@ -563,6 +570,32 @@ export class Chaos {
     });
   }
 
+  // ---------- Announce (party modes) ----------
+
+  /** A big, short, bouncy banner over the board. Never blocks clicks; any tap or key skips it; a new one cuts the old one short. */
+  async announce(text: string, tone: 'info' | 'good' | 'bad'): Promise<void> {
+    this.shout?.skip();
+    const r = this.startRun();
+    this.shout = r;
+    const word = h('strong', { class: 'mc-announce__text', text });
+    const el = h('div', { class: 'mc-announce', 'data-tone': tone, role: 'status', 'aria-live': 'assertive' }, word);
+    this.el.append(el);
+    if (this.rm) {
+      r.anim(el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, fill: 'both' }));
+      await r.hold(1000);
+    } else {
+      r.anim(el.animate([
+        { opacity: 0, transform: 'translate(-50%, -50%) scale(.3) rotate(-8deg)' },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(1.12) rotate(3deg)', offset: 0.6 },
+        { opacity: 1, transform: 'translate(-50%, -50%) scale(1) rotate(0)' },
+      ], { duration: 380, easing: 'cubic-bezier(.2,1.2,.4,1)', fill: 'both' }));
+      r.anim(word.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], { duration: 420, delay: 380, easing: 'ease-in-out' }));
+      await r.hold(820);
+    }
+    if (this.shout === r) this.shout = null;
+    this.endRun(r, el);
+  }
+
   /** Skip every running show (e.g. the game was left). Open questions get their safe default. */
   reset(): void {
     this.runs.forEach((r) => r.skip());
@@ -575,5 +608,22 @@ export class Chaos {
   dispose(): void {
     this.reset();
     this.runs.forEach((r) => r.end());
+  }
+}
+
+/** What the duel question says, by how the hit happens (Phase 4 adds shoves into the sea and tags). */
+export function duelWords(info: DuelInfo, att: string, vic: string, whose: string): { line: string; win: string; lose: string } {
+  const who = `${SIDE_NAME[info.attacker]}'s ${att}`;
+  switch (info.via) {
+    case 'shove':
+      return { line: `${who} wants to shove ${whose} ${vic} into the sea!`, win: 'Win rock-paper-scissors and the shove fails.', lose: `The ${vic} falls in` };
+    case 'tag': {
+      const t = TREASURE[info.attacker];
+      return { line: `${who} tags ${whose} ${vic}! It would drop the ${t.name}.`, win: `Win rock-paper-scissors and the tag fails: you keep the ${t.name}.`, lose: `The ${vic} drops it and goes home` };
+    }
+    case 'doubleJump':
+      return { line: `${who} double-jumps at ${whose} ${vic}!`, win: `Win rock-paper-scissors and the ${att} is bonked back.`, lose: `The ${vic} is taken` };
+    default:
+      return { line: `${who} wants to bonk ${whose} ${vic}!`, win: `Win rock-paper-scissors and the ${att} is bonked back.`, lose: `The ${vic} is taken` };
   }
 }

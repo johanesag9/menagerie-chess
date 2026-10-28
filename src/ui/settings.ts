@@ -2,7 +2,8 @@
  * Settings and last-used setup, kept in localStorage. Every read and write is wrapped:
  * private windows and blocked storage just fall back to defaults.
  */
-import type { BotLevel, GameMode, GameOptions, QualityTier, Settings, Side, SkinChoice } from '../contracts/types';
+import type { BotLevel, GameOptions, PlayMode, QualityTier, Settings, Side, SkinChoice } from '../contracts/types';
+import { isArenaMode } from '../contracts/types';
 
 export const SETTINGS_KEY = 'menagerie.settings.v1';
 export const SETUP_KEY = 'menagerie.setup.v1';
@@ -71,13 +72,15 @@ export function saveSettings(store: KeyValueStore | null, s: Settings): void {
 
 /** What the setup screen remembers between visits. `side` is the human's side vs the bot. */
 export interface SetupChoice {
-  mode: GameMode;
+  mode: PlayMode;
   opponent: 'local' | 'bot';
   level: BotLevel;
   side: Side | 'random';
   timeId: string;
   weirdMode: boolean;
 }
+
+const PLAY_MODES: PlayMode[] = ['classic', 'normal', 'crazy', 'sumo', 'raid'];
 
 export const defaultSetup = (): SetupChoice => ({ mode: 'classic', opponent: 'bot', level: 3, side: 'land', timeId: 'none', weirdMode: false });
 
@@ -88,7 +91,7 @@ export function loadSetup(store: KeyValueStore | null, timeIds: string[]): Setup
     if (!s) return d;
     const o = JSON.parse(s) as Record<string, unknown>;
     return {
-      mode: o.mode === 'classic' || o.mode === 'normal' || o.mode === 'crazy' ? o.mode : d.mode,
+      mode: PLAY_MODES.includes(o.mode as PlayMode) ? (o.mode as PlayMode) : d.mode,
       opponent: o.opponent === 'local' || o.opponent === 'bot' ? o.opponent : d.opponent,
       level: typeof o.level === 'number' && o.level >= 1 && o.level <= 8 ? (Math.round(o.level) as BotLevel) : d.level,
       side: o.side === 'land' || o.side === 'sea' || o.side === 'random' ? o.side : d.side,
@@ -116,14 +119,16 @@ export function toGameOptions(
   rand: () => number = Math.random,
 ): GameOptions {
   const human: Side = c.side === 'random' ? (rand() < 0.5 ? 'land' : 'sea') : c.side;
+  // Party modes have no clock, no Weird Mode and no FEN.
+  const party = isArenaMode(c.mode);
   const opts: GameOptions = {
     mode: c.mode,
     opponent: c.opponent === 'bot' ? { type: 'bot', level: c.level, botSide: human === 'land' ? 'sea' : 'land' } : { type: 'local' },
-    time: { ...time },
+    time: party ? { initialMs: null, incrementMs: 0 } : { ...time },
     // Crazy has the Wheel of Chaos instead of Weird Mode.
-    weirdMode: c.mode === 'crazy' ? false : c.weirdMode,
+    weirdMode: c.mode === 'crazy' || party ? false : c.weirdMode,
   };
-  if (fen) opts.fen = fen;
+  if (fen && !party) opts.fen = fen;
   return opts;
 }
 

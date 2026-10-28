@@ -78,7 +78,8 @@ const TURN_KINDS: ActionRecord['kind'][] = ['move', 'power', 'card', 'pass', 'bo
  * row and closes the row it follows, so a Sea move after it starts a new "1. … e5" row.
  * The round number goes up each time Land starts a turn. A log record of kind 'move' is skipped (addMove shows moves).
  */
-export function listRows(entries: ListEntry[]): ListRow[] {
+/** `keepMoveLogs`: the party modes have no addMove, so their 'move' records (steps, shoves, tags) are lines too. */
+export function listRows(entries: ListEntry[], keepMoveLogs = false): ListRow[] {
   const rows: ListRow[] = [];
   let round = 1;
   let lastSide: Side | null = null;
@@ -91,7 +92,7 @@ export function listRows(entries: ListEntry[]): ListRow[] {
       lastSide = side;
     }
     if ('log' in e) {
-      if (e.log.kind === 'move') continue;
+      if (e.log.kind === 'move' && !keepMoveLogs) continue;
       // The wheel spins at the start of Land's turn: it belongs to the next round.
       const n = e.log.kind === 'wheel' && lastSide === 'sea' ? round + 1 : round;
       rows.push({ type: 'log', n, record: e.log });

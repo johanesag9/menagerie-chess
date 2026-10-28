@@ -2,12 +2,14 @@
  * In-game HUD: two player cards on the top and bottom edges, a collapsible move list,
  * the emote picker, and the check banner / Weird Mode toast. The middle stays clear for the board.
  */
-import type { ActionRecord, EmoteKind, GameOptions, ModeState, MoveResult, PieceKind, Side, WeirdEvent } from '../../contracts/types';
+import type { ActionRecord, ArenaState, EmoteKind, GameOptions, ModeState, MoveResult, PieceKind, Side, WeirdEvent } from '../../contracts/types';
+import { isArenaMode } from '../../contracts/types';
 import { ANIMAL_NAME, EMOTES, SIDE_NAME, WEIRD_TEXT, botName } from '../config';
 import type { UiCtx } from '../ctx';
 import { button, h } from '../dom';
 import { formatClock, listRows, otherSide, spokenClock, tallyCaptures, tallyFromCaptured, type CapturedTally, type ListEntry } from '../format';
 import { animalIcon } from '../icons';
+import { ArenaHud } from './arenaHud';
 import { ModeHud } from './modeHud';
 
 export const ICON = {
@@ -52,6 +54,8 @@ export class Hud {
   private entries: ListEntry[] = [];
   private lastTally: CapturedTally | null = null;
   readonly mode: ModeHud;
+  /** Phase 4: the party-mode HUD (Sumo, Raid). */
+  readonly arena: ArenaHud;
   private info: GameOptions | null = null;
   private turn: Side = 'land';
   private thinking = false;
@@ -66,6 +70,8 @@ export class Hud {
   constructor(private ctx: UiCtx) {
     this.cards = { land: this.card('land'), sea: this.card('sea') };
     this.mode = new ModeHud(ctx);
+    this.arena = new ArenaHud(ctx);
+    this.mode.setArena(this.arena.bar, false);
 
     this.movesBtn = button('', { variant: 'icon', label: 'Move list', icon: ICON.moves, onClick: () => this.toggleMoves() });
     this.movesBtn.setAttribute('aria-expanded', 'false');
@@ -109,7 +115,7 @@ export class Hud {
     this.toast = h('div', { class: 'mc-toast', 'aria-hidden': 'true' });
     this.live = h('div', { class: 'mc-sr', 'aria-live': 'polite', 'aria-atomic': 'true' });
 
-    this.top = h('div', { class: 'mc-hud__bar mc-hud__bar--top' }, h('div', { class: 'mc-hud__slot' }), this.mode.chip, h('div', { class: 'mc-hud__tools' }, this.movesBtn, menuBtn));
+    this.top = h('div', { class: 'mc-hud__bar mc-hud__bar--top' }, h('div', { class: 'mc-hud__slot' }), this.mode.chip, this.arena.chip, h('div', { class: 'mc-hud__tools' }, this.movesBtn, menuBtn));
     this.bottom = h('div', { class: 'mc-hud__bar mc-hud__bar--bottom' }, h('div', { class: 'mc-hud__slot' }), this.mode.dock, h('div', { class: 'mc-hud__tools' }, this.undoBtn, h('div', { class: 'mc-emote-anchor' }, this.emotePicker, this.emoteBtn)));
 
     this.el = h('section', { class: 'mc-screen mc-hud', 'aria-label': 'Game' }, this.top, this.movesPanel, this.banner, this.toast, this.bottom, this.live);
@@ -141,9 +147,11 @@ export class Hud {
     const bot = info?.opponent.type === 'bot' ? info.opponent : null;
     const bottomSide: Side = bot ? otherSide(bot.botSide) : 'land';
     const topSide = otherSide(bottomSide);
-    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide]);
-    this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide]);
+    this.top.firstElementChild!.replaceChildren(this.cards[topSide].el, this.mode.strips[topSide], this.arena.strips[topSide]);
+    this.bottom.firstElementChild!.replaceChildren(this.cards[bottomSide].el, this.mode.strips[bottomSide], this.arena.strips[bottomSide]);
     this.mode.setInfo(info);
+    this.arena.setInfo(info);
+    this.mode.setArena(this.arena.bar, false);
     this.lastTally = null;
     this.renderTrays();
     for (const side of ['land', 'sea'] as const) {
@@ -153,10 +161,11 @@ export class Hud {
       c.el.dataset.bot = String(isBot);
       c.el.setAttribute('aria-label', `${c.name.textContent}, ${SIDE_NAME[side]}`);
     }
-    const timed = info ? info.time.initialMs !== null : false;
+    const timed = info && !isArenaMode(info.mode) ? info.time.initialMs !== null : false;
     this.el.classList.toggle('is-untimed', !timed);
-    // No undo in Crazy: luck is luck.
-    this.undoBtn.hidden = info?.mode === 'crazy';
+    // No undo in Crazy (luck is luck) or in the party modes.
+    this.undoBtn.hidden = info?.mode === 'crazy' || isArenaMode(info?.mode);
+    this.el.classList.toggle('is-party', isArenaMode(info?.mode));
     this.refresh();
   }
 
@@ -168,7 +177,8 @@ export class Hud {
     this.setTense(false);
     for (const s of ['land', 'sea'] as const) this.cards[s].el.classList.remove('in-check', 'is-low');
     this.setInfo(info);
-    const ms = info?.time.initialMs ?? null;
+    // Party modes have no clock.
+    const ms = isArenaMode(info?.mode) ? null : info?.time.initialMs ?? null;
     this.setClocks(ms, ms, null);
   }
 
@@ -181,6 +191,7 @@ export class Hud {
 
   setBotThinking(thinking: boolean): void {
     this.thinking = thinking;
+    this.arena.setThinking(thinking);
     this.refresh();
   }
 
@@ -245,9 +256,9 @@ export class Hud {
     this.announce(m.captured ? `${who} takes ${ANIMAL_NAME[m.captured.side][m.captured.kind]}. ${m.san}` : `${who} ${m.san}`);
   }
 
-  /** A non-move line (power, card, bonus, bonk, wheel, pass). Records of kind 'move' are skipped: addMove shows moves. */
+  /** A non-move line (power, card, bonus, bonk, wheel, pass). Records of kind 'move' are skipped (addMove shows moves), except in the party modes, which have no addMove. */
   addLog(r: ActionRecord): void {
-    if (r.kind === 'move') return;
+    if (r.kind === 'move' && !isArenaMode(this.info?.mode)) return;
     this.entries.push({ log: r });
     this.renderMoves();
     this.refresh();
@@ -268,9 +279,16 @@ export class Hud {
     this.renderTrays();
   }
 
+  /** Phase 4: the party HUD. The live and fallen animals also feed names to the duel and selection panels. */
+  setArenaState(st: ArenaState | null): void {
+    if (st) this.mode.setPieces([...st.pieces, ...st.out]);
+    this.arena.setState(st);
+    this.mode.setArena(this.arena.bar, !!st);
+  }
+
   private renderMoves(): void {
-    const rows = listRows(this.entries);
-    const icon: Record<ActionRecord['kind'], string> = { move: '', power: '⚡', card: '🃏', bonus: '🍀', bonk: '💫', wheel: '🎡', pass: '💤' };
+    const rows = listRows(this.entries, isArenaMode(this.info?.mode));
+    const icon: Record<ActionRecord['kind'], string> = { move: '👣', power: '⚡', card: '🃏', bonus: '🍀', bonk: '💫', wheel: '🎡', pass: '💤' };
     this.movesList.replaceChildren(...rows.map((r) => r.type === 'log'
       ? h('li', { class: 'mc-moves__log', 'data-side': r.record.side ?? 'none', 'data-kind': r.record.kind },
         h('span', { class: 'mc-moves__logicon', 'aria-hidden': 'true', text: icon[r.record.kind] }),
@@ -399,6 +417,7 @@ export class Hud {
   }
 
   dispose(): void {
+    this.arena.dispose();
     document.removeEventListener('pointerdown', this.onOutside, true);
     this.timers.forEach((t) => window.clearTimeout(t));
   }
