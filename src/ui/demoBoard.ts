@@ -451,8 +451,9 @@ export function addBoardControls(ui: MenagerieUi, section: Section, btn: Btn, no
   btn(stones, 'Their path is 1!', () => {
     const f = stage('stones');
     f.st.round = 14;
+    // The Blobfish escaped across to a2: one step from Land's back rank.
     f.st.sunk = f.st.sunk.filter((s) => !['e3', 'e4', 'e5', 'e6', 'd3'].includes(s));
-    f.piece('sea-k-e7').square = 'e3';
+    f.piece('sea-k-e7').square = 'a2';
     f.st.powersUsed = ['sea-k-e7'];
     f.push();
     shapeFor(f, 'down');

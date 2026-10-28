@@ -1,5 +1,5 @@
 import type { AudioCue, EmoteKind, PieceKind, PowerKind, Side, WheelOutcome } from '../contracts/types';
-import { BOARD_CUES } from './boardCues';
+import { BOARD_CUES, BOARD_TRIM } from './boardCues';
 import { midi, noise, tone, voice, type Out } from './synth';
 
 /** One synthesized sound. `t` is the AudioContext start time. */
@@ -548,6 +548,8 @@ export const TRIM: Partial<Record<AudioCue, number>> = {
   treasureHome: 1.6,
   score: 1.05,
   endTurn: 1.43,
+  // Phase 6 (boardCues.ts)
+  ...BOARD_TRIM,
 };
 
 export const cueTrim = (cue: AudioCue): number => TRIM[cue] ?? 1;

@@ -5,7 +5,7 @@ import type { UiCtx, View } from '../ctx';
 import { button, h } from '../dom';
 import { animalIcon } from '../icons';
 import { TREASURE } from '../modeText';
-import { boardLine } from '../boardText';
+import { boardLine, boardWinner } from '../boardText';
 
 type PromoKind = Exclude<PieceKind, 'p' | 'k'>;
 
@@ -110,7 +110,9 @@ export class ResultView implements View {
       for (const s of sunk) this.art.append(h('span', { class: 'mc-result__overboard', html: animalIcon(s, 'k', { disc: true }) }, h('span', { class: 'mc-result__waves', text: '🌊' })));
     }
     if (r.reason === 'treasure' && r.winner) this.art.append(h('span', { class: 'mc-result__loot', text: TREASURE[r.winner === 'land' ? 'sea' : 'land'].icon }));
-    // Phase 6: the winner's castle with its flag up, or the far shore reached.
+    // Phase 6: the animal that won (not the king, which may not be in the game), by its castle or on the far shore.
+    const hero = boardWinner(r, this.ctx.arenaState);
+    if (hero) this.art.innerHTML = animalIcon(hero.side, hero.kind, { disc: true });
     if (r.reason === 'castle' && r.winner) this.art.append(h('span', { class: 'mc-result__loot mc-result__castle', 'data-side': r.winner, text: '🏰' }));
     if (r.reason === 'crossed' && r.winner) this.art.append(h('span', { class: 'mc-result__loot', text: '🪨' }));
     this.el.dataset.reason = r.reason;

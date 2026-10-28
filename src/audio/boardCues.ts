@@ -72,3 +72,14 @@ export const BOARD_CUES: Record<'build' | 'dig' | 'raise' | 'sinkStone' | 'climb
     [76, 83].forEach((n, i) => tone(o, { t: t + 0.05 + i * 0.07, dur: 0.28, f: midi(n), type: 'triangle', gain: 0.14 }));
   },
 };
+
+/** Level trims for these cues (from the ui demo's level check), aiming at the targets in cues.ts TRIM: board actions about -20 dBFS, the flag a small fanfare. */
+export const BOARD_TRIM: Partial<Record<keyof typeof BOARD_CUES, number>> = {
+  build: 0.85,
+  dig: 1.3,
+  raise: 0.5,
+  sinkStone: 0.6,
+  climb: 1.2,
+  flag: 1.15,
+  draftPick: 1.3,
+};

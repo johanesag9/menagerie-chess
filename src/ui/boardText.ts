@@ -180,3 +180,18 @@ export function boardLine(r: GameOver, st: ArenaState | null, mode: PlayMode | u
       return null;
   }
 }
+
+/** The animal that won a board game (on the castle, or across the sea), for the result art. */
+export function boardWinner(r: GameOver, st: ArenaState | null): { side: Side; kind: PieceKind } | null {
+  if (!st || !r.winner) return null;
+  if (r.reason === 'castle' && st.crowned?.side === r.winner) {
+    const a = animalOf(st, st.crowned.pieceId);
+    return a ? { side: a.side, kind: a.kind } : null;
+  }
+  if (r.reason === 'crossed') {
+    const rank = r.winner === 'land' ? '8' : '1';
+    const p = st.pieces.find((x) => x.side === r.winner && x.square[1] === rank);
+    return p ? { side: p.side, kind: p.kind } : null;
+  }
+  return null;
+}
