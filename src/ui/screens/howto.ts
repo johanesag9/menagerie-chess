@@ -1,12 +1,12 @@
 /** "How it works": the mode rules in plain words, as a sheet over the setup screen. */
-import type { GameMode } from '../../contracts/types';
+import type { PlayMode } from '../../contracts/types';
 import { button, h, radioGroup } from '../dom';
-import { HOW_TO, MODES, MODE_TEXT } from '../modeText';
+import { ALL_MODES, HOW_TO, MODE_TEXT } from '../modeText';
 import { ICON } from './hud';
 
 export interface HowToSheet {
   el: HTMLElement;
-  open(mode: GameMode, behind: HTMLElement, returnFocus: HTMLElement): void;
+  open(mode: PlayMode, behind: HTMLElement, returnFocus: HTMLElement): void;
   close(): void;
   readonly isOpen: boolean;
 }
@@ -16,7 +16,7 @@ export function howToSheet(): HowToSheet {
   let behind: HTMLElement | null = null;
   let returnFocus: HTMLElement | null = null;
 
-  const render = (mode: GameMode) => {
+  const render = (mode: PlayMode) => {
     body.replaceChildren(
       h('p', { class: 'mc-howto__pitch', text: MODE_TEXT[mode].pitch }),
       ...HOW_TO[mode].map((s) => h('section', { class: 'mc-howto__sec' },
@@ -24,7 +24,7 @@ export function howToSheet(): HowToSheet {
         h('ul', {}, ...s.items.map((t) => h('li', { text: t }))))));
     body.scrollTop = 0;
   };
-  const tabs = radioGroup<GameMode>('Mode', MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name })), 'normal', render, 'mc-seg mc-seg--tabs');
+  const tabs = radioGroup<PlayMode>('Mode', ALL_MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name })), 'normal', render, 'mc-seg mc-seg--tabs');
   const closeBtn = button('', { variant: 'icon', sfx: 'back', label: 'Close', icon: ICON.close, onClick: () => close() });
 
   const el = h('div', { class: 'mc-howto', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mc-howto-h', hidden: true },

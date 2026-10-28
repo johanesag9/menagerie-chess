@@ -1,9 +1,10 @@
-import type { BotLevel, GameMode, Side } from '../../contracts/types';
+import type { BotLevel, PlayMode, Side } from '../../contracts/types';
+import { isArenaMode } from '../../contracts/types';
 import { BOT_LEVELS, TIME_CONTROLS } from '../config';
 import type { UiCtx, View } from '../ctx';
 import { button, h, radioGroup, toggle } from '../dom';
 import { animalIcon } from '../icons';
-import { MODES, MODE_TEXT } from '../modeText';
+import { ALL_MODES, ARENA_MODES, MODE_TEXT } from '../modeText';
 import { howToSheet } from './howto';
 import { checkFen, loadSetup, saveSetup, toGameOptions, type SetupChoice } from '../settings';
 
@@ -11,9 +12,16 @@ export function setupScreen(ctx: UiCtx): View {
   const choice: SetupChoice = loadSetup(ctx.store, TIME_CONTROLS.map((t) => t.id));
   const save = () => saveSetup(ctx.store, choice);
 
-  const mode = radioGroup<GameMode>('Mode',
-    MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name, sub: MODE_TEXT[m].pitch, html: MODE_TEXT[m].icon })),
+  const mode = radioGroup<PlayMode>('Mode',
+    ALL_MODES.map((m) => ({ value: m, label: MODE_TEXT[m].name, sub: MODE_TEXT[m].pitch, html: MODE_TEXT[m].icon })),
     choice.mode, (v) => { choice.mode = v; save(); syncMode(); }, 'mc-modes');
+  // One radio group (arrow keys run through all five), shown as two rows: chess, then the party modes.
+  const opts = Array.from(mode.el.children) as HTMLElement[];
+  const party = opts.filter((b) => (ARENA_MODES as string[]).includes(b.dataset.value ?? ''));
+  mode.el.replaceChildren(
+    h('div', { class: 'mc-modes__row' }, ...opts.filter((b) => !party.includes(b))),
+    h('div', { class: 'mc-modes__party' }, h('span', { class: 'mc-label', text: 'Party modes' }), h('span', { class: 'mc-modes__tag', text: 'Not chess' })),
+    h('div', { class: 'mc-modes__row mc-modes__row--party' }, ...party));
   const howTo = howToSheet();
   const howBtn = button('How it works', { variant: 'ghost', class: 'mc-btn--sm', onClick: () => howTo.open(choice.mode, panel, howBtn) });
 
@@ -58,14 +66,17 @@ export function setupScreen(ctx: UiCtx): View {
     botBlock.hidden = choice.opponent !== 'bot';
   }
   syncBot();
-  // Crazy has the Wheel of Chaos instead of Weird Mode.
+  // Crazy has the Wheel of Chaos instead of Weird Mode. Party modes have no clock, Weird Mode or FEN.
+  const timeLabel = h('h3', { class: 'mc-label', text: 'Time' });
   function syncMode() {
-    weird.el.hidden = choice.mode === 'crazy';
+    const party = isArenaMode(choice.mode);
+    weird.el.hidden = choice.mode === 'crazy' || party;
+    timeLabel.hidden = time.el.hidden = fen.hidden = party;
   }
   syncMode();
 
   const start = button('Start game', { variant: 'primary', onClick: () => {
-    const raw = fenInput.value.trim();
+    const raw = isArenaMode(choice.mode) ? '' : fenInput.value.trim();
     if (raw) {
       const err = checkFen(raw);
       if (err) {
@@ -89,7 +100,7 @@ export function setupScreen(ctx: UiCtx): View {
       h('div', { class: 'mc-label-row' }, h('h3', { class: 'mc-label', text: 'Mode' }), howBtn), mode.el,
       h('h3', { class: 'mc-label', text: 'Opponent' }), opponent.el,
       botBlock,
-      h('h3', { class: 'mc-label', text: 'Time' }), time.el,
+      timeLabel, time.el,
       weird.el,
       fen),
     h('footer', { class: 'mc-panel__foot' }, start));

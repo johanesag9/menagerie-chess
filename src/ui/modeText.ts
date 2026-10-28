@@ -2,15 +2,21 @@
  * Every word the UI shows about the game modes (Phase 3), in one place like config.ts.
  * Rules text follows GAME_SPEC.md "Game modes". If the spec changes, change it here too.
  */
-import type { CardSuit, DieValue, GameMode, Hand, JokerOutcome, PieceKind, PowerBlock, PowerKind, Side, WheelOutcome } from '../contracts/types';
+import type { ArenaMode, CardSuit, DieValue, GameMode, Hand, JokerOutcome, PieceKind, PlayMode, PowerBlock, PowerKind, Side, WheelOutcome } from '../contracts/types';
 
-export const MODE_TEXT: Record<GameMode, { name: string; pitch: string; icon: string }> = {
+export const MODE_TEXT: Record<PlayMode, { name: string; pitch: string; icon: string }> = {
   classic: { name: 'Classic', pitch: 'Real chess, exactly. Every move in character.', icon: '♟️' },
   normal: { name: 'Normal', pitch: 'Chess plus one animal power per piece.', icon: '⚡' },
   crazy: { name: 'Crazy', pitch: 'Powers, dice, duels, cards and the Wheel of Chaos. Bonk the king to win.', icon: '🎲' },
+  // Phase 4: party modes (not chess).
+  sumo: { name: 'Sumo', pitch: 'Shove the enemy king into the sea while the island sinks.', icon: '🏝️' },
+  raid: { name: 'Raid', pitch: "Steal their treasure and carry it home. First to 3 wins.", icon: '🦴' },
 };
 
 export const MODES: GameMode[] = ['classic', 'normal', 'crazy'];
+/** Phase 4: the party modes, shown as a second row on the setup screen. */
+export const ARENA_MODES: ArenaMode[] = ['sumo', 'raid'];
+export const ALL_MODES: PlayMode[] = [...MODES, ...ARENA_MODES];
 
 export const POWER_TEXT: Record<PowerKind, { name: string; line: string; flavour: Record<Side, string> }> = {
   sidestep: { name: 'Sidestep', line: 'Move one square left or right, to an empty square. No capture.', flavour: { land: 'The pup digs across.', sea: 'The crab scuttles.' } },
@@ -84,8 +90,8 @@ export function sideFromId(id: string): Side | null {
   return s === 'land' || s === 'sea' ? s : null;
 }
 
-/** The "How it works" sheet: plain-words rules per mode. */
-export const HOW_TO: Record<GameMode, { title: string; items: string[] }[]> = {
+/** The "How it works" sheet: plain-words rules per mode. Party modes follow GAME_SPEC.md "Party modes". */
+export const HOW_TO: Record<PlayMode, { title: string; items: string[] }[]> = {
   classic: [
     { title: 'Classic', items: [
       'Real chess, exactly: castling, en passant, promotion, check and mate.',
@@ -145,4 +151,101 @@ export const HOW_TO: Record<GameMode, { title: string; items: string[] }[]> = {
       '🪩 Disco: every used power recharges.',
     ] },
   ],
+  sumo: [
+    { title: 'Win', items: [
+      'Push the enemy king into the water.',
+      'If your own king falls in on your turn, you lose. Both kings at once: a draw.',
+      'After round 15, the side with more animals left wins.',
+    ] },
+    { title: 'Your turn', items: [
+      'Six animals a side. Roll the die for action points (AP): 1–2 gives 2 AP, 3–4 gives 3, 5–6 gives 4.',
+      'Spend AP on any animals, in any order, then press End turn. Unused AP is lost.',
+      '👣 Step (1 AP): one square in any direction, onto an empty, dry square.',
+      '💥 Shove (2 AP, 3 against the heavy king or rook): a neighbouring enemy moves one square straight away. Animals behind it move too, yours included.',
+      'A shove onto a blocked square can\'t be done. Anyone pushed onto water or off the board falls in.',
+    ] },
+    { title: 'The island sinks', items: [
+      '🌊 The outer ring sinks after round 3, the next after round 6, the next after round 9. The middle 2×2 always stays.',
+      'The ring about to sink wobbles for the whole round before. Anyone still on it falls in.',
+    ] },
+    { title: 'Powers (2 AP, once per game)', items: [
+      '🐾 Pawn, Dig in: it can\'t be pushed until your next turn.',
+      '🐴 Knight, Double jump: two knight hops onto empty, dry squares.',
+      '🐐 Bishop, Headbutt: shove a neighbouring enemy 2 squares, heavy or not.',
+      '🐘 Rook, Stomp: shove every neighbouring enemy 1 square. The farthest go first.',
+      '🐱 Queen, Block: a vase or ink wall on an empty dry square, for 4 turns.',
+      '👑 King, Escape: teleport to an empty dry square up to 2 squares away.',
+    ] },
+    { title: 'Duels', items: [
+      '✊ When a shove would push your animal into the sea, you may call rock-paper-scissors. 2 tokens per game.',
+      'Win and the shove fails (the attacker\'s AP is still spent). Sinking can\'t be dueled.',
+    ] },
+  ],
+  raid: [
+    { title: 'Win', items: [
+      'First to 3 points. After round 20, more points wins; equal is a draw.',
+    ] },
+    { title: 'The treasures', items: [
+      'Land\'s half is the meadow (ranks 1–4). Sea\'s half is the beach (ranks 5–8).',
+      '🦴 Land\'s bone lies at e1, by the dog house. 🦪 Sea\'s pearl lies at d8, by the water.',
+      'No guarding: you can\'t stand on your own treasure\'s square.',
+      'Step onto the enemy treasure to pick it up (free). Carrying is slow: each step costs 2 AP, and no power.',
+      'Carry it into your own half to score 1 point. It then goes back home.',
+    ] },
+    { title: 'Your turn', items: [
+      'Six animals a side. Roll the die for action points (AP): 1–2 gives 2 AP, 3–4 gives 3, 5–6 gives 4.',
+      'Spend AP on any animals, in any order, then press End turn. Unused AP is lost.',
+      '👣 Step (1 AP): one square in any direction, onto an empty square.',
+      '👋 Tag (1 AP): in your own half, tag a neighbouring enemy. It is sent home to its back rank and drops anything it carries.',
+      'A dropped treasure can be picked up again. If its owner steps on it, it flies home.',
+    ] },
+    { title: 'Powers (2 AP, once per game)', items: [
+      'The same as Normal mode: Sidestep, Double jump, Headbutt, Stomp, Block, Escape.',
+      'A headbutted carrier drops the treasure. Stomped enemies are stunned for their next turn.',
+    ] },
+    { title: 'Duels and the wheel', items: [
+      '✊ When your carrier is tagged, you may call rock-paper-scissors. 2 tokens per game. Win and the tag fails.',
+      '🎡 Every 5 rounds the Wheel of Chaos spins.',
+      '🌊 Tide: Land animals on the beach are swept back a rank.',
+      '🐦 Pigeon: grabs a carried or dropped treasure and drops it on a random empty square.',
+      '🌋 Earthquake: every animal shifts one file.',
+      '🪩 Disco: every power recharges.',
+    ] },
+  ],
 };
+
+// ---------- Phase 4: party modes ----------
+
+/** Power names and lines that differ from Normal mode (the selected-animal panel uses these). */
+export const ARENA_POWER_TEXT: Record<ArenaMode, Partial<Record<PowerKind, { name: string; line: string }>>> = {
+  sumo: {
+    sidestep: { name: 'Dig in', line: "Can't be pushed until your next turn." },
+    doubleJump: { name: 'Double jump', line: 'Two knight hops onto empty, dry squares.' },
+    headbutt: { name: 'Headbutt', line: 'Shove a neighbouring enemy 2 squares, heavy or not.' },
+    stomp: { name: 'Stomp', line: 'Shove every neighbouring enemy 1 square. The farthest go first.' },
+    block: { name: 'Block', line: 'A wall on an empty dry square, for 4 turns.' },
+    escape: { name: 'Escape', line: 'Teleport to an empty dry square up to 2 squares away.' },
+  },
+  raid: {
+    headbutt: { name: 'Headbutt', line: 'Push a neighbouring enemy one square. A carrier drops the treasure.' },
+    stomp: { name: 'Stomp', line: 'Stun every neighbouring enemy for its next turn.' },
+    block: { name: 'Block', line: 'Block an empty square for 4 turns.' },
+  },
+};
+
+/** The Wheel of Chaos in Raid moves animals and treasures, not chess pieces. */
+export const RAID_WHEEL_LINE: Record<WheelOutcome, string> = {
+  tide: 'Land animals on the beach are swept back a rank.',
+  pigeon: 'It grabs a loose or carried treasure and drops it somewhere random.',
+  earthquake: 'Every animal shifts one file sideways.',
+  disco: 'Every used power recharges.',
+};
+
+/** Raid treasures: whose it is decides what it is. */
+export const TREASURE: Record<Side, { name: string; icon: string }> = {
+  land: { name: 'bone', icon: '🦴' },
+  sea: { name: 'pearl', icon: '🦪' },
+};
+
+/** AP from the die (GAME_SPEC "Party modes"). Only a fallback when integration doesn't pass the AP. */
+export const apFromDie = (value: DieValue): number => (value <= 2 ? 2 : value <= 4 ? 3 : 4);
