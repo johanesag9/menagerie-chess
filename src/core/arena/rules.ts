@@ -1,5 +1,7 @@
 /**
  * Sumo and Raid rules (GAME_SPEC "Party modes") on a plain board model, so the bot can clone it and run it in a worker.
+ * Phase 6: the board-game modes (castle, stones) share this model; their rules live in castle.ts, stones.ts and board.ts,
+ * and the entry points here (`legalActions`, `applyAction`, `detectOver`, ...) hand over to them.
  * Squares are indexes 0..63: file + 8 * rank (a1 = 0, h8 = 63), as in ../modes/state.ts.
  * Every function is pure apart from mutating the state passed in.
  *
@@ -12,6 +14,8 @@ import type {
   PowerKind, Side, Square, WheelOutcome,
 } from '../../contracts/types';
 import { fileOf, idx, onBoard, opposite, rankOf, sqName } from '../modes/state';
+import { boardApply, boardLegal, isBoard } from './board';
+import { stonesWinner } from './stones';
 import type { ArenaTuning } from './tuning';
 
 export interface APiece { readonly id: PieceId; readonly side: Side; readonly kind: PieceKind }
@@ -41,7 +45,27 @@ export interface AState {
   /** mulberry32 state: dice, wheel. */
   rng: number;
   over: GameOver | null;
+
+  // ----- Phase 6: board-game modes (castle, stones). Sumo and Raid keep the empty defaults. -----
+  /** The step of the turn the side to move is on; null in Sumo/Raid (and between turns). */
+  stage: BoardStage | null;
+  /** Castle: the animal that moved this turn (it shapes). */
+  mover: PieceId | null;
+  /** Castle: every square's level, 0..3. */
+  levels: number[];
+  /** Stones: 1 = the square is under water. */
+  water: number[];
+  /** Stones: squares changed on the last turn (they can't be raised or sunk now). */
+  fresh: number[];
+  /** Stones: squares changed this turn (fresh for the next one). */
+  freshNext: number[];
+  /** Castle: each side's draft picks, in order. */
+  picks: Record<Side, PieceKind[]>;
+  /** Turns passed in a row (castle: 2 = nobody could do anything for a whole round: a draw). */
+  passes: number;
 }
+
+export type BoardStage = 'pick' | 'move' | 'shape' | 'more';
 
 export const ANIMAL: Record<Side, Record<PieceKind, string>> = {
   land: { p: 'Pup', n: 'Horse', b: 'Goat', r: 'Elephant', q: 'Cat', k: 'Pug' },
@@ -88,9 +112,14 @@ const NEIGHBOURS = [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [-1, 0], [0, 1],
 
 export function createArenaState(mode: ArenaMode, cfg: ArenaTuning, seed: number): AState {
   const board: (APiece | null)[] = new Array(64).fill(null);
-  for (const [side, rank] of [['land', 1], ['sea', 6]] as [Side, number][]) {
-    for (const [kind, file] of TEAM) board[idx(file, rank)] = { id: `${side}-${kind}-${sqName(idx(file, rank))}`, side, kind };
+  // Castle starts empty: the draft places the animals.
+  if (mode !== 'castle') {
+    for (const [side, rank] of [['land', 1], ['sea', 6]] as [Side, number][]) {
+      for (const [kind, file] of TEAM) board[idx(file, rank)] = { id: `${side}-${kind}-${sqName(idx(file, rank))}`, side, kind };
+    }
   }
+  const water = new Array(64).fill(0);
+  if (mode === 'stones') for (let i = 0; i < 64; i++) if (cfg.stonesWaterRanks.includes(rankOf(i) + 1)) water[i] = 1;
   return {
     mode, cfg, board, out: [], turn: 'land', round: 1, die: null, ap: 0, powersUsed: [], statuses: [], blocks: [],
     tokens: { land: cfg.duelTokens, sea: cfg.duelTokens },
@@ -104,6 +133,14 @@ export function createArenaState(mode: ArenaMode, cfg: ArenaTuning, seed: number
     score: { land: 0, sea: 0 },
     rng: seed >>> 0,
     over: null,
+    stage: mode === 'castle' ? 'pick' : null,
+    mover: null,
+    levels: new Array(64).fill(0),
+    water,
+    fresh: [],
+    freshNext: [],
+    picks: { land: [], sea: [] },
+    passes: 0,
   };
 }
 
@@ -119,6 +156,11 @@ export function cloneArena(s: AState): AState {
     treasures: s.treasures.map((t) => ({ ...t })),
     score: { ...s.score },
     over: s.over && { ...s.over },
+    levels: s.levels.slice(),
+    water: s.water.slice(),
+    fresh: s.fresh.slice(),
+    freshNext: s.freshNext.slice(),
+    picks: { land: s.picks.land.slice(), sea: s.picks.sea.slice() },
   };
 }
 
@@ -158,7 +200,7 @@ export function findA(s: AState, id: PieceId): number {
 // ---------- queries ----------
 
 export const ringOf = (i: number) => Math.min(fileOf(i), 7 - fileOf(i), rankOf(i), 7 - rankOf(i));
-export const isSunk = (s: AState, i: number) => ringOf(i) < s.sunkRings;
+export const isSunk = (s: AState, i: number) => (s.mode === 'stones' ? s.water[i] === 1 : ringOf(i) < s.sunkRings);
 export const blockAt = (s: AState, i: number) => s.blocks.some((b) => b.sq === i);
 export const statusOf = (s: AState, id: PieceId) => s.statuses.find((x) => x.id === id);
 /** Stunned animals can't step, hit or use a power. Anchored ones can. */
@@ -253,7 +295,7 @@ function knockOut(s: AState, i: number, dir: [number, number], step: number): Bo
   return { step, type: 'fall', pieceId: p.id, square: sqName(i), dir: [dir[0], dir[1]] };
 }
 
-function relocate(s: AState, from: number, to: number): void {
+export function relocate(s: AState, from: number, to: number): void {
   s.board[to] = s.board[from];
   s.board[from] = null;
 }
@@ -489,6 +531,7 @@ export function powerOptions(s: AState, i: number): number[][] {
 
 /** Every legal action for the side to move, end turn last. `forBot` trims block targets to squares next to an animal. */
 export function legalActions(s: AState, forBot = false): ArenaAction[] {
+  if (isBoard(s.mode)) return boardLegal(s, forBot);
   const out: ArenaAction[] = [];
   if (s.over) return out;
   for (let i = 0; i < 64; i++) {
@@ -507,6 +550,7 @@ export function legalActions(s: AState, forBot = false): ArenaAction[] {
 
 /** Can the side to move do anything but end its turn? */
 export function hasAnyAction(s: AState): boolean {
+  if (isBoard(s.mode)) return boardLegal(s).some((a) => a.type !== 'endTurn');
   if (s.over) return false;
   for (let i = 0; i < 64; i++) {
     const p = s.board[i];
@@ -523,7 +567,6 @@ export function actionKey(a: ArenaAction): string {
     case 'power': return `p:${a.pieceId}:${a.targets.join(',')}`;
     case 'throw': return `t:${a.pieceId}:${a.to}`;
     case 'endTurn': return 'e';
-    // Phase 6 stub (orchestrator): core builds castle/stones.
     case 'pick': return `k:${a.kind}`;
     case 'shape': return `sh:${a.pieceId ?? ''}:${a.square}:${a.dir}`;
   }
@@ -535,6 +578,8 @@ export interface Outcome {
   changes: BoardChange[];
   label: string;
   power?: PowerKind;
+  /** Phase 6 board-game modes: the turn's last stage is done (the caller ends the turn). */
+  done?: boolean;
 }
 
 const name = (p: APiece) => ANIMAL[p.side][p.kind];
@@ -562,8 +607,9 @@ function extras(changes: BoardChange[], ids: Map<PieceId, APiece>): string {
  * `endTurn` changes nothing here; the caller ends the turn.
  */
 export function applyAction(s: AState, a: ArenaAction, labels = true): Outcome {
+  if (isBoard(s.mode)) return boardApply(s, a, labels);
   if (a.type === 'endTurn') return { changes: [], label: `Ended the turn${s.ap ? ` (${s.ap} AP unused)` : ''}` };
-  if (a.type === 'pick' || a.type === 'shape') throw new Error('Phase 6 stub (orchestrator): castle/stones are not built yet');
+  if (a.type === 'pick' || a.type === 'shape') throw new Error(`'${a.type}' is a castle/stones action`);
   const i = findA(s, a.pieceId);
   const p = s.board[i]!;
   const ids = new Map<PieceId, APiece>();
@@ -724,6 +770,9 @@ export function kingsOut(s: AState): Side[] {
 
 /** Has the game ended after something that happened on `mover`'s turn (null mover = sinking or the wheel)? */
 export function detectOver(s: AState, mover: Side | null): GameOver | null {
+  // Castle is only won at the start of a turn (board.ts `startWin`).
+  if (s.mode === 'castle') return null;
+  if (s.mode === 'stones') return stonesWinner(s, mover);
   if (s.mode === 'sumo') {
     const out = kingsOut(s);
     if (out.length >= 2) return { winner: null, reason: 'kingOverboard' };
@@ -745,7 +794,8 @@ export function roundCapResult(s: AState): GameOver {
   return { winner: l > r ? 'land' : r > l ? 'sea' : null, reason: 'rounds' };
 }
 
-export const maxRoundsOf = (s: AState) => (s.mode === 'sumo' ? s.cfg.sumoMaxRounds : s.cfg.raidMaxRounds);
+export const maxRoundsOf = (s: AState) =>
+  ({ sumo: s.cfg.sumoMaxRounds, raid: s.cfg.raidMaxRounds, castle: s.cfg.castleMaxRounds, stones: s.cfg.stonesMaxRounds })[s.mode];
 
 // ---------- turns, sinking, wheel ----------
 
