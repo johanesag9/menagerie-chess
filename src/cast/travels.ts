@@ -8,6 +8,7 @@ import type { MoveStyle } from '../contracts/types';
 import type { Actor } from './actor';
 import type { Gait } from './styles';
 import * as fx from './fx';
+import { climb, ledge, LEVEL } from './climb';
 
 type TL = gsap.core.Timeline;
 const PI = Math.PI;
@@ -166,10 +167,44 @@ function pushed(a: Actor, tl: TL, to: THREE.Vector3): Leg {
   tl.call(() => fx.stars(a.fxParent, a.above(a.height), a.sq, rm ? 3 : 5, 0.4), [], 0);
   tl.to(base, { rx: l.z * tip, rz: -l.x * tip, duration: 0.1, ease: 'power2.out' }, 0);
   if (!rm) yo(tl, a.b('base'), { ry: 0.4 }, 0.15, 0.05, 1);
+  const dy = (to.y - a.object.position.y) / a.sq;
+  if (Math.abs(dy) > 0.02) return pushedLedge(a, tl, to, dy);
   const t = a.travel(tl, 0.05, to, PUSHED, { keepFacing: true, noAntic: true, cap: 0.6 });
   tl.to(base, { rx: 0, rz: 0, duration: 0.5, ease: 'elastic.out(1.2, 0.35)' }, t);
   tl.to(a.face, { eyeScale: 1, blink: 0.4, duration: 0.15 }, t);
   return { arrive: t, end: t + 0.4 };
+}
+/**
+ * Phase 6 (Sandcastle King): pushed onto a square at another height. It skids off the edge and falls
+ * (a thump, a bounce and dust; harder for a bigger drop), or gets bumped up one level. The tip-over above already started.
+ */
+function pushedLedge(a: Actor, tl: TL, to: THREE.Vector3, dy: number): Leg {
+  const rm = a.rm, base = a.b('base'), body = a.b('body');
+  const lv = Math.abs(dy) / LEVEL;
+  const down = dy < 0;
+  const dur = rm ? 0.36 : down ? 0.46 + lv * 0.04 : 0.42;
+  const t = ledge(a, tl, 0.05, to, dur, rm ? 0.03 : down ? 0.05 : 0.08, rm ? undefined : (k) => {
+    for (const n of LIMBS) a.b(n).rx = Math.sin(k * PI * 6) * 0.9 * k;
+  });
+  const sq = rm ? 0.08 : down ? Math.min(0.35, 0.18 + lv * 0.06) : 0.18;
+  tl.call(() => {
+    landed(a, Math.min(1, 0.3 + (down ? lv * 0.15 : 0)));
+    fx.dust(a.fxParent, a.above(0), a.sq, down ? 0.5 + lv * 0.15 : 0.4);
+  }, [], t);
+  tl.fromTo(body, { sy: 1 - sq, sx: 1 + sq * 0.55, sz: 1 + sq * 0.55 }, { sy: 1, sx: 1, sz: 1, duration: 0.45, ease: 'elastic.out(1.1, 0.4)', immediateRender: false }, t);
+  let end = t + 0.4;
+  if (down && !rm) {
+    const hop = Math.min(0.16, 0.06 + lv * 0.03);
+    tl.to(base, { py: hop, duration: 0.12, ease: 'power2.out' }, t + 0.03);
+    tl.to(base, { py: 0, duration: 0.14, ease: 'power2.in' }, t + 0.15);
+    tl.call(() => fx.stars(a.fxParent, a.above(a.height), a.sq, 3, 0.35), [], t);
+    end = t + 0.45;
+  }
+  for (const n of LIMBS) tl.to(a.b(n), { rx: 0, duration: 0.2 }, t);
+  tl.to(base, { rx: 0, rz: 0, duration: 0.5, ease: 'elastic.out(1.2, 0.35)' }, t);
+  tl.to(a.face, { eyeScale: 1, blink: 0.4, duration: 0.15 }, t);
+  a.mouth('frown', tl, t);
+  return { arrive: t, end };
 }
 
 /** Tide: rides a water hump to the square with droplets, then a splash. */
@@ -208,8 +243,7 @@ function styleOf(a: Actor, style: MoveStyle): (a: Actor, tl: TL, to: THREE.Vecto
         const t = a.kind === 'n' ? a.travel(tl, 0, to, a.style.gait, { faceAfter: true, durScale: 0.85 }) : a.travel(tl, 0, to, HOP, { faceAfter: true });
         return { arrive: t, end: t + 0.1 };
       };
-    // Phase 6 stub (orchestrator): 'climb' plays as a step until cast builds the real hop up/down.
-    case 'climb':
+    case 'climb': return climb;
     case 'step':
       return (a, tl, to) => {
         const t = a.travel(tl, 0, to, STEP, { faceAfter: true });

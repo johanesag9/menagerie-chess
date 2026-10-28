@@ -9,6 +9,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { POWER_OF, type EmoteKind, type MoveStyle, type PieceKind, type PowerKind, type Side, type SkinChoice } from '../contracts/types';
 import { createCast, type Actor } from './index';
 import { splash as fxSplash } from './fx';
+import { LEVEL } from './climb';
 
 const SQ = 1;
 const SIDES: Side[] = ['land', 'sea'];
@@ -177,7 +178,7 @@ spinBtn.onclick = () => { spinning = !spinning; spinBtn.setAttribute('aria-press
 const rmBtn = $('rm');
 rmBtn.onclick = () => { cast.setReducedMotion(!cast.reducedMotion); rmBtn.setAttribute('aria-pressed', String(cast.reducedMotion)); };
 $('skip').onclick = () => cast.skipAll();
-$('reset').onclick = () => { stopShowcase = true; unstage(); table.rotation.y = 0; buildLineup(); pick(pieceSel.value); };
+$('reset').onclick = () => { stopShowcase = true; unstage(); flatAll(); table.rotation.y = 0; buildLineup(); pick(pieceSel.value); };
 const panel = $('panel');
 /** On phones the panel is a bottom sheet: shift the view up so the pieces sit above it. */
 function layout(refit = false) {
@@ -391,7 +392,7 @@ async function playPower(a: Actor) {
 /** Where each travel style goes from the middle (then the piece walks back). Pieces face +z. */
 const STYLE_TO: Record<Exclude<MoveStyle, 'normal'>, [number, number]> = {
   sidestep: [1, 0], jump: [2, 1], slip: [0, 1], pushed: [0, -1], teleport: [2, -1], dig: [0, -1], swept: [0, -1], quake: [1, 0], bonked: [0, -1], step: [0, 1],
-  climb: [0, 1], // Phase 6 stub (orchestrator): cast adds a real climb demo.
+  climb: [0, 1], // On the flat floor a climb is a plain hop; "Board games" shows real heights.
 };
 document.querySelectorAll<HTMLButtonElement>('#styles button').forEach((b) => {
   b.onclick = () => action(async () => {
@@ -512,6 +513,184 @@ document.querySelectorAll<HTMLButtonElement>('#carry button').forEach((b) => {
     }
     a.setCarrying(c === 'none' ? null : (c as Side));
   });
+});
+
+// ---------- Phase 6: board games ----------
+
+/** One sand level, table units. */
+const LV = LEVEL * SQ;
+const sandMat = new THREE.MeshStandardMaterial({ color: '#e3c48f', roughness: 0.95 });
+const stoneMat = new THREE.MeshStandardMaterial({ color: '#a9a49a', roughness: 0.8 });
+const tierGeo = new THREE.BoxGeometry(0.88, 1, 0.88).translate(0, 0.5, 0);
+const stoneGeo = new THREE.CylinderGeometry(0.4, 0.44, 0.22, 20).translate(0, -0.11, 0);
+/** Stand-in sand tiers, by table square "x,z" (the world draws the real tiers and castle). Made up front so preload compiles them. */
+const tiers = new Map<string, { mesh: THREE.Mesh; level: number }>();
+function tier(x: number, z: number) {
+  const key = `${x},${z}`;
+  let t = tiers.get(key);
+  if (!t) {
+    const mesh = new THREE.Mesh(tierGeo, sandMat);
+    mesh.position.copy(off(x, z));
+    mesh.scale.y = 0.001;
+    mesh.castShadow = mesh.receiveShadow = true;
+    table.add(mesh);
+    tiers.set(key, (t = { mesh, level: 0 }));
+  }
+  return t;
+}
+for (const [x, z] of [[0, 0], [0, 1], [1, 0], [2, 0]]) tier(x, z);
+/** The top of a table square at a level (table-local). */
+const top = (x: number, z: number, level = tier(x, z).level) => off(x, z).setY(level * LV);
+/** Set a stand-in tier's level; `riders` go up or down with it by a plain y tween (as integration will). */
+function setTier(x: number, z: number, level: number, riders: Actor[] = [], dur = 0.4) {
+  const t = tier(x, z);
+  t.level = level;
+  gsap.to(t.mesh.scale, { y: Math.max(0.001, level * LV), duration: dur, ease: 'power2.inOut' });
+  for (const r of riders) gsap.to(r.object.position, { y: level * LV, duration: dur, ease: 'power2.inOut' });
+  return wait(dur);
+}
+const flatAll = () => { for (const t of tiers.values()) { t.level = 0; gsap.to(t.mesh.scale, { y: 0.001, duration: 0.3 }); } };
+
+/** A stand-in stepping stone that rises out of (or sinks into) a stand-in sea square. */
+const stone = new THREE.Mesh(stoneGeo, stoneMat);
+stone.castShadow = stone.receiveShadow = true;
+stone.position.copy(off(1, 0)).setY(0.001);
+table.add(stone);
+async function stoneTo(up: boolean) {
+  await gsap.to(stone.position, { y: up ? 0.22 : 0.001, duration: up ? 0.6 : 0.4, ease: up ? 'back.out(1.6)' : 'power2.in' });
+}
+
+const took = (a: Actor, what: string, t0: number) => {
+  log.textContent = `${cast.displayName(a.side, a.kind)}: ${what} at ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+};
+const climbTo = (a: Actor, x: number, z: number) => a.moveTo(world(top(x, z)), { style: 'climb' });
+
+/** Up `n` onto the square in front, then back down. */
+async function climbUpDown(a: Actor, n: number) {
+  await setTier(0, 1, n);
+  const t0 = performance.now();
+  await climbTo(a, 0, 1);
+  took(a, `up ${n} landed`, t0);
+  await wait(0.5);
+  await climbTo(a, 0, 0);
+  await setTier(0, 1, 0);
+}
+
+async function boardGame(g: string) {
+  if (g === 'allClimb' || g === 'allWork') {
+    unstage();
+    for (const side of SIDES) for (const kind of KINDS) {
+      const a = spawn(side, kind, S, 0);
+      await wait(0.6);
+      if (g === 'allClimb') await climbUpDown(a, kind === 'b' ? 2 : 1);
+      else {
+        await setTier(1, 0, 1);
+        const t0 = performance.now();
+        await a.work('build', world(top(1, 0)));
+        took(a, 'build: sand landed', t0);
+        void setTier(1, 0, 2, [], 0.3);
+        await wait(0.7);
+        await a.work('dig', world(top(1, 0)));
+        void setTier(1, 0, 1, [], 0.3);
+        await wait(0.7);
+        await setTier(1, 0, 0);
+      }
+      await wait(0.3);
+      await gsap.to(a.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+      a.dispose();
+    }
+    return;
+  }
+  const a = await staged();
+  switch (g) {
+    case 'up1': await climbUpDown(a, 1); break;
+    case 'up2': await climbUpDown(a, 2); break;
+    case 'drop2': {
+      await setTier(0, 0, 2, [a]);
+      await wait(0.3);
+      const t1 = performance.now();
+      await climbTo(a, 0, 1);
+      took(a, 'drop 2 landed', t1);
+      await wait(0.5);
+      await setTier(0, 0, 0);
+      await climbTo(a, 0, 0);
+      break;
+    }
+    case 'push': {
+      // A Shover's push (attack + the victim's 'pushed' move) off a level-2 square, down to level 0.
+      const enemy: Side = a.side === 'land' ? 'sea' : 'land';
+      const v = spawn(enemy, 'p', top(1, 0), -Math.PI / 2);
+      await Promise.all([setTier(0, 0, 2, [a]), setTier(1, 0, 2, [v])]);
+      await wait(0.4);
+      await a.attack(v);
+      const t1 = performance.now();
+      await Promise.all([a.moveTo(world(top(0, 0))), v.hit(), v.moveTo(world(top(2, 0)), { style: 'pushed' }).then(() => took(v, 'pushed off 2 levels, landed', t1))]);
+      await wait(0.6);
+      await gsap.to(v.object.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.25, ease: 'back.in(2)' });
+      v.dispose();
+      await Promise.all([setTier(0, 0, 0, [a]), setTier(1, 0, 0)]);
+      break;
+    }
+    case 'ride': {
+      // Dug out from under it, one level at a time: integration lowers it with a plain y tween while it idles.
+      await setTier(0, 0, 3, [a], 0.6);
+      await wait(0.4);
+      for (const n of [2, 1, 0]) {
+        await setTier(0, 0, n, [a]);
+        await wait(0.35);
+      }
+      log.textContent = `${cast.displayName(a.side, a.kind)}: rode down 3 levels on a plain y tween`;
+      break;
+    }
+    case 'build':
+    case 'buildHigh': {
+      const from = g === 'buildHigh' ? 2 : tier(1, 0).level >= 3 ? 0 : tier(1, 0).level;
+      if (tier(1, 0).level !== from) await setTier(1, 0, from);
+      const t1 = performance.now();
+      await a.work('build', world(top(1, 0)));
+      took(a, 'build: sand landed (the tier goes up now)', t1);
+      await setTier(1, 0, from + 1, [], 0.3);
+      break;
+    }
+    case 'dig': {
+      if (tier(1, 0).level === 0) await setTier(1, 0, 2);
+      const t1 = performance.now();
+      await a.work('dig', world(top(1, 0)));
+      took(a, 'dig: sand left (the tier goes down now)', t1);
+      await setTier(1, 0, tier(1, 0).level - 1, [], 0.3);
+      break;
+    }
+    case 'raise': {
+      await setTier(1, 0, 0);
+      const clear = waterPatch(off(1, 0));
+      stone.position.y = 0.001;
+      await wait(0.3);
+      const t1 = performance.now();
+      await a.work('build', world(off(1, 0)), { water: true });
+      took(a, 'raise: sand hit the water (the stone rises now)', t1);
+      await stoneTo(true);
+      await wait(0.6);
+      clear();
+      await stoneTo(false);
+      break;
+    }
+    case 'sink': {
+      await setTier(1, 0, 0);
+      await stoneTo(true);
+      await wait(0.2);
+      const t1 = performance.now();
+      await a.work('dig', world(off(1, 0).setY(0.22)), { water: true });
+      took(a, 'sink: the stone goes under now', t1);
+      const clear = waterPatch(off(1, 0));
+      await stoneTo(false);
+      await wait(0.8);
+      clear();
+      break;
+    }
+  }
+}
+document.querySelectorAll<HTMLButtonElement>('#climbs button, #works button').forEach((b) => {
+  b.onclick = () => action(() => boardGame(b.dataset.g!));
 });
 
 let stopShowcase = false;
@@ -641,4 +820,4 @@ Object.assign(window as object, {
 start();
 
 // Handy for poking at things from the console.
-Object.assign(window as object, { cast, lineup, table, camera, controls, renderer });
+Object.assign(window as object, { cast, lineup, table, camera, controls, renderer, gsap, spawn, setTier, topOf: top, world, stone });

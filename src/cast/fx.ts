@@ -584,3 +584,26 @@ export function iceBlock(): THREE.Mesh {
   m.userData.noPick = true;
   return m;
 }
+
+// ---------- Phase 6 ----------
+
+/** A handful of sand clods thrown from `from` and landing on `to` after `dur` seconds (build: sand onto a square). */
+export function toss(parent: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, sq: number, dur = 0.24, n = 9) {
+  const { clod, mats } = res3();
+  if (motion.reduced) n = Math.ceil(n / 2);
+  const lift = Math.max(from.y, to.y) + sq * 0.3;
+  for (let i = 0; i < n; i++) {
+    const end = to.clone().add(new THREE.Vector3(rnd(-0.18, 0.18) * sq, 0, rnd(-0.18, 0.18) * sq));
+    const mid = from.clone().lerp(end, 0.5).setY(lift + rnd(0, 0.12) * sq);
+    const start = from.clone().add(new THREE.Vector3(rnd(-0.06, 0.06) * sq, rnd(-0.04, 0.04) * sq, rnd(-0.06, 0.06) * sq));
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    const s = sq * rnd(1.0, 1.6);
+    const m = spawn(parent, clod, mats.sand, start, s * 0.3);
+    gsap.to(m.scale, { x: s, y: s, z: s, duration: dur * 0.3, ease: 'power2.out' });
+    const p = { t: 0 };
+    const d = dur * rnd(0.85, 1);
+    gsap.to(p, { t: 1, duration: d, delay: (dur - d) * 0.5, ease: 'none', onUpdate: () => m.position.copy(curve.getPoint(p.t)) });
+    gsap.to(m.rotation, { x: rnd(-6, 6), z: rnd(-6, 6), duration: dur });
+    gsap.to(m.scale, { x: 0.001, y: 0.001, z: 0.001, duration: 0.15, delay: dur, onComplete: gone(m) });
+  }
+}
