@@ -81,6 +81,8 @@ interface Hold {
   bone: string;
   /** Grip point in the bone's own (unscaled) space. */
   p: V3;
+  /** Turns the treasure upright again when the holding bone is posed (the sum of the pose's rotations, undone). */
+  r?: V3;
   mode: HoldMode;
   /** Treasure size in squares (bone length / shell width). */
   size: number;
@@ -95,11 +97,13 @@ const HOLD: Record<Side, Record<PieceKind, Hold>> = {
     n: { bone: 'head', p: [0, -0.06, 0.185], mode: 'mouth', size: 0.3 },
     b: { bone: 'head', p: [0, -0.025, 0.17], mode: 'mouth', size: 0.28 },
     r: {
-      bone: 'trunk3', p: [0, -0.065, 0.01], mode: 'trunk', size: 0.32,
+      bone: 'trunk3', p: [0, -0.065, 0.01], r: [1.7, 0, -1.4], mode: 'trunk', size: 0.32,
       pose(a, k) {
-        a.ib('trunk1').rx -= 0.45 * k;
-        a.ib('trunk2').rx -= 0.75 * k;
-        a.ib('trunk3').rx -= 0.7 * k;
+        // Trunk raised and swung out to one side, holding it up beside its head.
+        a.ib('trunk1').rx -= 0.9 * k;
+        a.ib('trunk1').rz += 1.4 * k;
+        a.ib('trunk2').rx -= 0.5 * k;
+        a.ib('trunk3').rx -= 0.3 * k;
       },
     },
     q: { bone: 'head', p: [0, 0.04, 0.19], mode: 'mouth', size: 0.3 },
@@ -109,22 +113,24 @@ const HOLD: Record<Side, Record<PieceKind, Hold>> = {
     p: {
       bone: 'clawR', p: [0.085, 0.035, 0.25], mode: 'claw', size: 0.27,
       pose(a, k) {
-        a.ib('clawR').rx -= 0.5 * k;
+        // Claw raised high and out to the side, like a trophy.
+        a.ib('clawR').rz += 0.75 * k;
+        a.ib('clawR').rx -= 0.25 * k;
         a.ib('jawR').rx += 0.25 * k;
       },
     },
     n: { bone: 'head', p: [0, 0.2, -0.01], mode: 'head', size: 0.26 },
-    b: { bone: 'head', p: [0, 0.385, -0.035], mode: 'head', size: 0.28 },
+    b: { bone: 'head', p: [0, 0.375, -0.035], mode: 'head', size: 0.28 },
     r: { bone: 'head', p: [0, 0.145, 0.075], mode: 'head', size: 0.26 },
     q: {
-      bone: 't0c', p: [0.03, 0.06, 0.075], mode: 'tentacle', size: 0.3,
+      bone: 't0c', p: [0.03, 0.06, 0.075], r: [2.3, 0, 0], mode: 'tentacle', size: 0.3,
       pose(a, k) {
-        a.ib('t0a').rx -= 1.0 * k;
+        a.ib('t0a').rx -= 1.4 * k;
         a.ib('t0b').rx -= 0.55 * k;
         a.ib('t0c').rx -= 0.35 * k;
       },
     },
-    k: { bone: 'head', p: [0, 0.555, -0.02], mode: 'head', size: 0.32 },
+    k: { bone: 'head', p: [0, 0.6, 0.0], mode: 'head', size: 0.32 },
   },
 };
 
@@ -149,7 +155,11 @@ function treasure(owner: Side, mode: HoldMode): THREE.Group {
   if (owner === 'land') {
     // Bone: held across the mouth / in the grip by its middle; lying flat on a head.
     add(r.bone, r.mats.bone);
-    if (head) inner.position.y = 0.2;
+    if (head) {
+      // Lying flat, knobs front and back.
+      inner.rotation.x = PI / 2;
+      inner.position.y = 0.14;
+    }
     if (mode === 'trunk' || mode === 'tentacle') inner.rotation.z = 0.25;
   } else {
     // Pearl in a shell: held by the hinge (the shell sticks out in front); sitting upright on a head.
@@ -179,6 +189,7 @@ export function attachCarry(a: Actor, owner: Side, restScale: (bone: string) => 
   if (!bone) return null;
   const group = treasure(owner, hold.mode);
   group.position.set(...hold.p);
+  if (hold.r) group.rotation.set(...hold.r);
   const s = hold.size / restScale(bone.name);
   group.scale.setScalar(0.001);
   bone.add(group);
@@ -202,8 +213,8 @@ export function carryFrame(a: Actor, c: Carry, t: number) {
   c.hold.pose?.(a, c.k.v);
   if (c.hold.mode === 'head') {
     const w = a.rm ? 0.03 : 0.1;
-    c.group.rotation.z = Math.sin(t * 2.3) * w;
-    c.group.rotation.x = Math.sin(t * 1.7 + 1) * w * 0.6;
+    c.group.rotation.z = (c.hold.r?.[2] ?? 0) + Math.sin(t * 2.3) * w;
+    c.group.rotation.x = (c.hold.r?.[0] ?? 0) + Math.sin(t * 1.7 + 1) * w * 0.6;
   }
 }
 
