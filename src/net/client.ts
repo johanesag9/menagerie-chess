@@ -509,10 +509,10 @@ export class OnlineClientImpl implements OnlineClient {
       }
       this.announced = m.game;
       this.events.emit('started', { game: m.game, options: m.options, you: this._you ?? youOf(m.options) });
-      this.events.emit('resync', { game: m.game });
+      this.events.emit('resync', { game: m.game, over: m.match.result });
       return;
     }
-    if (m !== c.mirror || m.applied !== c.applied) this.events.emit('resync', { game: m.game });
+    if (m !== c.mirror || m.applied !== c.applied) this.events.emit('resync', { game: m.game, over: m.match.result });
   }
 
   private dropMirror(): void {

@@ -434,6 +434,36 @@ describe('rejoin', () => {
     expect(ev.count('moved')).toBe(1);
   });
 
+  it('a reload after the game ended: resync carries the result (its gameOver was muted)', async () => {
+    for (const mode of ['classic', 'sumo'] as const) {
+      const { a, b, server, sb, room } = await setup(mode);
+      (mode === 'sumo' ? a.arena : a.game).resign('land');
+      await flush();
+      b.dispose();
+      const b2 = createOnlineWith({ transport: server.transport(), storage: sb, now });
+      const ev = record<OnlineEventMap>(b2, ['resync']);
+      const over: unknown[] = [];
+      b2.game.on('gameOver', (g) => over.push(g));
+      b2.arena.on('gameOver', (g) => over.push(g));
+      b2.join(room);
+      await flush();
+      expect(over).toEqual([]);
+      expect(ev.log.map((e) => e.payload)).toEqual([{ game: 0, over: { winner: 'sea', reason: 'resign' } }]);
+    }
+  });
+
+  it('a mid-game resync says over: null', async () => {
+    const { a, b, server, sb, room } = await setup('classic');
+    a.game.act({ type: 'move', from: 'e2', to: 'e4' });
+    await flush();
+    b.dispose();
+    const b2 = createOnlineWith({ transport: server.transport(), storage: sb, now });
+    const ev = record<OnlineEventMap>(b2, ['resync']);
+    b2.join(room);
+    await flush();
+    expect(ev.log.map((e) => e.payload)).toEqual([{ game: 0, over: null }]);
+  });
+
   it('reconnects after a drop and catches up on what it missed', async () => {
     const { a, b, tb } = await setup('classic', { timeScale: 1 });
     const pres = record<OnlineEventMap>(a, ['presence']);
