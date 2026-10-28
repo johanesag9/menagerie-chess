@@ -7,10 +7,12 @@
  * (animations in `modes.ts`), and questions to the player (lucky bonus, duel, throws) are tasks too.
  */
 import gsap from 'gsap';
+import { isArenaMode } from '../contracts/types';
 import type {
-  ActionInput, AudioEngine, Cast, DuelInfo, EmoteKind, GameController, GameOptions, GameOver, ModeState, MoveResult, PendingAction,
+  ActionInput, ArenaController, AudioEngine, Cast, DuelInfo, EmoteKind, GameController, GameOptions, GameOver, ModeState, MoveResult, PendingAction,
   PieceId, PieceState, PieceStatusKind, Settings, Side, Square, Ui, World,
 } from '../contracts/types';
+import { ArenaMatch } from './arena';
 import { Director } from './director';
 import { ModeShow } from './modes';
 import { PieceBoard } from './pieces';
@@ -23,6 +25,8 @@ type Hold = 'anim' | 'menu';
 
 export interface MatchDeps {
   game: GameController;
+  /** Sumo and Raid. */
+  arena: ArenaController;
   world: World;
   cast: Cast;
   ui: Ui;
@@ -55,6 +59,9 @@ export class Match {
   private duel: DuelInfo | null = null;
   private statuses = new Map<PieceId, PieceStatusKind>();
   private reduced = false;
+  // Sumo and Raid: `party` is on while one runs; clicks and UI events go to `arena` then.
+  private arena: ArenaMatch;
+  private party = false;
 
   constructor(private deps: MatchDeps) {
     ({ game: this.game, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio } = deps);
@@ -65,11 +72,24 @@ export class Match {
       busy: () => this.hold('anim', true),
       idle: () => {
         // Safety net: once everything has played, the animals stand exactly where core says (core is still paused here).
-        if (this.active) this.board.sync(this.game.pieces, true);
+        if (this.active) {
+          if (this.party) this.arena.syncBoard();
+          else this.board.sync(this.game.pieces, true);
+        }
         this.hold('anim', false);
       },
     });
-    this.show = new ModeShow({ board: this.board, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio, reducedMotion: () => this.reduced });
+    this.show = new ModeShow({
+      board: this.board, world: this.world, cast: this.cast, ui: this.ui, audio: this.audio, reducedMotion: () => this.reduced,
+      squareOf: (id) => deps.arena.state.pieces.find((p) => p.id === id)?.square,
+    });
+    this.arena = new ArenaMatch({
+      arena: deps.arena, board: this.board, director: this.director, show: this.show,
+      world: this.world, cast: this.cast, ui: this.ui, audio: this.audio,
+      isActive: () => this.active, reducedMotion: () => this.reduced,
+      playStart: (pieces) => this.playStart(pieces),
+      playGameOver: (over, pieces) => this.playGameOver(over, pieces),
+    });
 
     this.ui.setSkinCatalog('land', this.cast.listSkins('land'));
     this.ui.setSkinCatalog('sea', this.cast.listSkins('sea'));
@@ -88,7 +108,18 @@ export class Match {
   /** Start (or restart) a game. Shows the error and goes back to setup when core rejects the options. */
   start(options: GameOptions): void {
     try {
+      if (isArenaMode(options.mode)) {
+        this.party = true;
+        this.options = options;
+        this.game.pause();
+        this.arena.start(options);
+        this.applyHolds();
+        return;
+      }
+      if (this.party) this.arena.stop();
+      this.party = false;
       this.game.newGame(options); // sets this.options via `gameStarted`
+      this.applyHolds();
     } catch (err) {
       this.ui.showError(err instanceof Error ? err.message : String(err));
       this.ui.show('setup');
@@ -128,8 +159,15 @@ export class Match {
   private hold(reason: Hold, on: boolean): void {
     if (on) this.holds.add(reason);
     else this.holds.delete(reason);
-    if (this.holds.size) this.game.pause();
-    else this.game.resume();
+    this.applyHolds();
+  }
+
+  /** The controller not in use stays paused; the one in use follows the holds. */
+  private applyHolds(): void {
+    const [live, idle] = this.party ? [this.deps.arena, this.game] : [this.game, this.deps.arena];
+    idle.pause();
+    if (this.holds.size) live.pause();
+    else live.resume();
   }
 
   // ---------- core -> everyone ----------
@@ -412,10 +450,9 @@ export class Match {
     }
   }
 
-  private async playGameOver(over: GameOver): Promise<void> {
+  private async playGameOver(over: GameOver, pieces = this.game.pieces): Promise<void> {
     this.clearSelection();
     this.world.setHighlights({ selected: null, legal: [], captures: [] });
-    const pieces = this.game.pieces;
     const king = (s: Side) => pieces.find((p) => p.side === s && p.kind === 'k');
     if (over.winner) {
       const loser = king(other(over.winner));
@@ -439,8 +476,14 @@ export class Match {
   // ---------- input ----------
 
   private listenWorld(): void {
-    this.world.on('squareClicked', ({ square, boardSquare }) => this.onSquare(this.prefer(square, boardSquare)));
-    this.world.on('squareHovered', ({ square, boardSquare }) => this.onHover(square && this.prefer(square, boardSquare)));
+    this.world.on('squareClicked', ({ square, boardSquare }) => {
+      if (this.party) this.arena.onSquare(this.arena.prefer(square, boardSquare));
+      else this.onSquare(this.prefer(square, boardSquare));
+    });
+    this.world.on('squareHovered', ({ square, boardSquare }) => {
+      if (this.party) this.arena.onHover(square && this.arena.prefer(square, boardSquare));
+      else this.onHover(square && this.prefer(square, boardSquare));
+    });
   }
 
   /**
@@ -546,6 +589,10 @@ export class Match {
     const pan = (x: number) => Math.max(-1, Math.min(1, x / 4));
     const sideOf = (id: string): Side => (id.startsWith('land') ? 'land' : 'sea');
     this.cast.on('land', ({ id, at }) => this.audio.play(sideOf(id) === 'land' ? 'moveLand' : 'moveSea', { pan: pan(at.x) }));
+    this.cast.on('splash', ({ at, intensity }) => {
+      this.world.splash(at, intensity >= 1);
+      this.audio.play('splash', { pan: pan(at.x) });
+    });
     this.cast.on('stomp', ({ intensity }) => this.world.shake(0.3 * intensity));
     this.cast.on('impact', ({ at, intensity }) => {
       this.audio.play('capture', { pan: pan(at.x) });
@@ -559,9 +606,19 @@ export class Match {
   private listenUi(): void {
     const ui = this.ui;
     ui.on('rematch', () => this.options && this.start(this.options));
-    ui.on('undo', () => this.game.undo());
-    ui.on('resign', () => this.game.resign(this.vsBot ? other(this.vsBot) : this.game.turn));
+    ui.on('undo', () => !this.party && this.game.undo());
+    ui.on('resign', () => (this.party ? this.arena.resign() : this.game.resign(this.vsBot ? other(this.vsBot) : this.game.turn)));
+    ui.on('endTurn', () => this.party && this.arena.endTurn());
     ui.on('emote', ({ emote }) => {
+      if (this.party) {
+        const bot = this.arena.vsBot;
+        this.arena.emote(bot ? other(bot) : this.deps.arena.state.turn, emote);
+        if (bot && Math.random() < 0.4) {
+          const reply = EMOTES[Math.floor(Math.random() * EMOTES.length)];
+          setTimeout(() => this.active && this.party && this.arena.emote(bot, reply), 800 + Math.random() * 700);
+        }
+        return;
+      }
       const side = this.vsBot ? other(this.vsBot) : this.game.turn;
       this.game.sendEmote(side, emote);
       // The bot sometimes answers.
@@ -573,6 +630,7 @@ export class Match {
     });
     ui.on('settingsChanged', (s) => this.applySettings(s));
     ui.on('powerRequested', ({ pieceId }) => {
+      if (this.party) return this.arena.requestPower(pieceId);
       const p = this.game.pieces.find((x) => x.id === pieceId);
       if (!p || !this.canPlay() || this.aim?.type === 'bonus' || !this.game.powerInfo(pieceId).available) {
         this.audio.play('illegal');
@@ -585,8 +643,8 @@ export class Match {
       this.board.get(p.id)?.setSelected(true);
       this.startAim({ type: 'power', pieceId, targets: [] });
     });
-    ui.on('cardRequested', ({ cardId }) => void this.playCard(cardId));
-    ui.on('cancelAction', () => this.cancelAim());
+    ui.on('cardRequested', ({ cardId }) => !this.party && void this.playCard(cardId));
+    ui.on('cancelAction', () => (this.party ? this.arena.clearSelection() : this.cancelAim()));
     ui.on('screenChanged', ({ screen }) => {
       if (screen === 'title' || screen === 'setup') this.active = false;
       if (screen === 'game') this.active = true;
@@ -596,7 +654,10 @@ export class Match {
       this.world.setPaused(frozen);
       if (frozen) gsap.globalTimeline.pause();
       else gsap.globalTimeline.resume();
-      if (screen !== 'game') this.clearSelection();
+      if (screen !== 'game') {
+        this.clearSelection();
+        this.arena.clearSelection();
+      }
     });
   }
 

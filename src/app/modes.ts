@@ -4,17 +4,25 @@
  */
 import { Vector3 } from 'three';
 import type {
-  AudioEngine, BoardChange, Cast, CardResult, ChangeHow, DuelInfo, GameEventMap, MoveStyle, PieceActor, PowerResult, Side, Square, Ui, World,
+  AudioCue, AudioEngine, BoardChange, Cast, CardResult, ChangeHow, DuelInfo, GameEventMap, MoveStyle, PieceActor, PieceId, PowerResult, Side, Square,
+  TreasureState, Ui, World,
 } from '../contracts/types';
 import { TIDE_TIMING } from '../world';
 import type { PieceBoard } from './pieces';
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const NAME: Record<Side, string> = { land: 'Land', sea: 'Sea' };
+const other = (s: Side): Side => (s === 'land' ? 'sea' : 'land');
+
+type TreasureChange = Extract<BoardChange, { type: 'treasure' }>;
+const TREASURE_CUE: Record<TreasureChange['event'], AudioCue> = {
+  pickup: 'pickup', drop: 'drop', return: 'treasureHome', score: 'score', snatch: 'treasureHome',
+};
 
 /** BoardChange travel -> cast travel style (see `ChangeHow` in the contracts). */
 const STYLE: Record<ChangeHow, MoveStyle> = {
   sidestep: 'sidestep', jump: 'jump', pushed: 'pushed', teleport: 'teleport', swap: 'teleport',
-  dig: 'dig', step: 'step', swept: 'swept', quake: 'quake', sentHome: 'bonked',
+  dig: 'dig', step: 'step', swept: 'swept', quake: 'quake', sentHome: 'teleport',
 };
 
 export interface ModeShowDeps {
@@ -24,9 +32,14 @@ export interface ModeShowDeps {
   ui: Ui;
   audio: AudioEngine;
   reducedMotion: () => boolean;
+  /** Party modes: where an animal stands now (the pigeon takes a carried treasure from there). */
+  squareOf?: (id: PieceId) => Square | undefined;
 }
 
 export class ModeShow {
+  /** Raid: the treasures as the changes play out (reset from every `state` snapshot). */
+  treasures: TreasureState[] = [];
+
   constructor(private d: ModeShowDeps) {}
 
   private get board() { return this.d.board; }
@@ -94,7 +107,32 @@ export class ModeShow {
         await wait(400);
         return;
       }
+      case 'fall': {
+        // Sumo: totter, tumble into the sea (the cast's `splash` event brings the water and the sound), then gone.
+        const a = this.board.get(c.pieceId);
+        if (!a) return;
+        this.board.forget(a.id);
+        await a.fall(new Vector3(c.dir[0], 0, -c.dir[1]).normalize());
+        a.dispose();
+        return;
+      }
+      case 'treasure':
+        return this.treasure(c);
     }
+  }
+
+  /** Raid: a treasure is picked up, dropped, sent home or scored. */
+  private async treasure(c: TreasureChange): Promise<void> {
+    const before = this.treasures.find((t) => t.owner === c.owner)?.carrier ?? null;
+    if (before && before !== c.carrier) this.board.get(before)?.setCarrying(null);
+    if (c.carrier && c.carrier !== before) this.board.get(c.carrier)?.setCarrying(c.owner);
+    this.treasures = this.treasures.map((t) => (t.owner === c.owner ? { ...t, square: c.square, carrier: c.carrier } : t));
+    this.d.world.setTreasures(this.treasures);
+    this.d.audio.play(TREASURE_CUE[c.event]);
+    if (c.event === 'score') {
+      if (before) void this.board.get(before)?.celebrate();
+      await this.d.ui.announce(`${NAME[other(c.owner)]} scores!`, 'good');
+    } else await wait(c.event === 'pickup' ? 250 : 400);
   }
 
   async power(r: PowerResult): Promise<void> {
@@ -174,6 +212,8 @@ export class ModeShow {
         return;
       }
       case 'pigeon': {
+        const snatch = w.changes.find((c): c is TreasureChange => c.type === 'treasure' && c.event === 'snatch');
+        if (snatch) return this.pigeonTreasure(snatch, w.changes);
         const grab = w.changes.find((c) => c.type === 'capture');
         const pawn = grab?.type === 'capture' ? this.board.get(grab.pieceId) : undefined;
         if (!grab || grab.type !== 'capture' || !pawn) {
@@ -194,6 +234,23 @@ export class ModeShow {
         await Promise.all([world.playChaos('disco'), this.changes(w.changes)]);
         return;
     }
+  }
+
+  /** Raid pigeon: it grabs a treasure (off the ground or out of a carrier's mouth) and drops it somewhere else. */
+  private async pigeonTreasure(snatch: TreasureChange, changes: BoardChange[]): Promise<void> {
+    const t = this.treasures.find((x) => x.owner === snatch.owner);
+    const from = t?.square ?? (t?.carrier ? this.d.squareOf?.(t.carrier) : undefined);
+    if (t?.carrier) {
+      const carrier = this.board.get(t.carrier);
+      carrier?.setCarrying(null);
+      carrier?.emote('shock');
+    }
+    // The world hides the treasure while the pigeon has it; it lands at `to`.
+    this.treasures = this.treasures.map((x) => (x.owner === snatch.owner ? { ...x, square: null, carrier: null } : x));
+    this.d.world.setTreasures(this.treasures);
+    if (from && snatch.square) await this.d.world.playChaos('pigeon', { treasure: { owner: snatch.owner, from, to: snatch.square } });
+    else await this.d.world.playChaos('pigeon');
+    await this.changes(changes);
   }
 
   /** Banana peel: after the move lands, slip on one more square. */
