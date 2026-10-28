@@ -2,7 +2,7 @@ import gsap from 'gsap';
 
 /**
  * Impact look: 'clean' = a small white flash and sparkles, short hit-stop.
- * 'cartoon' = a big comic burst, speed lines and a longer hit-stop. Provisional default until Johanes picks.
+ * 'cartoon' = a big comic burst, speed lines and a longer hit-stop. The default (Johanes picked it, 2026-10-28).
  */
 export type Look = 'clean' | 'cartoon';
 

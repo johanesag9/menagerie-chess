@@ -6,7 +6,7 @@
  * - `setReducedMotion(on)`: shorter moves, no spins or flips, shake intensity 0.
  * - `preload(renderer, scene, camera)`: builds every animal and compiles shaders up front (no hitch on first reveal).
  * - `skipAll()`: jump every running animation to its end (for "click to skip").
- * - `setLook('clean' | 'cartoon')`: how loud the impact frames are (waiting on Johanes's pick).
+ * - `setLook('clean' | 'cartoon')`: how loud the impact frames are ('cartoon' by default, Johanes's pick).
  *
  * Expected capture flow for integration:
  *   await attacker.attack(victim); victim.defeat(attacker); await attacker.moveTo(square);
@@ -35,7 +35,7 @@ export interface CastExtras {
   on<K extends keyof CastEventMap>(name: K, fn: (payload: CastEventMap[K]) => void): () => void;
   setReducedMotion(on: boolean): void;
   readonly reducedMotion: boolean;
-  /** Impact look: 'clean' or 'cartoon' (default, provisional). */
+  /** Impact look: 'clean' or 'cartoon' (the default). */
   setLook(look: Look): void;
   readonly look: Look;
   preload(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): Promise<void>;

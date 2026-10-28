@@ -24,7 +24,7 @@ The 12 animals and all their animations. Everything is built in code. No downloa
   - `jump`: a real arc with a crouch, peak sparkles and a squash landing. A second hop straight after a landing (double jump) skips the crouch, so the two hops chain.
   - `teleport` (Land dash) gets speed lines and a dust kick. `sidestep` for the crab and pawns scuttles with sand puffs. `bonked` sweats. `fall` (Sumo): Land sweats and kicks dust, Sea gives a smug eye twinkle.
 - **Pooled effects** (`pool.ts`, `vfx.ts`). Dust, stars, drops, clods, sparkles, impact bursts, speed lines, shock rings, debris, steam and the ink arc are all code-built, one instanced mesh per kind (one draw call each, hidden when idle). The old one-mesh-per-puff dust, stars and clods now use the same pools. Their shaders are compiled in `preload`, so first use doesn't stall.
-- **Two impact looks**, switchable with `cast.setLook('clean' | 'cartoon')` (also readable as `cast.look`). **A, clean**: a small white flash and sparkles, 0.045s freeze. **B, cartoon**: a jagged orange and gold comic burst with radial lines, 0.08s freeze. **B is the default for now, only until Johanes picks.**
+- **Two impact looks**, switchable with `cast.setLook('clean' | 'cartoon')` (also readable as `cast.look`). **A, clean**: a small white flash and sparkles, 0.045s freeze. **B, cartoon**: a jagged orange and gold comic burst with radial lines, 0.08s freeze. **Johanes picked B (2026-10-28); it is the default.** A stays available through `setLook('clean')`.
 - **Reduced motion**: no hit-stop, no spins or flips, lower jumps, fewer particles, and impact/stomp events at intensity 0, as before.
 - **Tests**: the existing 101 cast tests all pass unchanged. `npm run typecheck` passes.
 
@@ -62,13 +62,13 @@ None needed. Notes for integration:
 - **Headbutt**: keep the order `await powerUp('headbutt', victimPoint); await attack(victim);`. The attack now charges out of the held wind-up. If anything else is called on the attacker in between, it just does a normal attack.
 - **Camera shake**: hook it to the cast `impact` event (intensity 0–1) as well as `stomp`. Both fire on the frame of contact, when the freeze starts, so the camera shakes while the pieces hold still. That is the intended feel.
 - **Hit-stop**: start `victim.hit()`, `victim.defeat()` and the pushed `moveTo` straight away, as now. They wait out the freeze by themselves.
-- **Look**: call `cast.setLook(...)` once at start-up when Johanes has picked.
+- **Look**: nothing to do. The cartoon look (B, Johanes's pick) is the default.
 
 ## Open design questions for Johanes
-1. **A or B?** Clean (small flash, short freeze) or cartoon (comic burst, longer freeze). B is on for now only as a placeholder.
-2. **Burst size** in B: about two-thirds of a square. Bigger reads better at 390px, but it starts hiding both animals.
+1. ~~**A or B?**~~ Decided 2026-10-28: **B, cartoon** (comic burst, 0.08s freeze).
+2. **Burst size**: about two-thirds of a square. Bigger reads better at 390px, but it starts hiding both animals.
 3. **Rear-ups lift the pedestal** a little off the board (goat, horse, elephant) so the pose reads from the front camera. OK, or keep the base planted?
-4. **Freeze length**: 0.045s (A) and 0.08s (B). Longer feels punchier but slows a capture.
+4. **Freeze length**: 0.08s. Longer feels punchier but slows a capture.
 5. **Held headbutt wind-up**: the goat and pufferfish hold the reared pose until the charge. Should the pose also hold if the player cancels?
 
 ## Known issues
