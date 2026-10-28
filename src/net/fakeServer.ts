@@ -23,6 +23,8 @@ export interface FakeServerOptions {
   /** Milliseconds, monotonic. Default performance.now. */
   now?: () => number;
   random?: () => number;
+  /** Picks each game's seed. Default: random. */
+  seed?: () => number;
 }
 
 /** GAME_SPEC "Online play" defaults. */
@@ -39,17 +41,24 @@ const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/l
 
 /** The server end of one socket. */
 class Conn {
+  /** False once either end started closing: nothing new is sent, but what's in flight still arrives. */
   open = true;
+  /** The client saw the close. */
+  dead = false;
   constructor(private server: FakeServer, private client: SocketLike) {}
   send(msg: ServerMsg): void {
     if (!this.open) return;
     const data = JSON.stringify(msg);
-    this.server.later(() => this.open && this.client.onmessage?.(data));
+    this.server.later(() => !this.dead && this.client.onmessage?.(data));
   }
   close(): void {
     if (!this.open) return;
     this.open = false;
-    this.server.later(() => this.client.onclose?.());
+    this.server.later(() => {
+      if (this.dead) return;
+      this.dead = true;
+      this.client.onclose?.();
+    });
   }
 }
 
@@ -184,7 +193,7 @@ class Room {
       opponent: { type: 'online', you: this.creator },
       time: { initialMs: null, incrementMs: 0 },
       weirdMode: false,
-      seed: Math.floor(this.server.random() * 2 ** 31),
+      seed: this.server.nextSeed(),
     };
     this.match?.dispose();
     this.match = Match.create(this.options, { game: () => new MenagerieGame(), arena: () => new ArenaGame() });
@@ -379,6 +388,12 @@ export class FakeServer {
     this.timeScale = opts.timeScale ?? 1;
     this.now = opts.now ?? (() => performance.now());
     this.random = opts.random ?? Math.random;
+    this.seed = opts.seed ?? (() => Math.floor(this.random() * 2 ** 31));
+  }
+
+  private seed: () => number;
+  nextSeed(): number {
+    return this.seed();
   }
 
   /** A new transport (one per client), wrapped so it can be dropped. */
@@ -491,6 +506,8 @@ export class FakeServer {
       closing = true; // messages already sent still arrive first
       this.later(() => {
         conn.open = false;
+        if (conn.dead) return;
+        conn.dead = true;
         client.onclose?.();
         const at = this.sides.get(conn);
         this.sides.delete(conn);
